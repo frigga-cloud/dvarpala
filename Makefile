@@ -140,6 +140,23 @@ db-status:
 	@echo "📊 Database status..."
 	./$(BINARY_DIR)/dvarpala-cli db status
 
+# Server provisioning
+provision-server:
+	@echo "🚀 Provisioning server with Dvarpala VPN..."
+	@echo "This will download and run the server setup script."
+	@echo "Make sure you're running this on the target server as root."
+	curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/provisioning/setup-server.sh | bash
+
+# Configure OAuth providers
+configure-oauth:
+	@echo "🔧 Configuring OAuth providers..."
+	sudo ./scripts/provisioning/configure-oauth.sh
+
+# Check server status
+check-status:
+	@echo "📊 Checking server status..."
+	sudo ./scripts/provisioning/check-status.sh
+
 # Show help
 help:
 	@echo "🏗️  Dvarpala VPN Build System"
@@ -161,6 +178,9 @@ help:
 	@echo "  docker             Build Docker image"
 	@echo "  migrate-create     Create new migration (use NAME=migration_name)"
 	@echo "  db-status          Show database status"
+	@echo "  provision-server   Provision server with complete Dvarpala setup"
+	@echo "  configure-oauth    Configure OAuth providers"
+	@echo "  check-status       Check server status and health"
 	@echo "  help               Show this help message"
 	@echo ""
 	@echo "Example usage:"

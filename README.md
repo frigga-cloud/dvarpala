@@ -1,18 +1,42 @@
 # Dvarpala VPN System
 
-**Dvarpala** (द्वारपाल) - Sanskrit for "gatekeeper" or "door guardian" - is an enterprise-grade VPN solution with Zero Trust Network Access (ZTNA) and granular access control.
+**Dvarpala** (द्वारपाल) - Sanskrit for "gatekeeper" or "door guardian" - is an enterprise-grade Zero Trust VPN solution with 2-step authentication and granular access control.
+
+## 🔐 2-Step VPN Access Architecture
+
+Dvarpala implements a unique Zero Trust Network Access (ZTNA) model:
+
+1. **Initial Connection**: Users connect to VPN with temporary certificates, gaining access only to a captive portal
+2. **OAuth Authentication**: Users authenticate via configured OAuth providers (Google, Microsoft, GitHub, GitLab)
+3. **Full Access Granted**: After successful authentication, users receive full internet access
+4. **Session Management**: Access is revoked upon disconnect, requiring re-authentication for each session
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### 🖥️ Production Server Installation
 
+For a complete VPN server setup on a fresh VM:
+
+**[📋 INSTALLATION.md](INSTALLATION.md)** - One-command installation guide
+
+```bash
+# One-line installation (recommended)
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/provisioning/quick-install.sh)
+```
+
+This installs PostgreSQL, Redis, OpenVPN server with 2-step access, and Dvarpala application with full security configuration and OAuth integration.
+
+### 💻 Development Environment
+
+For local development and testing:
+
+#### Prerequisites
 - Go 1.21 or higher
 - PostgreSQL 12+
 - Redis 6+
 - OpenVPN (for VPN functionality)
 
-### Installation
-
+#### Setup Steps
 1. **Clone the repository**
    ```bash
    git clone https://github.com/yourcompany/dvarpala.git
@@ -26,8 +50,8 @@
 
 3. **Configure the system**
    ```bash
-   cp configs/environments/development.yaml configs/environments/local.yaml
-   # Edit configs/environments/local.yaml with your database and Redis settings
+   cp .env.example .env
+   # Edit .env with your database and Redis settings
    ```
 
 4. **Set up database**
@@ -154,25 +178,28 @@ network_routes (
 
 ## 🔐 Security Features
 
-- **OAuth Integration** - Google, Microsoft, GitHub
-- **Session Management** - Secure web sessions with Redis
-- **IP Whitelisting** - Per-user, per-group, and global IP restrictions
-- **Audit Logging** - Complete audit trail of all actions
-- **Two-Stage VPN Auth** - Captive portal + OAuth validation
-- **Granular Permissions** - Resource-level access control
+- **2-Step VPN Authentication** - Temporary certificates + OAuth validation
+- **Zero Trust Network Access** - No permanent VPN access, re-authentication required
+- **OAuth Integration** - Google, Microsoft, GitHub, GitLab
+- **Certificate Management** - Dynamic temporary certificate generation and revocation
+- **Network Segmentation** - Captive portal (192.168.100.0/24) and full access (10.8.0.0/24) networks
+- **Session Management** - Secure web sessions with automatic cleanup on disconnect
+- **Audit Logging** - Complete audit trail of all connections and authentications
+- **Admin Access Control** - Permanent admin certificates with direct access
 
 ## 🏗️ Architecture
 
-### Authentication Flow
-1. **Initial VPN Connection** - Static credentials → Captive portal access
-2. **Web Authentication** - OAuth validation → Database check → Full access
-3. **Session Management** - JWT tokens + Redis sessions
-4. **Audit Trail** - All actions logged with user context
+### 2-Step Authentication Flow
+1. **Certificate Request** - Admin generates temporary certificate for user
+2. **Initial VPN Connection** - User connects with temporary cert → Captive portal network (192.168.100.x)
+3. **Web Authentication** - User accesses `http://192.168.100.1:8080` → OAuth validation → Database check
+4. **Network Promotion** - System promotes user to full access network (10.8.0.x) → Internet access
+5. **Session Cleanup** - Certificate revoked and session cleared on disconnect
 
 ### Network Access Levels
-- **Captive Portal** - Limited access for authentication
-- **Full Access** - Complete network access based on group membership
-- **Restricted** - Custom routing rules per group
+- **Captive Portal Network (192.168.100.0/24)** - Limited access to authentication portal only
+- **Full Access Network (10.8.0.0/24)** - Complete internet access after authentication
+- **Admin Network** - Direct access via permanent certificates
 
 ## 📊 Default Data Created
 

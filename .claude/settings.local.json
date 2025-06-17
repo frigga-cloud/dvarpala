@@ -6,7 +6,8 @@
       "Bash(go build:*)",
       "Bash(mkdir:*)",
       "Bash(touch:*)",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

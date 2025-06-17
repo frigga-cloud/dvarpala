@@ -23,6 +23,7 @@ func AutoMigrate(db *gorm.DB) error {
 		// Authentication entities
 		&models.Session{},
 		&models.OAuthState{},
+		&models.OAuthProvider{},
 
 		// Security entities
 		&models.IPWhitelist{},
@@ -41,6 +42,7 @@ func DropAllTables(db *gorm.DB) error {
 		&models.GroupPermission{},
 		&models.UserGroup{},
 		&models.IPWhitelist{},
+		&models.OAuthProvider{},
 		&models.OAuthState{},
 		&models.Session{},
 		&models.NetworkRoute{},

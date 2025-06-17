@@ -1,0 +1,95 @@
+{
+  "branding": {
+    "company_name": "Your Organization",
+    "logo_emoji": "🛡️",
+    "primary_color": "#6366f1",
+    "secondary_color": "#8b5cf6",
+    "accent_color": "#06b6d4"
+  },
+  "portal": {
+    "title": "Dvarpala VPN - Authentication Required",
+    "subtitle": "Zero Trust VPN Gateway",
+    "welcome_message": "Welcome to the secure network. Please authenticate with your organization's identity provider to gain access.",
+    "session_info": "After successful authentication, you will receive full network access until you disconnect from the VPN."
+  },
+  "oauth_providers": {
+    "google": {
+      "enabled": true,
+      "display_name": "Continue with Google",
+      "icon": "google-icon",
+      "button_style": "white"
+    },
+    "microsoft": {
+      "enabled": true,
+      "display_name": "Continue with Microsoft",
+      "icon": "microsoft-icon",
+      "button_style": "blue"
+    },
+    "github": {
+      "enabled": true,
+      "display_name": "Continue with GitHub",
+      "icon": "github-icon",
+      "button_style": "dark"
+    },
+    "gitlab": {
+      "enabled": true,
+      "display_name": "Continue with GitLab",
+      "icon": "gitlab-icon",
+      "button_style": "orange"
+    }
+  },
+  "ui_settings": {
+    "animation_duration": "0.6s",
+    "auto_close_delay": 10,
+    "status_check_interval": 5000,
+    "show_technical_details": true,
+    "show_connection_test": true
+  },
+  "support": {
+    "email": "support@yourorganization.com",
+    "phone": "+1 (555) 123-4567",
+    "slack": "#it-support",
+    "show_contact_info": true
+  },
+  "messages": {
+    "auth_success": {
+      "title": "Authentication Successful!",
+      "subtitle": "You now have full network access",
+      "network_info": "Full Access (10.8.0.x)"
+    },
+    "auth_error": {
+      "title": "Authentication Failed",
+      "subtitle": "Access denied",
+      "default_message": "You are not authorized to access this VPN. Please contact your administrator.",
+      "possible_reasons": [
+        "Your email address is not authorized for VPN access",
+        "Your account has been suspended or deactivated",
+        "OAuth provider authentication failed",
+        "Temporary system error occurred"
+      ],
+      "next_steps": [
+        "Contact your system administrator to request VPN access",
+        "Verify your email address is correct",
+        "Try again with a different OAuth provider",
+        "Check if your organization account is active"
+      ]
+    }
+  },
+  "advanced": {
+    "custom_css_file": "/static/css/custom-portal.css",
+    "custom_js_file": "/static/js/custom-portal.js",
+    "tailwind_config": {
+      "theme": {
+        "extend": {
+          "colors": {
+            "dvarpala-primary": "#6366f1",
+            "dvarpala-secondary": "#8b5cf6",
+            "dvarpala-accent": "#06b6d4",
+            "dvarpala-dark": "#1e293b",
+            "dvarpala-light": "#f8fafc"
+          }
+        }
+      }
+    }
+  }
+}

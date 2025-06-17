@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔐 Dvarpala VPN - Authentication Required</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dvarpala-primary': '#6366f1',
+                        'dvarpala-secondary': '#8b5cf6',
+                        'dvarpala-accent': '#06b6d4',
+                        'dvarpala-dark': '#1e293b',
+                        'dvarpala-light': '#f8fafc',
+                    },
+                    fontFamily: {
+                        'sans': ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.6s ease-in-out',
+                        'slide-up': 'slideUp 0.6s ease-out',
+                        'pulse-slow': 'pulse 3s infinite',
+                        'spin-slow': 'spin 3s linear infinite',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Custom CSS for additional animations -->
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+            background-size: 400% 400%;
+            animation: gradientShift 8s ease infinite;
+        }
+        
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .glass-effect {
+            backdrop-filter: blur(16px);
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .auth-btn-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .auth-btn-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        
+        .loading-spinner {
+            display: none;
+        }
+        
+        .loading .loading-spinner {
+            display: inline-block;
+        }
+        
+        .loading .btn-text {
+            display: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen gradient-bg flex items-center justify-center p-4 font-sans">
+    <!-- Background Pattern -->
+    <div class="absolute inset-0 opacity-10">
+        <div class="absolute inset-0" style="background-image: url('data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 100 100&quot;><defs><pattern id=&quot;grid&quot; width=&quot;10&quot; height=&quot;10&quot; patternUnits=&quot;userSpaceOnUse&quot;><path d=&quot;M 10 0 L 0 0 0 10&quot; fill=&quot;none&quot; stroke=&quot;white&quot; stroke-width=&quot;0.5&quot;/></pattern></defs><rect width=&quot;100&quot; height=&quot;100&quot; fill=&quot;url(%23grid)&quot;/></svg>');"></div>
+    </div>
+    
+    <!-- Main Container -->
+    <div class="relative z-10 w-full max-w-md animate-fade-in">
+        <!-- Glass Card -->
+        <div class="glass-effect rounded-3xl p-8 shadow-2xl">
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-full mb-4">
+                    <span class="text-3xl">🛡️</span>
+                </div>
+                <h1 class="text-3xl font-bold text-white mb-2">Dvarpala</h1>
+                <p class="text-white/80 text-sm font-medium tracking-wide">Zero Trust VPN Gateway</p>
+            </div>
+            
+            <!-- Auth Card -->
+            <div class="bg-white rounded-2xl p-6 shadow-lg animate-slide-up">
+                <div class="text-center mb-6">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-2">Authentication Required</h2>
+                    <p class="text-gray-600 text-sm leading-relaxed">
+                        Welcome to the secure network. Please authenticate with your organization's identity provider to gain access.
+                    </p>
+                </div>
+                
+                <!-- OAuth Providers -->
+                <div class="space-y-3" id="auth-providers">
+                    <!-- Google Auth Button -->
+                    <button 
+                        onclick="authenticateWithProvider('google')" 
+                        class="auth-btn w-full flex items-center justify-center gap-3 p-4 border border-gray-200 rounded-xl hover:bg-gray-50 auth-btn-hover transition-all group"
+                        data-provider="google"
+                    >
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24">
+                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                            </svg>
+                            <span class="btn-text font-medium text-gray-700 group-hover:text-gray-900">Continue with Google</span>
+                            <div class="loading-spinner animate-spin w-5 h-5 border-2 border-gray-300 border-t-gray-700 rounded-full"></div>
+                        </div>
+                    </button>
+                    
+                    <!-- Microsoft Auth Button -->
+                    <button 
+                        onclick="authenticateWithProvider('microsoft')" 
+                        class="auth-btn w-full flex items-center justify-center gap-3 p-4 bg-blue-600 text-white rounded-xl hover:bg-blue-700 auth-btn-hover transition-all"
+                        data-provider="microsoft"
+                    >
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"/>
+                            </svg>
+                            <span class="btn-text font-medium">Continue with Microsoft</span>
+                            <div class="loading-spinner animate-spin w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></div>
+                        </div>
+                    </button>
+                    
+                    <!-- GitHub Auth Button -->
+                    <button 
+                        onclick="authenticateWithProvider('github')" 
+                        class="auth-btn w-full flex items-center justify-center gap-3 p-4 bg-gray-900 text-white rounded-xl hover:bg-gray-800 auth-btn-hover transition-all"
+                        data-provider="github"
+                    >
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                            </svg>
+                            <span class="btn-text font-medium">Continue with GitHub</span>
+                            <div class="loading-spinner animate-spin w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></div>
+                        </div>
+                    </button>
+                    
+                    <!-- GitLab Auth Button -->
+                    <button 
+                        onclick="authenticateWithProvider('gitlab')" 
+                        class="auth-btn w-full flex items-center justify-center gap-3 p-4 bg-orange-600 text-white rounded-xl hover:bg-orange-700 auth-btn-hover transition-all"
+                        data-provider="gitlab"
+                    >
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                                <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 0 1 4.82 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0 1 18.6 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.51L23 13.45a.84.84 0 0 1-.35.94z"/>
+                            </svg>
+                            <span class="btn-text font-medium">Continue with GitLab</span>
+                            <div class="loading-spinner animate-spin w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></div>
+                        </div>
+                    </button>
+                </div>
+                
+                <!-- Info Section -->
+                <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div class="flex items-start gap-3">
+                        <div class="flex-shrink-0">
+                            <span class="text-blue-600">ℹ️</span>
+                        </div>
+                        <div class="text-sm text-blue-800">
+                            <p class="font-medium mb-1">Session Information</p>
+                            <p class="text-blue-700">After successful authentication, you will receive full network access until you disconnect from the VPN.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Footer -->
+            <div class="text-center mt-6">
+                <p class="text-white/70 text-xs">
+                    &copy; 2024 Your Organization. Secured by Dvarpala VPN.
+                </p>
+            </div>
+        </div>
+        
+        <!-- Status Indicator -->
+        <div id="status-indicator" class="hidden mt-4 p-4 rounded-xl text-center">
+            <div class="flex items-center justify-center gap-2">
+                <div class="w-3 h-3 rounded-full animate-pulse"></div>
+                <span class="text-sm font-medium"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/js/captive-portal.js"></script>
+</body>
+</html>

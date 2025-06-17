@@ -52,9 +52,10 @@ type AuthConfig struct {
 }
 
 type OAuthConfig struct {
-	Google    OAuthProvider `mapstructure:"google"`
-	Microsoft OAuthProvider `mapstructure:"microsoft"`
-	GitHub    OAuthProvider `mapstructure:"github"`
+	Google    OAuthProvider  `mapstructure:"google"`
+	Microsoft OAuthProvider  `mapstructure:"microsoft"`
+	GitHub    OAuthProvider  `mapstructure:"github"`
+	GitLab    GitLabProvider `mapstructure:"gitlab"`
 }
 
 type OAuthProvider struct {
