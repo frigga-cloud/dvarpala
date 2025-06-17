@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"dvarpala/internal/config"
+
 	"github.com/go-redis/redis/v8"
-	"github.com/yourcompany/dvarpala/internal/config"
 )
 
 type Client struct {

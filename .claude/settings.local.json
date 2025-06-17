@@ -3,7 +3,10 @@
     "allow": [
       "mcp__ide__getDiagnostics",
       "Bash(find:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(make:*)"
     ],
     "deny": []
   }

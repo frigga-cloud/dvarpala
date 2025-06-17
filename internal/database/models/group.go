@@ -5,20 +5,41 @@ import (
 	"gorm.io/gorm"
 )
 
+// Group represents a collection of users with shared access permissions and network routes
+// Supports hierarchical structure for organizational alignment
 type Group struct {
-	ID          uint           `gorm:"primaryKey"`
-	Name        string         `gorm:"uniqueIndex;not null;size:100"`
-	Description string         `gorm:"type:text"`
-	ParentID    *uint          `gorm:"index"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   gorm.DeletedAt `gorm:"index"`
+	// Primary identifier for the group
+	ID uint `gorm:"primaryKey"`
 	
-	// Self-referencing for hierarchy
-	Parent      *Group  `gorm:"foreignKey:ParentID"`
-	Children    []Group `gorm:"foreignKey:ParentID"`
+	// Unique name of the group (e.g., "administrators", "engineering", "vpn_users")
+	Name string `gorm:"uniqueIndex;not null;size:100"`
 	
-	// Associations
-	Users       []User       `gorm:"many2many:user_groups;"`
+	// Human-readable description of the group's purpose and scope
+	Description string `gorm:"type:text"`
+	
+	// Foreign key to parent group for hierarchical organization (nullable for root groups)
+	ParentID *uint `gorm:"index"`
+	
+	// Timestamp when group was created
+	CreatedAt time.Time
+	
+	// Timestamp when group was last modified
+	UpdatedAt time.Time
+	
+	// Soft delete timestamp - when group was deactivated
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+	
+	// Self-referencing associations for hierarchy
+	// Reference to parent group (null for root-level groups)
+	Parent *Group `gorm:"foreignKey:ParentID"`
+	
+	// Child groups under this group
+	Children []Group `gorm:"foreignKey:ParentID"`
+	
+	// Many-to-many associations
+	// Users who are members of this group
+	Users []User `gorm:"many2many:user_groups;"`
+	
+	// Permissions granted to this group (deprecated - use GroupPermission junction table)
 	Permissions []Permission `gorm:"many2many:group_permissions;"`
 }

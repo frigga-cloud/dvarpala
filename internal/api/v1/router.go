@@ -1,10 +1,11 @@
 package v1
 
 import (
+	"dvarpala/internal/config"
+	"dvarpala/internal/database"
+	"dvarpala/internal/redis"
+
 	"github.com/gin-gonic/gin"
-	"github.com/yourcompany/dvarpala/internal/config"
-	"github.com/yourcompany/dvarpala/internal/database"
-	"github.com/yourcompany/dvarpala/internal/redis"
 )
 
 func SetupRoutes(r *gin.RouterGroup, db *database.DB, redis *redis.Client, cfg *config.Config) {

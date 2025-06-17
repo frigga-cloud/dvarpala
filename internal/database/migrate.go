@@ -1,17 +1,54 @@
 package database
 
 import (
-	"github.com/yourcompany/dvarpala/internal/database/models"
+	"dvarpala/internal/database/models"
+
 	"gorm.io/gorm"
 )
 
+// AutoMigrate creates/updates all database tables
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
+		// Core entities
 		&models.User{},
 		&models.Group{},
 		&models.Resource{},
-		&models.Permission{},
+		&models.AuditLog{},
+
+		// VPN-related entities
+		&models.VPNSession{},
+		&models.VPNConfig{},
+		&models.NetworkRoute{},
+
+		// Authentication entities
+		&models.Session{},
+		&models.OAuthState{},
+
+		// Security entities
+		&models.IPWhitelist{},
+
+		// Junction tables (many-to-many relationships)
+		&models.UserGroup{},
+		&models.GroupPermission{},
+		&models.GroupNetworkRoute{},
+	)
+}
+
+// DropAllTables drops all tables (use with caution)
+func DropAllTables(db *gorm.DB) error {
+	return db.Migrator().DropTable(
+		&models.GroupNetworkRoute{},
+		&models.GroupPermission{},
+		&models.UserGroup{},
+		&models.IPWhitelist{},
+		&models.OAuthState{},
+		&models.Session{},
+		&models.NetworkRoute{},
+		&models.VPNConfig{},
 		&models.VPNSession{},
 		&models.AuditLog{},
+		&models.Resource{},
+		&models.Group{},
+		&models.User{},
 	)
 }

@@ -1,85 +1,169 @@
-.PHONY: build run test clean docker-build docker-run setup-dev migrate
+# Dvarpala VPN Makefile
 
-# Build settings
-BINARY_NAME=dvarpala-server
-CLI_BINARY=dvarpala-cli
-AUTH_BINARY=openvpn-auth
-BUILD_DIR=bin
-VERSION=$(shell git describe --tags --always --dirty)
-LDFLAGS=-ldflags "-X main.version=$(VERSION)"
+# Variables
+GO_VERSION = 1.21
+BINARY_DIR = bin
+CONFIG_FILE = configs/environments/development.yaml
+
+# Build targets
+.PHONY: all build clean install dev test docker help
+
+# Default target
+all: build
 
 # Build all binaries
 build:
-	@echo "Building binaries..."
-	@mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) cmd/dvarpala-server/main.go
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(CLI_BINARY) cmd/dvarpala-cli/main.go
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(AUTH_BINARY) cmd/openvpn-auth/main.go
-
-# Run development server
-run:
-	go run cmd/dvarpala-server/main.go -config configs/environments/development.yaml
-
-# Run tests
-test:
-	go test -v ./...
-
-# Run tests with coverage
-test-coverage:
-	go test -v -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
+	@echo "🔨 Building Dvarpala VPN binaries..."
+	@mkdir -p $(BINARY_DIR)
+	go build -o $(BINARY_DIR)/dvarpala-server ./cmd/dvarpala-server/main.go
+	go build -o $(BINARY_DIR)/dvarpala-cli ./cmd/dvarpala-cli/main.go
+	go build -o $(BINARY_DIR)/openvpn-auth ./cmd/openvpn-auth/main.go
+	go build -o $(BINARY_DIR)/dvarpala-worker ./cmd/dvarpala-worker/main.go
+	go build -o $(BINARY_DIR)/install ./scripts/installation/install.go
+	go build -o $(BINARY_DIR)/create-test-users ./scripts/development/create-test-users/main.go
+	go build -o $(BINARY_DIR)/seed-data ./scripts/development/seed-data/main.go
+	@echo "✅ Build completed successfully!"
 
 # Clean build artifacts
 clean:
-	rm -rf $(BUILD_DIR)
-	rm -f coverage.out coverage.html
+	@echo "🧹 Cleaning build artifacts..."
+	rm -rf $(BINARY_DIR)
+	go clean
+	@echo "✅ Clean completed!"
 
-# Setup development environment
-setup-dev:
-	@echo "Setting up development environment..."
+# Install dependencies
+deps:
+	@echo "📦 Installing dependencies..."
 	go mod download
 	go mod tidy
-	@echo "Installing development tools..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install github.com/swaggo/swag/cmd/swag@latest
+	@echo "✅ Dependencies installed!"
 
-# Database migrations
-migrate-up:
-	./$(BUILD_DIR)/$(CLI_BINARY) migrate up
+# Complete installation (creates database tables)
+install: build
+	@echo "🚀 Installing Dvarpala VPN System..."
+	@if [ ! -f $(CONFIG_FILE) ]; then \
+		echo "❌ Configuration file not found: $(CONFIG_FILE)"; \
+		echo "Please create the configuration file first."; \
+		exit 1; \
+	fi
+	./$(BINARY_DIR)/install -config $(CONFIG_FILE)
+	@echo "✅ Installation completed!"
 
-migrate-down:
-	./$(BUILD_DIR)/$(CLI_BINARY) migrate down
+# Fresh installation (drops existing tables)
+install-fresh: build
+	@echo "🚀 Fresh installation of Dvarpala VPN System..."
+	@if [ ! -f $(CONFIG_FILE) ]; then \
+		echo "❌ Configuration file not found: $(CONFIG_FILE)"; \
+		echo "Please create the configuration file first."; \
+		exit 1; \
+	fi
+	./$(BINARY_DIR)/install -config $(CONFIG_FILE) -drop -force
+	@echo "✅ Fresh installation completed!"
 
-migrate-create:
-	./$(BUILD_DIR)/$(CLI_BINARY) migrate create $(name)
+# Install with test data
+install-dev: build
+	@echo "🚀 Installing Dvarpala VPN System with development data..."
+	@if [ ! -f $(CONFIG_FILE) ]; then \
+		echo "❌ Configuration file not found: $(CONFIG_FILE)"; \
+		echo "Please create the configuration file first."; \
+		exit 1; \
+	fi
+	./$(BINARY_DIR)/install -config $(CONFIG_FILE) -seed
+	@echo "✅ Development installation completed!"
 
-# Docker commands
-docker-build:
-	docker build -t dvarpala:$(VERSION) -f deployments/docker/Dockerfile .
+# Development server
+dev: build
+	@echo "🔥 Starting development server..."
+	./$(BINARY_DIR)/dvarpala-server -config $(CONFIG_FILE)
 
-docker-run:
-	docker-compose -f deployments/docker/docker-compose.yml up --build
+# Run tests
+test:
+	@echo "🧪 Running tests..."
+	go test -v ./...
+	@echo "✅ Tests completed!"
 
-# Linting and formatting
-lint:
-	golangci-lint run ./...
+# Run tests with coverage
+test-coverage:
+	@echo "🧪 Running tests with coverage..."
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "✅ Coverage report generated: coverage.html"
 
+# Format code
 fmt:
+	@echo "🎨 Formatting code..."
 	go fmt ./...
+	@echo "✅ Code formatted!"
 
-# Security scanning
-security:
-	gosec ./...
+# Lint code
+lint:
+	@echo "🔍 Linting code..."
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run; \
+	else \
+		echo "⚠️  golangci-lint not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+	fi
 
-# Generate API documentation
-docs:
-	swag init -g cmd/dvarpala-server/main.go -o api/openapi
+# Create test users
+create-test-users: build
+	@echo "👥 Creating test users..."
+	./$(BINARY_DIR)/create-test-users $(CONFIG_FILE)
+	@echo "✅ Test users created!"
 
-# Cross-platform builds
-build-all:
-	@echo "Building for multiple platforms..."
-	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 cmd/dvarpala-server/main.go
-	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe cmd/dvarpala-server/main.go
-	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 cmd/dvarpala-server/main.go
-	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 cmd/dvarpala-server/main.go
+# Seed development data
+seed-data: build
+	@echo "🌱 Seeding development data..."
+	./$(BINARY_DIR)/seed-data $(CONFIG_FILE)
+	@echo "✅ Data seeded!"
+
+# Docker build
+docker:
+	@echo "🐳 Building Docker image..."
+	docker build -t dvarpala:latest -f deployments/docker/Dockerfile .
+	@echo "✅ Docker image built!"
+
+# Generate migration
+migrate-create:
+	@echo "📝 Create a new migration..."
+	@if [ -z "$(NAME)" ]; then \
+		echo "❌ Please provide a migration name: make migrate-create NAME=your_migration_name"; \
+		exit 1; \
+	fi
+	@echo "Creating migration: $(NAME)"
+	@mkdir -p database/migrations
+	@touch database/migrations/$(shell date +%Y%m%d%H%M%S)_$(NAME).up.sql
+	@touch database/migrations/$(shell date +%Y%m%d%H%M%S)_$(NAME).down.sql
+	@echo "✅ Migration files created!"
+
+# Database status
+db-status:
+	@echo "📊 Database status..."
+	./$(BINARY_DIR)/dvarpala-cli db status
+
+# Show help
+help:
+	@echo "🏗️  Dvarpala VPN Build System"
+	@echo ""
+	@echo "Available targets:"
+	@echo "  build              Build all binaries"
+	@echo "  clean              Clean build artifacts"
+	@echo "  deps               Install dependencies"
+	@echo "  install            Install system (create tables)"
+	@echo "  install-fresh      Fresh install (drop and recreate tables)"
+	@echo "  install-dev        Install with development data"
+	@echo "  dev                Start development server"
+	@echo "  test               Run tests"
+	@echo "  test-coverage      Run tests with coverage report"
+	@echo "  fmt                Format code"
+	@echo "  lint               Lint code"
+	@echo "  create-test-users  Create test users"
+	@echo "  seed-data          Seed development data"
+	@echo "  docker             Build Docker image"
+	@echo "  migrate-create     Create new migration (use NAME=migration_name)"
+	@echo "  db-status          Show database status"
+	@echo "  help               Show this help message"
+	@echo ""
+	@echo "Example usage:"
+	@echo "  make install-dev   # Install with development data"
+	@echo "  make dev           # Start development server"
+	@echo "  make test          # Run tests"

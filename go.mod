@@ -1,4 +1,4 @@
-module github.com/yourcompany/dvarpala
+module dvarpala
 
 go 1.23.0
 

@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourcompany/dvarpala/internal/app"
-	"github.com/yourcompany/dvarpala/internal/config"
+	"dvarpala/internal/app"
+	"dvarpala/internal/config"
 )
 
 func main() {
-	var configPath = flag.String("config", "configs/environments/development.yaml", "Config file path")
+	var configPath = flag.String("config", "configs/environment.yaml", "Config file path")
 	flag.Parse()
 
 	// Load configuration
@@ -25,16 +25,16 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize application
-	app, err := app.NewApp(cfg)
+	// Initialize Dvarpala application
+	dvarpala, err := app.NewDvarpala(cfg)
 	if err != nil {
-		log.Fatalf("Failed to initialize app: %v", err)
+		log.Fatalf("Failed to initialize Dvarpala: %v", err)
 	}
 
 	// Start server
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: app.Router(),
+		Handler: dvarpala.Router(),
 	}
 
 	// Graceful shutdown

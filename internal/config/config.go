@@ -1,7 +1,10 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"time"
+
 	"github.com/spf13/viper"
 )
 
@@ -42,10 +45,10 @@ type RedisConfig struct {
 }
 
 type AuthConfig struct {
-	SessionDuration        int      `mapstructure:"session_duration"`
-	CaptivePortalTimeout   int      `mapstructure:"captive_portal_timeout"`
-	JWTSecret             string   `mapstructure:"jwt_secret"`
-	AllowedDomains        []string `mapstructure:"allowed_domains"`
+	SessionDuration      int      `mapstructure:"session_duration"`
+	CaptivePortalTimeout int      `mapstructure:"captive_portal_timeout"`
+	JWTSecret            string   `mapstructure:"jwt_secret"`
+	AllowedDomains       []string `mapstructure:"allowed_domains"`
 }
 
 type OAuthConfig struct {
@@ -78,7 +81,7 @@ type OpenVPNNetworks struct {
 type SecurityConfig struct {
 	FailedLoginThreshold int `mapstructure:"failed_login_threshold"`
 	IPBlockDuration      int `mapstructure:"ip_block_duration"`
-	BcryptCost          int `mapstructure:"bcrypt_cost"`
+	BcryptCost           int `mapstructure:"bcrypt_cost"`
 }
 
 type LoggingConfig struct {
@@ -88,6 +91,9 @@ type LoggingConfig struct {
 }
 
 func Load(configPath string) (*Config, error) {
+	// Load environment variables first
+	loadEnvVars()
+
 	viper.SetConfigFile(configPath)
 	viper.AutomaticEnv()
 
@@ -100,5 +106,92 @@ func Load(configPath string) (*Config, error) {
 		return nil, err
 	}
 
+	// Override with environment variables
+	overrideWithEnvVars(&config)
+
 	return &config, nil
+}
+
+// loadEnvVars loads environment variables into viper
+func loadEnvVars() {
+	// Server
+	viper.BindEnv("server.port", "SERVER_PORT")
+	viper.BindEnv("server.mode", "SERVER_MODE")
+	viper.BindEnv("server.read_timeout", "SERVER_READ_TIMEOUT")
+	viper.BindEnv("server.write_timeout", "SERVER_WRITE_TIMEOUT")
+
+	// Database
+	viper.BindEnv("database.host", "DB_HOST")
+	viper.BindEnv("database.port", "DB_PORT")
+	viper.BindEnv("database.name", "DB_NAME")
+	viper.BindEnv("database.user", "DB_USER")
+	viper.BindEnv("database.password", "DB_PASSWORD")
+	viper.BindEnv("database.ssl_mode", "DB_SSL_MODE")
+	viper.BindEnv("database.max_open_conns", "DB_MAX_OPEN_CONNS")
+	viper.BindEnv("database.max_idle_conns", "DB_MAX_IDLE_CONNS")
+
+	// Redis
+	viper.BindEnv("redis.addr", "REDIS_ADDR")
+	viper.BindEnv("redis.password", "REDIS_PASSWORD")
+	viper.BindEnv("redis.db", "REDIS_DB")
+	viper.BindEnv("redis.pool_size", "REDIS_POOL_SIZE")
+
+	// Auth
+	viper.BindEnv("auth.session_duration", "AUTH_SESSION_DURATION")
+	viper.BindEnv("auth.captive_portal_timeout", "AUTH_CAPTIVE_PORTAL_TIMEOUT")
+	viper.BindEnv("auth.jwt_secret", "AUTH_JWT_SECRET")
+
+	// OAuth - Google
+	viper.BindEnv("oauth.google.client_id", "OAUTH_GOOGLE_CLIENT_ID")
+	viper.BindEnv("oauth.google.client_secret", "OAUTH_GOOGLE_CLIENT_SECRET")
+	viper.BindEnv("oauth.google.redirect_url", "OAUTH_GOOGLE_REDIRECT_URL")
+
+	// OAuth - Microsoft
+	viper.BindEnv("oauth.microsoft.client_id", "OAUTH_MICROSOFT_CLIENT_ID")
+	viper.BindEnv("oauth.microsoft.client_secret", "OAUTH_MICROSOFT_CLIENT_SECRET")
+	viper.BindEnv("oauth.microsoft.redirect_url", "OAUTH_MICROSOFT_REDIRECT_URL")
+
+	// OAuth - GitHub
+	viper.BindEnv("oauth.github.client_id", "OAUTH_GITHUB_CLIENT_ID")
+	viper.BindEnv("oauth.github.client_secret", "OAUTH_GITHUB_CLIENT_SECRET")
+	viper.BindEnv("oauth.github.redirect_url", "OAUTH_GITHUB_REDIRECT_URL")
+
+	// OpenVPN
+	viper.BindEnv("openvpn.management.host", "OPENVPN_MANAGEMENT_HOST")
+	viper.BindEnv("openvpn.management.port", "OPENVPN_MANAGEMENT_PORT")
+	viper.BindEnv("openvpn.networks.captive_portal", "OPENVPN_CAPTIVE_PORTAL_NETWORK")
+	viper.BindEnv("openvpn.networks.full_access", "OPENVPN_FULL_ACCESS_NETWORK")
+
+	// Security
+	viper.BindEnv("security.failed_login_threshold", "SECURITY_FAILED_LOGIN_THRESHOLD")
+	viper.BindEnv("security.ip_block_duration", "SECURITY_IP_BLOCK_DURATION")
+	viper.BindEnv("security.bcrypt_cost", "SECURITY_BCRYPT_COST")
+
+	// Logging
+	viper.BindEnv("logging.level", "LOG_LEVEL")
+	viper.BindEnv("logging.format", "LOG_FORMAT")
+	viper.BindEnv("logging.output", "LOG_OUTPUT")
+}
+
+// overrideWithEnvVars overrides config with direct environment variable reads for complex types
+func overrideWithEnvVars(config *Config) {
+	// Handle allowed domains (comma-separated)
+	if domains := os.Getenv("AUTH_ALLOWED_DOMAINS"); domains != "" {
+		config.Auth.AllowedDomains = strings.Split(domains, ",")
+		for i, domain := range config.Auth.AllowedDomains {
+			config.Auth.AllowedDomains[i] = strings.TrimSpace(domain)
+		}
+	}
+
+	// Handle timeouts (convert string to time.Duration)
+	if timeout := os.Getenv("SERVER_READ_TIMEOUT"); timeout != "" {
+		if d, err := time.ParseDuration(timeout); err == nil {
+			config.Server.ReadTimeout = d
+		}
+	}
+	if timeout := os.Getenv("SERVER_WRITE_TIMEOUT"); timeout != "" {
+		if d, err := time.ParseDuration(timeout); err == nil {
+			config.Server.WriteTimeout = d
+		}
+	}
 }
