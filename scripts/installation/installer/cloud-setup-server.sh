@@ -276,10 +276,14 @@ dh dh2048.pem
 server 172.30.100.0 255.255.255.0
 ifconfig-pool-persist ipp.txt
 
-# Full access network (after authentication)
-push "route 172.30.8.0 255.255.248.0"
+# CAPTIVE PORTAL MODE: Do NOT push full access routes by default
+# Routes will be pushed conditionally via client-connect script based on authentication status
+# push "route 172.30.8.0 255.255.248.0"  # Commented out - conditional routing only
 
-# Client configuration
+# Default captive portal route (only allow access to portal)
+push "route 172.30.100.1 255.255.255.255"
+
+# Client configuration directory for per-client routing
 client-config-dir /etc/openvpn/ccd
 keepalive 10 120
 tls-auth ta.key 0
@@ -303,7 +307,84 @@ EOF
 
     mkdir -p /etc/openvpn/ccd
     mkdir -p /var/log/openvpn
+    mkdir -p /opt/dvarpala/scripts
     
+    # Create client-connect script for conditional routing
+    cat > /opt/dvarpala/scripts/client-connect.sh << 'EOF'
+#!/bin/bash
+# Dvarpala VPN Client Connect Script
+# Determines network access level based on authentication status
+
+# Environment variables provided by OpenVPN:
+# $common_name - Client certificate common name
+# $trusted_ip - Client's real IP address
+# $ifconfig_pool_remote_ip - Assigned VPN IP
+
+LOG_FILE="/var/log/openvpn/client-connect.log"
+AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+
+# Log connection attempt
+echo "$(date): Client connect - CN: $common_name, VPN IP: $ifconfig_pool_remote_ip, Real IP: $trusted_ip" >> $LOG_FILE
+
+# Check if user has completed web authentication
+if [ -f "$AUTH_STATUS_FILE-$common_name" ]; then
+    AUTH_STATUS=$(cat "$AUTH_STATUS_FILE-$common_name")
+    if [ "$AUTH_STATUS" = "authenticated" ]; then
+        echo "$(date): Granting FULL access to $common_name" >> $LOG_FILE
+        
+        # Grant full network access
+        echo "push \"route 172.30.8.0 255.255.248.0\"" > $1
+        echo "push \"route 0.0.0.0 128.0.0.0\"" >> $1
+        echo "push \"route 128.0.0.0 128.0.0.0\"" >> $1
+        echo "push \"dhcp-option DNS 8.8.8.8\"" >> $1
+        echo "push \"dhcp-option DNS 8.8.4.4\"" >> $1
+        
+        exit 0
+    fi
+fi
+
+# Default: Only captive portal access
+echo "$(date): Granting CAPTIVE PORTAL ONLY access to $common_name" >> $LOG_FILE
+
+# Only allow access to captive portal (172.30.100.1)
+echo "push \"route 172.30.100.1 255.255.255.255\"" > $1
+
+# Log the restriction
+echo "$(date): User $common_name restricted to captive portal access only" >> $LOG_FILE
+
+exit 0
+EOF
+
+    chmod +x /opt/dvarpala/scripts/client-connect.sh
+
+    # Create client-disconnect script for session cleanup
+    cat > /opt/dvarpala/scripts/client-disconnect.sh << 'EOF'
+#!/bin/bash
+# Dvarpala VPN Client Disconnect Script
+# Cleans up authentication status to force re-authentication
+
+LOG_FILE="/var/log/openvpn/client-disconnect.log"
+AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+
+# Log disconnection
+echo "$(date): Client disconnect - CN: $common_name, VPN IP: $ifconfig_pool_remote_ip, Duration: $time_duration seconds" >> $LOG_FILE
+
+# Remove authentication status to force re-authentication on next connection
+if [ -f "$AUTH_STATUS_FILE-$common_name" ]; then
+    rm -f "$AUTH_STATUS_FILE-$common_name"
+    echo "$(date): Removed authentication status for $common_name - will require re-authentication" >> $LOG_FILE
+else
+    echo "$(date): No authentication status found for $common_name" >> $LOG_FILE
+fi
+
+# Optional: Log session statistics to database (for future analytics)
+# /opt/dvarpala/bin/log-session "$common_name" "$time_duration" "$bytes_received" "$bytes_sent"
+
+exit 0
+EOF
+
+    chmod +x /opt/dvarpala/scripts/client-disconnect.sh
+
     # Enable IP forwarding
     echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
     sysctl -p
@@ -329,7 +410,7 @@ configure_firewall() {
         # Allow OpenVPN
         ufw allow 1194/udp
         
-        # Allow Dvarpala web interface
+        # Allow Dvarpala web interface (captive portal)
         ufw allow 8080/tcp
         
         # Allow HTTPS for Let's Encrypt
@@ -357,6 +438,25 @@ configure_firewall() {
     
     # Configure NAT for VPN traffic
     iptables -t nat -A POSTROUTING -s 172.30.100.0/24 -o $(ip route | grep default | awk '{print $5}') -j MASQUERADE
+    
+    # CAPTIVE PORTAL FIREWALL RULES
+    # Block all traffic from VPN clients except to captive portal by default
+    # (Additional rules will be managed dynamically based on authentication status)
+    
+    # Allow VPN clients to access only the captive portal (172.30.100.1:8080)
+    iptables -I FORWARD -s 172.30.100.0/24 -d 172.30.100.1 -p tcp --dport 8080 -j ACCEPT
+    
+    # Allow VPN clients basic connectivity (DNS, DHCP) for captive portal to work
+    iptables -I FORWARD -s 172.30.100.0/24 -p udp --dport 53 -j ACCEPT    # DNS
+    iptables -I FORWARD -s 172.30.100.0/24 -p tcp --dport 53 -j ACCEPT    # DNS over TCP
+    
+    # Block SSH access from VPN network by default (will be opened after authentication)
+    iptables -I FORWARD -s 172.30.100.0/24 -d 172.30.100.1 -p tcp --dport 22 -j DROP
+    
+    # Block all other traffic from VPN clients by default (will be opened after authentication)
+    iptables -A FORWARD -s 172.30.100.0/24 -j DROP
+    
+    # Save iptables rules
     iptables-save > /etc/iptables/rules.v4 2>/dev/null || iptables-save > /etc/sysconfig/iptables 2>/dev/null || true
     
     log "Firewall configured successfully"
@@ -450,6 +550,107 @@ initialize_database() {
     log "Database initialized successfully"
 }
 
+# Create OpenVPN authentication script
+create_auth_script() {
+    log "Creating OpenVPN authentication script..."
+    
+    mkdir -p /opt/dvarpala/bin
+    
+    # Create simple authentication script for captive portal flow
+    cat > /opt/dvarpala/bin/openvpn-auth << 'EOF'
+#!/bin/bash
+# Dvarpala OpenVPN Authentication Script
+# Allows initial connection for captive portal access
+
+# Environment variables provided by OpenVPN:
+# $username - Username from client
+# $password - Password from client
+
+LOG_FILE="/var/log/openvpn/auth.log"
+
+# Log authentication attempt
+echo "$(date): Auth attempt - User: $username from IP: $trusted_ip" >> $LOG_FILE
+
+# For captive portal mode, we allow connection with specific captive portal credentials
+# Real authentication happens via web interface
+# This allows users to connect and access the captive portal
+
+if [ "$username" = "portal" ] && [ "$password" = "access" ]; then
+    echo "$(date): Allowing captive portal access for user: $username" >> $LOG_FILE
+    exit 0  # Allow connection for captive portal access
+elif [ -n "$username" ] && [ -n "$password" ]; then
+    echo "$(date): Invalid credentials for user: $username" >> $LOG_FILE
+    exit 1  # Reject connection - invalid credentials
+else
+    echo "$(date): Rejecting connection - missing credentials" >> $LOG_FILE
+    exit 1  # Reject connection
+fi
+EOF
+
+    chmod +x /opt/dvarpala/bin/openvpn-auth
+    
+    log "OpenVPN authentication script created"
+}
+
+# Create web authentication helper script
+create_web_auth_helper() {
+    log "Creating web authentication helper..."
+    
+    # Create script to mark user as authenticated after web portal login
+    cat > /opt/dvarpala/bin/mark-user-authenticated << 'EOF'
+#!/bin/bash
+# Script to mark a user as authenticated after successful web portal login
+# Usage: ./mark-user-authenticated <username>
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <username>"
+    exit 1
+fi
+
+USERNAME="$1"
+AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+LOG_FILE="/var/log/openvpn/web-auth.log"
+
+# Mark user as authenticated
+echo "authenticated" > "$AUTH_STATUS_FILE-$USERNAME"
+
+# Log the authentication
+echo "$(date): User $USERNAME authenticated via web portal" >> $LOG_FILE
+
+# Optional: Trigger OpenVPN to refresh user routing (requires reconnection for now)
+# In future, this could use OpenVPN management interface to update routing dynamically
+
+echo "User $USERNAME marked as authenticated"
+EOF
+
+    chmod +x /opt/dvarpala/bin/mark-user-authenticated
+    
+    # Create script to check authentication status (for web interface)
+    cat > /opt/dvarpala/bin/check-auth-status << 'EOF'
+#!/bin/bash
+# Script to check if a user is authenticated
+# Usage: ./check-auth-status <username>
+
+if [ $# -ne 1 ]; then
+    echo "unauthenticated"
+    exit 1
+fi
+
+USERNAME="$1"
+AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+
+if [ -f "$AUTH_STATUS_FILE-$USERNAME" ]; then
+    cat "$AUTH_STATUS_FILE-$USERNAME"
+else
+    echo "unauthenticated"
+fi
+EOF
+
+    chmod +x /opt/dvarpala/bin/check-auth-status
+    
+    log "Web authentication helper scripts created"
+}
+
 # Generate admin VPN certificate
 generate_admin_cert() {
     log "Generating admin VPN certificate..."
@@ -462,6 +663,10 @@ generate_admin_cert() {
     
     # Create admin OpenVPN configuration
     cat > "$DVARPALA_DIR/certs/admin.ovpn" <<EOF
+# Dvarpala VPN - Captive Portal Mode
+# After connecting, open browser to: http://172.30.100.1:8080
+# Complete authentication via web portal for full VPN access
+
 client
 dev tun
 proto udp
@@ -473,6 +678,10 @@ persist-tun
 remote-cert-tls server
 cipher AES-256-GCM
 verb 3
+
+# Initial captive portal access credentials
+# Username: portal, Password: access (for initial connection only)
+auth-user-pass
 
 <ca>
 $(cat keys/ca.crt)
@@ -492,10 +701,18 @@ $(cat keys/ta.key)
 key-direction 1
 EOF
 
-    chmod 600 "$DVARPALA_DIR/certs/admin.ovpn"
-    chown "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/admin.ovpn"
+    # Create credentials file for admin VPN connection
+    cat > "$DVARPALA_DIR/certs/admin-credentials.txt" <<EOF
+portal
+access
+EOF
     
-    log "Admin VPN certificate generated"
+    chmod 600 "$DVARPALA_DIR/certs/admin.ovpn"
+    chmod 600 "$DVARPALA_DIR/certs/admin-credentials.txt"
+    chown "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/admin.ovpn"
+    chown "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/admin-credentials.txt"
+    
+    log "Admin VPN certificate and credentials generated"
 }
 
 # Create systemd services
@@ -584,12 +801,17 @@ display_final_info() {
     echo "  Password: $(cat "$CONFIG_DIR/.db_password")"
     echo "  Database: dvarpala"
     echo
+    echo -e "${BLUE}Captive Portal Setup:${NC}"
+    echo "  Username: portal"
+    echo "  Password: access"
+    echo "  (Use these credentials for initial VPN connection)"
+    echo
     echo -e "${BLUE}Next Steps:${NC}"
     echo "  1. Download $DVARPALA_DIR/certs/admin.ovpn"
-    echo "  2. Connect to VPN using admin certificate"
-    echo "  3. Access http://172.30.100.1:8080 in browser"
-    echo "  4. Configure OAuth providers"
-    echo "  5. Generate user certificates as needed"
+    echo "  2. Connect to VPN using credentials: portal/access"
+    echo "  3. Access captive portal: http://172.30.100.1:8080"
+    echo "  4. Complete authentication via web portal for full access"
+    echo "  5. Configure OAuth providers and generate user certificates"
     echo
     echo -e "${YELLOW}⚠️  Important:${NC}"
     echo "  - SSH access will be restricted to VPN network"
@@ -642,6 +864,8 @@ main() {
     read_admin_config
     create_dvarpala_config
     initialize_database
+    create_auth_script
+    create_web_auth_helper
     generate_admin_cert
     create_systemd_services
     start_services

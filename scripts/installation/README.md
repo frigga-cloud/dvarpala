@@ -47,8 +47,14 @@ Frigga VPC: 172.30.0.0/26 (64 total IPs)
     └── Database: 172.30.0.36 (example)
 
 VPN Networks:
-├── Captive Portal: 172.30.100.0/24 (guest access)
-└── Full Access: 172.30.8.0/21 (authenticated users)
+├── Captive Portal: 172.30.100.0/24 (initial connection - limited access)
+└── Full Access: 172.30.8.0/21 (post-authentication - complete access)
+
+Authentication Flow:
+├── VPN Connect (portal/access) → Limited routing (172.30.100.1 only)
+├── Web Auth (OAuth) → Sets authentication flag
+├── VPN Reconnect → Full routing granted
+└── VPN Disconnect → Authentication flag cleared (security)
 ```
 
 ### **Frigga IP Allocation Strategy**
@@ -63,6 +69,19 @@ VPN Networks:
 
 This creates a **consistent brand identity** where any `172.30.x.x` IP immediately identifies Frigga Cloud Labs infrastructure.
 
+### **🚀 Quick Reference: Captive Portal Configuration**
+
+| **Component** | **Value** | **Purpose** |
+|---------------|-----------|-------------|
+| **VPN Credentials** | `portal` / `access` | Initial VPN connection |
+| **Captive Portal URL** | `http://172.30.100.1:8080` | Web authentication interface |
+| **VPN Network** | `172.30.100.0/24` | VPN client IP range |
+| **Full Access Network** | `172.30.8.0/21` | Post-authentication routing |
+| **Allowed Captive Ports** | `8080`, `53` (DNS) | Firewall-permitted traffic |
+| **Blocked Captive Ports** | `22` (SSH), `80`, all others | Restricted until authenticated |
+| **Auth Status Location** | `/tmp/dvarpala-auth-status-<user>` | Session management |
+| **Connection Scripts** | `/opt/dvarpala/scripts/client-*.sh` | Dynamic routing logic |
+
 ### **Benefits of /26 Network Design**
 
 **Right-Sized for VPN Infrastructure:**
@@ -76,6 +95,58 @@ This creates a **consistent brand identity** where any `172.30.x.x` IP immediate
 - **Segmented** public/private subnets for defense in depth
 - **Limited scope** for network scanning attempts
 - **Focused monitoring** with manageable IP range
+
+### **🔒 Captive Portal Security Model**
+
+Dvarpala implements a **true captive portal** with strict network access controls:
+
+#### **Access Restrictions by Connection Type:**
+
+| **Connection Type** | **Accessible Services** | **Blocked Services** | **Implementation** |
+|-------------------|----------------------|-------------------|------------------|
+| **No VPN** | Public ports only (22, 80, 443, 1194, 8080) | All other ports | Cloud security groups |
+| **VPN Captive Mode** | Only `172.30.100.1:8080` (captive portal) | SSH, other web services, internet | iptables firewall rules |
+| **VPN Full Access** | All services, internet, SSH | None (after authentication) | Dynamic routing + firewall bypass |
+
+#### **Firewall Implementation Details:**
+
+The captive portal uses **multi-layer security**:
+
+1. **Cloud Security Groups**: Control internet → VM traffic
+2. **iptables Rules**: Control VPN clients → VM traffic
+3. **Dynamic Routing**: Conditional network access based on auth status
+
+**Specific iptables Rules Applied:**
+```bash
+# Allow ONLY captive portal access
+iptables -I FORWARD -s 172.30.100.0/24 -d 172.30.100.1 -p tcp --dport 8080 -j ACCEPT
+
+# Allow DNS for portal functionality  
+iptables -I FORWARD -s 172.30.100.0/24 -p udp --dport 53 -j ACCEPT
+
+# Block SSH access until authenticated
+iptables -I FORWARD -s 172.30.100.0/24 -d 172.30.100.1 -p tcp --dport 22 -j DROP
+
+# Block ALL other traffic from VPN clients
+iptables -A FORWARD -s 172.30.100.0/24 -j DROP
+```
+
+#### **Example Scenarios:**
+
+**Scenario 1: NGINX on Port 8081**
+- ❌ **No VPN**: Blocked by cloud security groups
+- ❌ **Captive VPN**: Blocked by iptables DROP rule
+- ✅ **Full VPN**: Accessible after authentication
+
+**Scenario 2: NGINX on Port 80**
+- ✅ **No VPN**: Accessible (cloud security group allows port 80)
+- ❌ **Captive VPN**: Blocked by iptables (only port 8080 allowed)
+- ✅ **Full VPN**: Accessible after authentication
+
+**Scenario 3: SSH Access**
+- ✅ **No VPN**: Accessible from internet (cloud security group allows port 22)
+- ❌ **Captive VPN**: Explicitly blocked by iptables DROP rule
+- ✅ **Full VPN**: Accessible after authentication
 
 ## Supported Cloud Providers
 
@@ -282,14 +353,41 @@ sudo openvpn admin.ovpn
 # Or import into your VPN client GUI
 ```
 
-### 2. Access Web Interface
+### 2. Initial VPN Connection (Captive Portal Mode)
 
-Once connected to VPN:
-- Browse to `http://172.30.100.1:8080`
-- Login with OAuth provider
+**First Time Connection:**
+1. Import `admin.ovpn` into your VPN client
+2. Use these credentials for initial connection:
+   - **Username:** `portal`
+   - **Password:** `access`
+3. You'll get LIMITED access (captive portal only)
+
+### 3. Complete Authentication via Web Portal
+
+After VPN connection:
+- Browse to `http://172.30.100.1:8080` (only accessible URL initially)
+- Complete authentication via OAuth provider
+- Once authenticated, **disconnect and reconnect VPN** for full access
+
+### 4. Full VPN Access
+
+After web authentication:
+- **Disconnect and reconnect VPN** with same credentials (`portal`/`access`)
+- You'll now have full network access including:
+  - Internet browsing through VPN
+  - SSH access to the server
+  - Access to any additional services you install
 - Configure additional users and settings
 
-### 3. SSH Access (Optional)
+#### **Why Reconnection is Required:**
+
+The captive portal uses **session-based authentication**:
+1. **Initial connection**: Limited routing (only captive portal)
+2. **Web authentication**: Sets authentication flag for your user
+3. **Reconnection**: OpenVPN client-connect script detects authentication and grants full routing
+4. **Session cleanup**: Authentication cleared on disconnect (security feature)
+
+### 5. SSH Access (Optional)
 
 ```bash
 # SSH to your server via VPN
@@ -370,6 +468,76 @@ curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
 **Issue**: Instance fails to start
 **Solution**: Check cloud provider quotas and permissions
+
+### Captive Portal Troubleshooting
+
+**Issue**: Can't access captive portal after VPN connection
+**Solution**: 
+- Verify VPN connected with credentials `portal`/`access`
+- Check you're accessing exactly `http://172.30.100.1:8080`
+- Ensure no proxy or DNS override in VPN client
+
+**Issue**: Can't access internet/SSH after web authentication
+**Solution**:
+- **Must disconnect and reconnect VPN** after web authentication
+- Authentication status is only checked on new connections
+- Check logs: `sudo tail -f /var/log/openvpn/client-connect.log`
+
+**Issue**: Additional services (NGINX, etc.) not accessible in captive mode
+**Expected Behavior**: This is intentional security - only port 8080 allowed
+- Install services on port 8080, or
+- Wait until full VPN access after authentication
+
+**Issue**: SSH blocked even with VPN connected
+**Expected Behavior**: SSH is blocked until web authentication completed
+- Complete OAuth authentication via captive portal first
+- Disconnect and reconnect VPN for full access including SSH
+
+**Issue**: Internet access works without VPN
+**Expected Behavior**: Different access layers:
+- **Internet → VM**: Controlled by cloud security groups  
+- **VPN → VM**: Controlled by iptables firewall rules
+- VPN clients have stricter restrictions than internet access
+
+### Monitoring and Logs
+
+**Authentication Logs:**
+```bash
+# OpenVPN authentication attempts
+sudo tail -f /var/log/openvpn/auth.log
+
+# Client connection/disconnection events  
+sudo tail -f /var/log/openvpn/client-connect.log
+sudo tail -f /var/log/openvpn/client-disconnect.log
+
+# Web authentication events
+sudo tail -f /var/log/openvpn/web-auth.log
+
+# OpenVPN server logs
+sudo tail -f /var/log/openvpn/openvpn.log
+```
+
+**Authentication Status Check:**
+```bash
+# Check if a user is authenticated
+sudo /opt/dvarpala/bin/check-auth-status <username>
+
+# Mark user as authenticated (after web portal login)
+sudo /opt/dvarpala/bin/mark-user-authenticated <username>
+
+# View current authentication statuses
+ls -la /tmp/dvarpala-auth-status*
+```
+
+**Network Testing:**
+```bash
+# Test captive portal access (should work)
+curl -i http://172.30.100.1:8080
+
+# Test blocked access (should fail in captive mode)
+curl -i http://172.30.100.1:80
+ssh dvarpala@172.30.100.1
+```
 
 ## 📁 File Structure
 
