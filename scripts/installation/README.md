@@ -12,6 +12,18 @@ Instead of manually setting up a VM and installing dvarpala, this installer:
 4. **Sets up object storage** for configuration backups
 5. **Provides connection details** for immediate use
 
+## Architecture
+
+The installer features a **modular, object-oriented architecture** with clean separation of concerns:
+
+- **`launcher.go`**: Primary entry point that coordinates all components
+- **`cloud-installer.go`**: Main installer logic and interactive UI
+- **`cloud_service.go`**: Service layer abstraction with unified cloud operations interface
+- **`cloud_wrappers.go`**: Provider-specific wrapper implementations (AWS, GCP, Azure)
+- **`providers/*.go`**: Low-level cloud provider implementations
+
+This design eliminates repetitive switch statements and follows proper OOP principles with factory patterns and interface-based abstractions.
+
 ## Supported Cloud Providers
 
 - **Amazon Web Services (AWS)**
@@ -314,8 +326,10 @@ The `scripts/installation/` directory contains all cloud installer components:
 
 | File | Purpose | Usage |
 |------|---------|-------|
-| **`launcher.go`** | Primary entry point - launches cloud installer | `go run launcher.go` |
-| **`installer/cloud-installer.go`** | Core multi-cloud installer application | `go run installer/cloud-installer.go` |
+| **`launcher.go`** | Primary entry point - launches modularized cloud installer | `go run launcher.go` |
+| **`installer/cloud-installer.go`** | Core multi-cloud installer application | Main installer logic and UI |
+| **`installer/cloud_service.go`** | Service layer abstraction for cloud operations | Service interface and factory |
+| **`installer/cloud_wrappers.go`** | Cloud provider wrapper implementations | AWS, GCP, Azure wrapper classes |
 | **`installer/databaseInstaller.go`** | Database setup and initialization library | Called by other installers |
 
 ### **🔧 Build & Setup Files**
@@ -374,11 +388,15 @@ install-dvarpala.sh (downloads & installs Go if needed)
 
 ### **Direct Development Flow:**
 ```
-launcher.go (or go run installer/cloud-installer.go)
+launcher.go (runs all modular components)
        ↓
-   installer/cloud-installer.go (interactive wizard)
+   installer/cloud-installer.go (main installer logic & UI)
        ↓
-   providers/*.go (cloud-specific logic)
+   installer/cloud_service.go (service layer abstraction)
+       ↓
+   installer/cloud_wrappers.go (provider implementations)
+       ↓
+   providers/*.go (cloud-specific provider logic)
        ↓
    VM created with installer/cloud-setup-server.sh
        ↓
@@ -391,11 +409,11 @@ launcher.go (or go run installer/cloud-installer.go)
 ```
 build.sh
    ↓
-go mod tidy + go build
+go mod tidy + go build (compiles all modular components)
    ↓
-dvarpala-installer (standalone binary)
+dvarpala-installer (standalone binary with all modules)
    ↓
-./dvarpala-installer (runs cloud-installer.go)
+./dvarpala-installer (runs modularized cloud-installer)
 ```
 
 ## 🔧 Usage Examples
@@ -409,14 +427,14 @@ cd dvarpala/scripts/installation
 # Option 1: Use launcher (recommended)
 go run launcher.go
 
-# Option 2: Run cloud installer directly
-go run installer/cloud-installer.go
+# Option 2: Run modularized cloud installer directly
+go run installer/cloud-installer.go installer/cloud_service.go installer/cloud_wrappers.go
 
-# Option 3: With configuration file
-go run installer/cloud-installer.go -config=../examples/config-aws.json
+# Option 3: With configuration file (via launcher)
+go run launcher.go -config=examples/config-aws.json
 
-# Option 4: With command line flags
-go run installer/cloud-installer.go -provider=aws -region=us-east-1 -interactive=false
+# Option 4: With command line flags (via launcher)
+go run launcher.go -provider=aws -region=us-east-1 -interactive=false
 ```
 
 ### **One-Click Methods** (For End Users)
@@ -436,17 +454,17 @@ cd installer && ./build.sh
 # Run standalone binary (from installer directory)
 ./dvarpala-installer
 
-# Or build manually (not recommended - use build.sh instead)
-cd installer && go build -o dvarpala-installer cloud-installer.go
+# Or build manually with all modular components
+cd installer && go build -o dvarpala-installer cloud-installer.go cloud_service.go cloud_wrappers.go
 ```
 
 ## ⚠️ Important Notes
 
 ### **Compilation Notes**
 - **Recommended**: Use `go run launcher.go` or `./build.sh` for best results
-- **Alternative**: Run `go run cloud-installer.go` directly 
+- **Modular Architecture**: Code split into `cloud-installer.go`, `cloud_service.go`, and `cloud_wrappers.go`
 - **Build process**: `install-dvarpala.sh` now uses `build.sh` (no code duplication)
-- **Architecture**: Modular design with separate files for specific purposes
+- **Launcher**: Automatically includes all modular components when running
 - **Database setup**: `databaseInstaller.go` provides reusable database functions
 
 ### **Cloud Provider Requirements**
@@ -456,7 +474,8 @@ cd installer && go build -o dvarpala-installer cloud-installer.go
 
 ### **Current Implementation Status**
 - ✅ **Interactive Setup**: Full implementation for all providers
-- ✅ **Modular Architecture**: Clean separation of concerns with dedicated files
+- ✅ **Modular Architecture**: Service layer abstraction with cloud provider wrappers
+- ✅ **Clean Code Structure**: Separated into `cloud-installer.go`, `cloud_service.go`, `cloud_wrappers.go`
 - ✅ **Build Process**: Centralized build logic in `build.sh` (no duplication)
 - ✅ **Entry Points**: Multiple ways to run the installer (`launcher.go`, direct execution)
 - ✅ **Database Setup**: Standalone `databaseInstaller.go` with reusable functions
@@ -467,7 +486,9 @@ cd installer && go build -o dvarpala-installer cloud-installer.go
 - **📁 Clear Naming**: `install.go` → `databaseInstaller.go` for better purpose identification  
 - **🚀 Multiple Entry Points**: `launcher.go` as primary entry, direct execution as alternative
 - **🛠️ Centralized Build**: Single `build.sh` script handles all compilation needs
-- **📦 Modular Design**: Each file has a single, clear responsibility
+- **📦 Modular Design**: Service layer abstraction with cloud provider wrappers
+- **🎯 Separation of Concerns**: Main installer, service layer, and wrappers in separate files
+- **🔧 OOP Implementation**: Eliminated repetitive switch statements with proper OOP patterns
 
 ## Cost Optimization
 
