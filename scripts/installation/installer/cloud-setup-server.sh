@@ -2,7 +2,7 @@
 
 # Enhanced Dvarpala Server Setup Script for Cloud Deployment
 # This script is called automatically by the cloud installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/installation/cloud-setup-server.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/cloud-setup-server.sh | bash
 
 set -euo pipefail
 
@@ -144,7 +144,7 @@ build_dvarpala() {
     
     cd /tmp
     if [[ ! -d "dvarpala" ]]; then
-        git clone https://github.com/yourcompany/dvarpala.git
+        git clone https://github.com/frigga-cloud/dvarpala.git
     fi
     
     cd dvarpala

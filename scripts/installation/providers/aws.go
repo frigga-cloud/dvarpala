@@ -392,7 +392,7 @@ apt-get install -y curl wget unzip postgresql-client
 
 # Download and run dvarpala installation
 cd /tmp
-curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/provisioning/setup-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/provisioning/setup-server.sh | bash
 
 # Configure admin user
 echo '%s' > /opt/dvarpala/config/admin-email.txt

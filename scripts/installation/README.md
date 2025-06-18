@@ -54,7 +54,7 @@ Choose one of the following:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourcompany/dvarpala.git
+git clone https://github.com/frigga-cloud/dvarpala.git
 cd dvarpala/scripts/installation
 
 # Run the interactive installer
@@ -403,7 +403,7 @@ dvarpala-installer (standalone binary)
 ### **Direct Method** (Recommended for Development)
 ```bash
 # Clone repository
-git clone https://github.com/yourcompany/dvarpala.git
+git clone https://github.com/frigga-cloud/dvarpala.git
 cd dvarpala/scripts/installation
 
 # Option 1: Use launcher (recommended)
@@ -422,10 +422,10 @@ go run installer/cloud-installer.go -provider=aws -region=us-east-1 -interactive
 ### **One-Click Methods** (For End Users)
 ```bash
 # Simple version (requires Go pre-installed)
-curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/installation/install-dvarpala-simple.sh | bash
+curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/install-dvarpala-simple.sh | bash
 
 # Advanced version (installs Go automatically)
-curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/installation/install-dvarpala.sh | bash
+curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/install-dvarpala.sh | bash
 ```
 
 ### **Build Standalone Binary**
@@ -482,7 +482,7 @@ cd installer && go build -o dvarpala-installer cloud-installer.go
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourcompany/dvarpala/issues)
+- **Issues**: [GitHub Issues](https://github.com/frigga-cloud/dvarpala/issues)
 - **Documentation**: See `docs/` directory
 - **Community**: Discussions on GitHub
 

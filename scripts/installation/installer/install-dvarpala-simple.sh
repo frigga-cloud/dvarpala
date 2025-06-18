@@ -2,7 +2,7 @@
 
 # Dvarpala Cloud Installer Launcher (Simplified)
 # One-click installation script for deploying dvarpala to AWS, GCP, or Azure
-# Usage: curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/installation/install-dvarpala-simple.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/install-dvarpala-simple.sh | bash
 
 set -euo pipefail
 
@@ -43,7 +43,7 @@ TEMP_DIR=$(mktemp -d)
 cd "$TEMP_DIR"
 
 if command -v git &> /dev/null; then
-    git clone --depth 1 https://github.com/yourcompany/dvarpala.git
+    git clone --depth 1 https://github.com/frigga-cloud/dvarpala.git
 else
     # Check if curl is available
     if ! command -v curl &> /dev/null; then
@@ -52,7 +52,7 @@ else
     fi
     
     # Fallback to downloading zip
-    curl -fsSL https://github.com/yourcompany/dvarpala/archive/main.zip -o dvarpala.zip
+    curl -fsSL https://github.com/frigga-cloud/dvarpala/archive/main.zip -o dvarpala.zip
     
     # Check if unzip is available
     if ! command -v unzip &> /dev/null; then
