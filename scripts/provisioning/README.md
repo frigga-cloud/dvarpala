@@ -1,13 +1,52 @@
-# Dvarpala 2-Step VPN Server Provisioning
+# Dvarpala VPN Server Provisioning
 
-This directory contains scripts to provision and set up a complete Dvarpala 2-Step VPN server with Zero Trust Network Access (ZTNA) from scratch on a fresh VM.
+This directory contains scripts for both **Cloud Installation** (recommended) and **Manual VM Provisioning** of Dvarpala 2-Step VPN servers.
 
-## 📖 Quick Start
+## 🎯 Installation Methods
 
-For a quick installation guide with prerequisites and commands, see:
+### 🚀 Method 1: Cloud Installer (Recommended)
+
+**Deploy directly to AWS, GCP, or Azure from your laptop**
+
+The Cloud Installer creates complete infrastructure and installs dvarpala automatically. This is the **preferred method** for new deployments.
+
+#### Quick Start
+```bash
+# One-click installation
+curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/installation/install-dvarpala.sh | bash
+```
+
+#### What It Does
+1. **Infrastructure Creation**: Creates "frigga-labs" VPC, VM, security groups
+2. **Automatic Installation**: Installs and configures dvarpala on new VM
+3. **Object Storage**: Sets up S3/GCS/Azure Storage for backups
+4. **Ready-to-Use**: Provides admin.ovpn and connection details
+
+#### Output
+```
+dvarpala-deployment/
+├── installation-config.json    # Full configuration
+├── connection-info.txt         # Server details  
+├── admin.ovpn                  # VPN configuration
+└── ssh-key.pem                 # SSH access key
+```
+
+**See: [📖 Cloud Installer Documentation](../installation/README.md)**
+
+---
+
+### 🔧 Method 2: Manual VM Provisioning
+
+**Install on existing virtual machine**
+
+Use these scripts if you already have a VM and want to install dvarpala manually.
+
+## 📖 Quick Start (Manual)
+
+For complete installation guide with prerequisites and commands, see:
 **[📋 INSTALLATION.md](../../INSTALLATION.md)** - Complete installation guide
 
-## 🚀 Installation Commands
+## 🚀 Manual Installation Commands
 
 ### One-Line Installation (Recommended)
 
@@ -23,6 +62,53 @@ curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/p
 less setup-server.sh
 sudo bash setup-server.sh
 ```
+
+## 🔄 Complete Installation Flow
+
+### **Phase 1: Customer Initiation**
+1. Customer runs cloud installer from their laptop
+2. Selects cloud provider (AWS/GCP/Azure)
+3. Provides authentication credentials
+
+### **Phase 2: Local Environment Setup**
+1. **Platform Detection**: OS and architecture detection
+2. **Dependency Installation**: Go runtime, cloud CLI tools
+3. **Repository Download**: Clones dvarpala source
+4. **Binary Compilation**: Builds cloud installer
+
+### **Phase 3: Cloud Authentication**
+1. **Credential Validation**: Tests cloud provider access
+2. **Permission Check**: Verifies required permissions
+3. **Region Selection**: Chooses deployment region
+
+### **Phase 4: Infrastructure Provisioning**
+1. **VPC Creation**: Creates/finds "frigga-labs" VPC
+2. **Security Groups**: Configures firewall rules
+3. **VM Launch**: Creates Ubuntu 22.04 instance
+4. **Network Setup**: Public/private subnet configuration
+
+### **Phase 5: Software Installation** (on VM)
+1. **System Updates**: Updates packages and dependencies
+2. **Database Setup**: PostgreSQL 15 with secure credentials
+3. **Cache Setup**: Redis server configuration
+4. **VPN Setup**: OpenVPN with 2-step authentication
+5. **Application Build**: Compiles and installs dvarpala
+
+### **Phase 6: Security Configuration**
+1. **Certificate Generation**: Creates admin and CA certificates
+2. **Firewall Rules**: Configures iptables and cloud security groups
+3. **Service Hardening**: Enables systemd services
+4. **SSH Restriction**: Limits SSH to VPN network
+
+### **Phase 7: Object Storage Integration**
+1. **Bucket Creation**: Creates S3/GCS/Azure storage
+2. **Configuration Backup**: Uploads installation config
+3. **Credential Storage**: Stores admin details securely
+
+### **Phase 8: Ready-to-Use Output**
+1. **File Generation**: admin.ovpn, connection details, SSH keys
+2. **Summary Display**: Shows server IP, credentials, next steps
+3. **Documentation**: Provides usage instructions
 
 ## ⚠️ IMPORTANT: 2-Step VPN Installation Process
 
@@ -282,12 +368,32 @@ curl -I http://localhost:8080
 - **PostgreSQL**: `/var/log/postgresql/`
 - **System**: `/var/log/syslog` or `journalctl`
 
+## 🌍 Cloud Provider Integration
+
+### Object Storage Backup Locations
+- **AWS S3**: `s3://frigga-labs-{suffix}/dvarpala/`
+- **Google Cloud Storage**: `gs://frigga-labs-{suffix}/dvarpala/`
+- **Azure Blob Storage**: `https://{account}.blob.core.windows.net/dvarpala/`
+
+### VPC Configuration
+- **VPC Name**: `frigga-labs` (shared across Frigga Labs tools)
+- **CIDR Range**: `10.0.0.0/16` (configurable)
+- **Public Subnet**: `10.0.1.0/24` (dvarpala instances)
+- **Private Subnet**: `10.0.2.0/24` (future use)
+
+### Instance Types
+- **AWS**: t3.small/medium/large
+- **GCP**: e2-small/medium/standard-2
+- **Azure**: Standard_B1ms/B2s/B2ms
+
 ## 📚 Additional Resources
 
 ### Documentation
-- [Dvarpala User Guide](../../docs/user-guide.md)
-- [API Documentation](../../docs/api.md)
-- [Database Schema](../../database-readme.md)
+- [📖 Cloud Installer Guide](../installation/README.md)
+- [📋 Complete Installation Guide](../../INSTALLATION.md)
+- [🔧 User Guide](../../docs/user-guide.md)
+- [🔌 API Documentation](../../docs/api.md)
+- [🗄️ Database Schema](../../database-readme.md)
 
 ### Support
 - GitHub Issues: https://github.com/yourcompany/dvarpala/issues
@@ -322,6 +428,8 @@ sudo -u postgres psql dvarpala < dvarpala-backup.sql
 ```
 
 ---
+
+**🚀 For the fastest and most reliable installation, use the Cloud Installer method.**
 
 For the latest version of these scripts and documentation, visit:
 https://github.com/yourcompany/dvarpala/tree/main/scripts/provisioning

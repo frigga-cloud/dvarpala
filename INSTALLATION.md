@@ -1,6 +1,6 @@
 # Dvarpala VPN Server Installation
 
-Quick and secure installation guide for setting up Dvarpala 2-Step VPN server on a fresh virtual machine.
+Dvarpala now supports two installation methods: **Cloud Installer** (recommended) and **Manual VM Installation**.
 
 ## 🔐 2-Step VPN Access Overview
 
@@ -11,28 +11,92 @@ Dvarpala implements a Zero Trust Network Access (ZTNA) architecture with 2-step 
 3. **Full Access**: After successful authentication, users are granted full VPN access with internet connectivity
 4. **Session Management**: Users must re-authenticate each time they disconnect and reconnect
 
-## 📋 Prerequisites
+## 🎯 Installation Methods
 
-### Server Requirements
+### Method 1: Cloud Installer (Recommended)
+
+The **Cloud Installer** creates infrastructure and installs dvarpala directly from your laptop to AWS, GCP, or Azure.
+
+#### Prerequisites
+- **Local Machine**: Go 1.19+, Git, Internet connection
+- **Cloud Account**: AWS, GCP, or Azure with billing enabled
+- **Cloud CLI**: Appropriate CLI tool installed (aws, gcloud, or az)
+
+#### Quick Start
+```bash
+# Clone repository
+git clone https://github.com/yourcompany/dvarpala.git
+cd dvarpala/scripts/installation
+
+# Interactive installation
+go run cloud-installer.go
+```
+
+The installer will:
+1. **Authenticate** with your chosen cloud provider (AWS/GCP/Azure)
+2. **Create VPC** named "frigga-labs" with minimal configuration (4-5 server limit)
+3. **Launch VM** and install dvarpala automatically
+4. **Setup object storage** for configuration backups
+5. **Provide connection details** including admin.ovpn file
+
+#### Configuration Options
+
+**AWS Example:**
+```bash
+go run cloud-installer.go -provider=aws -region=us-east-1 -interactive=false
+```
+
+**Using Config File:**
+```bash
+cp examples/config-aws.json my-config.json
+# Edit my-config.json with your credentials
+go run cloud-installer.go -config=my-config.json -interactive=false
+```
+
+**What Gets Created:**
+- **VPC**: `frigga-labs` (shared across Frigga Labs tools)
+- **VM**: Ubuntu 22.04 with dvarpala pre-installed
+- **Object Storage**: S3/GCS/Azure Storage for backups
+- **Security Groups**: Minimal required ports (22, 1194, 8080, 443)
+- **Admin Certificate**: Ready-to-use .ovpn file
+
+**Output Files:**
+```
+dvarpala-deployment/
+├── installation-config.json    # Full configuration
+├── connection-info.txt         # Server details
+├── admin.ovpn                  # VPN configuration
+└── ssh-key.pem                 # SSH access key
+```
+
+See [Cloud Installer Documentation](scripts/installation/README.md) for detailed configuration options.
+
+---
+
+### Method 2: Manual VM Installation
+
+Install dvarpala on an existing virtual machine.
+
+#### Prerequisites
 - **Fresh VM** with root access (Ubuntu 20.04+, Debian 11+, CentOS 8+, RHEL 8+, Rocky Linux 8+, or AlmaLinux 8+)
 - **Minimum 2 GB RAM** (4 GB recommended)
 - **20 GB disk space** (50 GB recommended for logs and data)
 - **1 CPU core** (2+ cores recommended)
 - **Public IP address** with internet connectivity
 
-### Network Requirements
+#### Network Requirements
 - **Outbound internet access** for downloading packages
 - **Inbound ports** that will be opened:
   - `22` - SSH access (will be restricted to VPN after installation)
   - `1194` - OpenVPN server (UDP) - 2-step access
   - `8080` - Dvarpala web interface (TCP) - captive portal + full access
 
-### Client Requirements
+#### Client Requirements
 - **OpenVPN client** installed on your local machine
 - **SSH client** for initial server access
 - **Web browser** for accessing the management interface
 
-## 🚀 Installation Commands
+## 🚀 Manual Installation Commands
 
 ### One-Line Installation (Recommended)
 
