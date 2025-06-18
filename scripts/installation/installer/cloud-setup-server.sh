@@ -651,6 +651,120 @@ EOF
     log "Web authentication helper scripts created"
 }
 
+# Create captive portal auto-open scripts for different platforms
+create_captive_portal_scripts() {
+    log "Creating captive portal auto-open scripts..."
+    
+    mkdir -p "$DVARPALA_DIR/certs/scripts"
+    
+    # Windows batch script
+    cat > "$DVARPALA_DIR/certs/scripts/open-captive-portal.bat" <<'BAT_EOF'
+@echo off
+REM Auto-open captive portal for Windows
+echo %date% %time%: VPN connected, opening captive portal... >> %TEMP%\dvarpala-client.log
+
+REM Wait for network to be established
+timeout /t 3 /nobreak > nul
+
+REM Test connectivity and open browser
+ping -n 1 172.30.100.1 > nul 2>&1
+if %errorlevel% equ 0 (
+    echo %date% %time%: Opening captive portal in browser... >> %TEMP%\dvarpala-client.log
+    start http://172.30.100.1:8080
+) else (
+    echo %date% %time%: Network not ready, please open http://172.30.100.1:8080 manually >> %TEMP%\dvarpala-client.log
+)
+BAT_EOF
+
+    # macOS/Linux shell script (more robust version)
+    cat > "$DVARPALA_DIR/certs/scripts/open-captive-portal-unix.sh" <<'UNIX_EOF'
+#!/bin/bash
+# Auto-open captive portal script for macOS/Linux
+CAPTIVE_URL="http://172.30.100.1:8080"
+LOG_FILE="$HOME/.dvarpala-client.log"
+
+echo "$(date): VPN connected, opening captive portal..." >> "$LOG_FILE"
+
+# Wait for network to be established
+sleep 5
+
+# Test connectivity first
+if ping -c 1 172.30.100.1 >/dev/null 2>&1; then
+    echo "$(date): Network ready, opening browser..." >> "$LOG_FILE"
+    
+    # Try multiple browser opening methods
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        open "$CAPTIVE_URL"
+    else
+        # Linux
+        if command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "$CAPTIVE_URL" >/dev/null 2>&1 &
+        elif command -v firefox >/dev/null 2>&1; then
+            firefox "$CAPTIVE_URL" >/dev/null 2>&1 &
+        elif command -v google-chrome >/dev/null 2>&1; then
+            google-chrome "$CAPTIVE_URL" >/dev/null 2>&1 &
+        elif command -v chromium-browser >/dev/null 2>&1; then
+            chromium-browser "$CAPTIVE_URL" >/dev/null 2>&1 &
+        fi
+    fi
+    
+    echo "$(date): Browser opened for captive portal" >> "$LOG_FILE"
+else
+    echo "$(date): Network not ready, please open $CAPTIVE_URL manually" >> "$LOG_FILE"
+fi
+UNIX_EOF
+
+    chmod +x "$DVARPALA_DIR/certs/scripts/open-captive-portal-unix.sh"
+    
+    # Create instructions file
+    cat > "$DVARPALA_DIR/certs/AUTO-OPEN-SETUP.txt" <<'INSTRUCTIONS_EOF'
+# Dvarpala VPN - Auto-Open Captive Portal Setup
+
+The admin.ovpn file is configured to automatically open the captive portal
+in your browser when you connect. However, some OpenVPN clients may require
+additional configuration:
+
+## Method 1: Automatic (Built-in)
+The admin.ovpn file includes an "up" script that should automatically open
+your browser to http://172.30.100.1:8080 after connection.
+
+## Method 2: Manual Setup for GUI Clients
+
+### For Windows (OpenVPN GUI):
+1. Copy scripts/open-captive-portal.bat to your OpenVPN config folder
+2. Edit your OpenVPN GUI settings:
+   - Right-click OpenVPN GUI tray icon
+   - Edit config for Dvarpala
+   - Add line: up "scripts/open-captive-portal.bat"
+
+### For macOS (Tunnelblick):
+1. Copy scripts/open-captive-portal-unix.sh to your config folder
+2. Tunnelblick should automatically use the "up" directive
+
+### For Linux (NetworkManager):
+1. Copy scripts/open-captive-portal-unix.sh to /etc/openvpn/
+2. The script should run automatically via the "up" directive
+
+## Method 3: Manual Browser Opening
+If automatic opening doesn't work:
+1. Connect to VPN with credentials: portal / access
+2. Manually open browser to: http://172.30.100.1:8080
+3. Complete authentication
+4. Disconnect and reconnect VPN for full access
+
+## Troubleshooting
+- Check client logs: ~/.dvarpala-client.log (Unix) or %TEMP%\dvarpala-client.log (Windows)
+- Ensure your OpenVPN client allows script execution
+- Some corporate firewalls may block automatic browser opening
+INSTRUCTIONS_EOF
+
+    chown -R "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/scripts"
+    chown "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/AUTO-OPEN-SETUP.txt"
+    
+    log "Captive portal auto-open scripts created"
+}
+
 # Generate admin VPN certificate
 generate_admin_cert() {
     log "Generating admin VPN certificate..."
@@ -661,10 +775,68 @@ generate_admin_cert() {
     # Build admin certificate
     echo -e "\n\n\n\n\n\n\n\ny\ny\n" | ./build-key admin
     
-    # Create admin OpenVPN configuration
+    # Create captive portal auto-open script for different platforms
+    create_captive_portal_scripts
+
+    # Create client-side script to auto-open captive portal
+    cat > "$DVARPALA_DIR/certs/open-captive-portal.sh" <<'SCRIPT_EOF'
+#!/bin/bash
+# Auto-open captive portal script for Dvarpala VPN
+# This script runs after OpenVPN connection is established
+
+CAPTIVE_URL="http://172.30.100.1:8080"
+LOG_FILE="/tmp/dvarpala-client.log"
+
+echo "$(date): VPN connected, attempting to open captive portal..." >> $LOG_FILE
+
+# Wait a moment for network to be fully established
+sleep 3
+
+# Function to open URL in default browser (cross-platform)
+open_browser() {
+    local url="$1"
+    
+    # Detect operating system and open browser accordingly
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        open "$url" 2>/dev/null
+        echo "$(date): Opened captive portal on macOS" >> $LOG_FILE
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux
+        if command -v xdg-open &> /dev/null; then
+            xdg-open "$url" 2>/dev/null
+        elif command -v gnome-open &> /dev/null; then
+            gnome-open "$url" 2>/dev/null
+        elif command -v firefox &> /dev/null; then
+            firefox "$url" 2>/dev/null &
+        elif command -v google-chrome &> /dev/null; then
+            google-chrome "$url" 2>/dev/null &
+        fi
+        echo "$(date): Opened captive portal on Linux" >> $LOG_FILE
+    elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+        # Windows (Git Bash/Cygwin)
+        start "$url" 2>/dev/null
+        echo "$(date): Opened captive portal on Windows" >> $LOG_FILE
+    fi
+}
+
+# Test if captive portal is reachable
+if curl -s --connect-timeout 5 "$CAPTIVE_URL" > /dev/null; then
+    echo "$(date): Captive portal reachable, opening browser..." >> $LOG_FILE
+    open_browser "$CAPTIVE_URL"
+else
+    echo "$(date): Captive portal not reachable yet, user will need to open manually" >> $LOG_FILE
+fi
+
+exit 0
+SCRIPT_EOF
+
+    chmod +x "$DVARPALA_DIR/certs/open-captive-portal.sh"
+
+    # Create admin OpenVPN configuration with auto-open script
     cat > "$DVARPALA_DIR/certs/admin.ovpn" <<EOF
 # Dvarpala VPN - Captive Portal Mode
-# After connecting, open browser to: http://172.30.100.1:8080
+# Browser will auto-open to: http://172.30.100.1:8080
 # Complete authentication via web portal for full VPN access
 
 client
@@ -678,6 +850,10 @@ persist-tun
 remote-cert-tls server
 cipher AES-256-GCM
 verb 3
+
+# Auto-open captive portal after connection
+script-security 2
+up "$DVARPALA_DIR/certs/open-captive-portal.sh"
 
 # Initial captive portal access credentials
 # Username: portal, Password: access (for initial connection only)
@@ -709,8 +885,10 @@ EOF
     
     chmod 600 "$DVARPALA_DIR/certs/admin.ovpn"
     chmod 600 "$DVARPALA_DIR/certs/admin-credentials.txt"
+    chmod 755 "$DVARPALA_DIR/certs/open-captive-portal.sh"
     chown "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/admin.ovpn"
     chown "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/admin-credentials.txt"
+    chown "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR/certs/open-captive-portal.sh"
     
     log "Admin VPN certificate and credentials generated"
 }
@@ -809,9 +987,15 @@ display_final_info() {
     echo -e "${BLUE}Next Steps:${NC}"
     echo "  1. Download $DVARPALA_DIR/certs/admin.ovpn"
     echo "  2. Connect to VPN using credentials: portal/access"
-    echo "  3. Access captive portal: http://172.30.100.1:8080"
+    echo "  3. Browser should auto-open to: http://172.30.100.1:8080"
     echo "  4. Complete authentication via web portal for full access"
-    echo "  5. Configure OAuth providers and generate user certificates"
+    echo "  5. Disconnect and reconnect VPN to get full access"
+    echo "  6. Configure OAuth providers and generate user certificates"
+    echo
+    echo -e "${BLUE}Auto-Open Browser:${NC}"
+    echo "  ✅ Built-in: Browser opens automatically after VPN connection"
+    echo "  📁 Manual: See $DVARPALA_DIR/certs/AUTO-OPEN-SETUP.txt for GUI clients"
+    echo "  🔧 Scripts: Platform-specific scripts in $DVARPALA_DIR/certs/scripts/"
     echo
     echo -e "${YELLOW}⚠️  Important:${NC}"
     echo "  - SSH access will be restricted to VPN network"

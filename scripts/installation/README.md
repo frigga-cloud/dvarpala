@@ -81,6 +81,8 @@ This creates a **consistent brand identity** where any `172.30.x.x` IP immediate
 | **Blocked Captive Ports** | `22` (SSH), `80`, all others | Restricted until authenticated |
 | **Auth Status Location** | `/tmp/dvarpala-auth-status-<user>` | Session management |
 | **Connection Scripts** | `/opt/dvarpala/scripts/client-*.sh` | Dynamic routing logic |
+| **Auto-Open Script** | `open-captive-portal.sh` | Browser auto-launch |
+| **Platform Scripts** | `scripts/` folder | Windows/macOS/Linux variants |
 
 ### **Benefits of /26 Network Design**
 
@@ -361,11 +363,13 @@ sudo openvpn admin.ovpn
    - **Username:** `portal`
    - **Password:** `access`
 3. You'll get LIMITED access (captive portal only)
+4. **Browser automatically opens** to `http://172.30.100.1:8080`
 
 ### 3. Complete Authentication via Web Portal
 
 After VPN connection:
-- Browse to `http://172.30.100.1:8080` (only accessible URL initially)
+- **Browser should auto-open** to the captive portal
+- If not, manually browse to `http://172.30.100.1:8080`
 - Complete authentication via OAuth provider
 - Once authenticated, **disconnect and reconnect VPN** for full access
 
@@ -538,6 +542,55 @@ curl -i http://172.30.100.1:8080
 curl -i http://172.30.100.1:80
 ssh dvarpala@172.30.100.1
 ```
+
+## 🚀 Auto-Open Captive Portal Feature
+
+Dvarpala automatically opens the captive portal in your browser when you connect to VPN:
+
+### **How It Works:**
+
+1. **Built-in Script**: `admin.ovpn` includes an `up` script that runs after VPN connection
+2. **Cross-Platform**: Works on Windows, macOS, and Linux
+3. **Smart Detection**: Tests network connectivity before opening browser
+4. **Fallback Methods**: Multiple browser detection methods for compatibility
+
+### **Files Created:**
+
+| **File** | **Purpose** | **Platform** |
+|----------|-------------|--------------|
+| `admin.ovpn` | Main config with auto-open script | All |
+| `open-captive-portal.sh` | Built-in auto-open script | Unix/Linux/macOS |
+| `scripts/open-captive-portal.bat` | Windows batch script | Windows |
+| `scripts/open-captive-portal-unix.sh` | Enhanced Unix script | macOS/Linux |
+| `AUTO-OPEN-SETUP.txt` | Setup instructions | All |
+
+### **Compatibility:**
+
+| **OpenVPN Client** | **Auto-Open Support** | **Setup Required** |
+|-------------------|----------------------|-------------------|
+| **OpenVPN CLI** | ✅ Automatic | None |
+| **Tunnelblick (macOS)** | ✅ Automatic | None |
+| **OpenVPN GUI (Windows)** | ⚠️ Manual Setup | Copy script to config folder |
+| **NetworkManager (Linux)** | ✅ Automatic | None |
+| **OpenVPN Connect** | ❌ Not Supported | Manual browser opening |
+
+### **Troubleshooting Auto-Open:**
+
+**Issue**: Browser doesn't open automatically
+**Solutions**:
+1. Check if your OpenVPN client supports the `up` directive
+2. Ensure script execution is enabled in your VPN client
+3. Check logs: `~/.dvarpala-client.log` (Unix) or `%TEMP%\dvarpala-client.log` (Windows)
+4. Use manual scripts from `scripts/` folder
+
+**Issue**: Script permission denied
+**Solution**: 
+```bash
+chmod +x /path/to/open-captive-portal.sh
+```
+
+**Issue**: Corporate firewall blocks browser opening
+**Solution**: Manually open `http://172.30.100.1:8080` after VPN connection
 
 ## 📁 File Structure
 
