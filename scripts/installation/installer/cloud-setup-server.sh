@@ -273,11 +273,11 @@ key server.key
 dh dh2048.pem
 
 # Network configuration
-server 192.168.100.0 255.255.255.0
+server 172.30.100.0 255.255.255.0
 ifconfig-pool-persist ipp.txt
 
 # Full access network (after authentication)
-push "route 10.8.0.0 255.255.0.0"
+push "route 172.30.8.0 255.255.248.0"
 
 # Client configuration
 client-config-dir /etc/openvpn/ccd
@@ -356,7 +356,7 @@ configure_firewall() {
     fi
     
     # Configure NAT for VPN traffic
-    iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o $(ip route | grep default | awk '{print $5}') -j MASQUERADE
+    iptables -t nat -A POSTROUTING -s 172.30.100.0/24 -o $(ip route | grep default | awk '{print $5}') -j MASQUERADE
     iptables-save > /etc/iptables/rules.v4 2>/dev/null || iptables-save > /etc/sysconfig/iptables 2>/dev/null || true
     
     log "Firewall configured successfully"
@@ -430,8 +430,8 @@ ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_NAME=$ADMIN_NAME
 
 # Captive Portal Configuration
-CAPTIVE_PORTAL_NETWORK=192.168.100.0/24
-FULL_ACCESS_NETWORK=10.8.0.0/16
+CAPTIVE_PORTAL_NETWORK=172.30.100.0/24
+FULL_ACCESS_NETWORK=172.30.8.0/21
 EOF
 
     chmod 600 "$CONFIG_DIR/.env"
@@ -571,13 +571,13 @@ display_final_info() {
     echo
     echo -e "${BLUE}Server Information:${NC}"
     echo "  Public IP: $(curl -s http://checkip.amazonaws.com)"
-    echo "  VPN Network: 192.168.100.0/24 (captive portal)"
+    echo "  VPN Network: 172.30.100.0/24 (captive portal)"
     echo "  Admin VPN Config: $DVARPALA_DIR/certs/admin.ovpn"
     echo
     echo -e "${BLUE}Admin Access:${NC}"
     echo "  Email: $ADMIN_EMAIL"
     echo "  VPN Config: Download admin.ovpn for VPN access"
-    echo "  Web Interface: http://192.168.100.1:8080 (via VPN)"
+    echo "  Web Interface: http://172.30.100.1:8080 (via VPN)"
     echo
     echo -e "${BLUE}Database Credentials:${NC}"
     echo "  Username: dvarpala"
@@ -587,7 +587,7 @@ display_final_info() {
     echo -e "${BLUE}Next Steps:${NC}"
     echo "  1. Download $DVARPALA_DIR/certs/admin.ovpn"
     echo "  2. Connect to VPN using admin certificate"
-    echo "  3. Access http://192.168.100.1:8080 in browser"
+    echo "  3. Access http://172.30.100.1:8080 in browser"
     echo "  4. Configure OAuth providers"
     echo "  5. Generate user certificates as needed"
     echo
@@ -619,8 +619,8 @@ Services:
 - redis.service
 
 Access:
-- Web Interface: http://192.168.100.1:8080 (via VPN)
-- SSH: ssh dvarpala@192.168.100.1 (via VPN)
+- Web Interface: http://172.30.100.1:8080 (via VPN)
+- SSH: ssh dvarpala@172.30.100.1 (via VPN)
 EOF
 
     chmod 644 "$DVARPALA_DIR/installation-summary.txt"

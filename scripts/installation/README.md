@@ -24,6 +24,59 @@ The installer features a **modular, object-oriented architecture** with clean se
 
 This design eliminates repetitive switch statements and follows proper OOP principles with factory patterns and interface-based abstractions.
 
+## 🌐 Frigga Brand IP Addressing
+
+Dvarpala uses a **unique brand IP addressing scheme** designed specifically for Frigga Cloud Labs:
+
+### **Brand IP: 172.30.x.x**
+
+**Why 172.30.x.x?**
+- **Brand Association**: "30" represents **Frigga** (F=6th letter × 5 = 30)
+- **Uniqueness**: Rarely used in common setups (avoids conflicts with typical 10.x.x.x or 192.168.x.x)
+- **RFC 1918 Compliant**: Within private IP range (172.16.0.0/12)
+- **Future-Proof**: Allows 256 different /26 networks for future Frigga tools
+- **Professional**: Creates consistent brand identity across all Frigga infrastructure
+
+### **Network Architecture**
+
+```
+Frigga VPC: 172.30.0.0/26 (64 total IPs)
+├── Public Subnet: 172.30.0.0/27 (30 usable IPs)
+│   └── VPN Server: 172.30.0.4 (example)
+└── Private Subnet: 172.30.0.32/27 (30 usable IPs)
+    └── Database: 172.30.0.36 (example)
+
+VPN Networks:
+├── Captive Portal: 172.30.100.0/24 (guest access)
+└── Full Access: 172.30.8.0/21 (authenticated users)
+```
+
+### **Frigga IP Allocation Strategy**
+
+| **Service** | **VPC CIDR** | **Purpose** |
+|-------------|--------------|-------------|
+| **Dvarpala VPN** | `172.30.0.0/26` | VPN infrastructure |
+| **Future Tool A** | `172.30.1.0/26` | Next Frigga service |
+| **Future Tool B** | `172.30.2.0/26` | Additional service |
+| **Development** | `172.30.10.0/26` | Dev environments |
+| **Testing** | `172.30.20.0/26` | Test environments |
+
+This creates a **consistent brand identity** where any `172.30.x.x` IP immediately identifies Frigga Cloud Labs infrastructure.
+
+### **Benefits of /26 Network Design**
+
+**Right-Sized for VPN Infrastructure:**
+- **64 total IPs** (62 usable) - perfect for small to medium deployments
+- **30 IPs each** for public/private subnets - balanced allocation
+- **Efficient** - no wasted IP space, minimal attack surface
+- **Cost-Effective** - reduces cloud provider IP allocation costs
+
+**Security Advantages:**
+- **Small network** = reduced attack surface
+- **Segmented** public/private subnets for defense in depth
+- **Limited scope** for network scanning attempts
+- **Focused monitoring** with manageable IP range
+
 ## Supported Cloud Providers
 
 - **Amazon Web Services (AWS)**
@@ -172,9 +225,9 @@ go run cloud-installer.go \
 ```json
 {
   "network_config": {
-    "vpc_cidr": "10.0.0.0/16",
-    "public_subnet_cidr": "10.0.1.0/24",
-    "private_subnet_cidr": "10.0.2.0/24",
+    "vpc_cidr": "172.30.0.0/26",
+    "public_subnet_cidr": "172.30.0.0/27",
+    "private_subnet_cidr": "172.30.0.32/27",
     "allowed_ips": ["0.0.0.0/0"]
   }
 }
@@ -232,7 +285,7 @@ sudo openvpn admin.ovpn
 ### 2. Access Web Interface
 
 Once connected to VPN:
-- Browse to `http://192.168.100.1:8080`
+- Browse to `http://172.30.100.1:8080`
 - Login with OAuth provider
 - Configure additional users and settings
 
@@ -240,7 +293,7 @@ Once connected to VPN:
 
 ```bash
 # SSH to your server via VPN
-ssh -i ssh-key.pem ubuntu@192.168.100.1
+ssh -i ssh-key.pem ubuntu@172.30.100.1
 ```
 
 ### 4. Generate User Certificates

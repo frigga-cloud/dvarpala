@@ -156,9 +156,9 @@ func runInteractiveSetup() InstallationConfig {
 			},
 		},
 		NetworkConfig: NetworkConfig{
-			VPCCidr:           "10.0.0.0/16",
-			PublicSubnetCidr:  "10.0.1.0/24",
-			PrivateSubnetCidr: "10.0.2.0/24",
+			VPCCidr:           "172.30.0.0/26",
+			PublicSubnetCidr:  "172.30.0.0/27",
+			PrivateSubnetCidr: "172.30.0.32/27",
 		},
 	}
 
@@ -474,9 +474,9 @@ func createConfigFromFlags(provider, region, outputDir string) InstallationConfi
 			},
 		},
 		NetworkConfig: NetworkConfig{
-			VPCCidr:           "10.0.0.0/16",
-			PublicSubnetCidr:  "10.0.1.0/24",
-			PrivateSubnetCidr: "10.0.2.0/24",
+			VPCCidr:           "172.30.0.0/26",
+			PublicSubnetCidr:  "172.30.0.0/27",
+			PrivateSubnetCidr: "172.30.0.32/27",
 		},
 	}
 }
