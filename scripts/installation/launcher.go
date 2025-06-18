@@ -16,8 +16,14 @@ func main() {
 		os.Exit(1)
 	}
 	
-	// Prepare command arguments
-	args := append([]string{"run", installerPath}, os.Args[1:]...)
+	// Prepare command arguments - include all necessary Go files
+	installerFiles := []string{
+		"run",
+		filepath.Join("installer", "cloud-installer.go"),
+		filepath.Join("installer", "cloud_service.go"),
+		filepath.Join("installer", "cloud_wrappers.go"),
+	}
+	args := append(installerFiles, os.Args[1:]...)
 	
 	// Execute the cloud installer
 	cmd := exec.Command("go", args...)
