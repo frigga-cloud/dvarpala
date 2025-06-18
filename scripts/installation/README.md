@@ -310,21 +310,22 @@ curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
 The `scripts/installation/` directory contains all cloud installer components:
 
-### **🚀 Main Installer Files**
+### **🚀 Main Entry Points**
 
 | File | Purpose | Usage |
 |------|---------|-------|
-| **`cloud-installer.go`** | Core cloud installer application | `go run cloud-installer.go` |
-| **`install-dvarpala.sh`** | One-click launcher (advanced) | `curl ... \| bash` |
-| **`install-dvarpala-simple.sh`** | One-click launcher (simple) | `curl ... \| bash` |
+| **`launcher.go`** | Primary entry point - launches cloud installer | `go run launcher.go` |
+| **`installer/cloud-installer.go`** | Core multi-cloud installer application | `go run installer/cloud-installer.go` |
+| **`installer/databaseInstaller.go`** | Database setup and initialization library | Called by other installers |
 
 ### **🔧 Build & Setup Files**
 
 | File | Purpose | Usage |
 |------|---------|-------|
-| **`build.sh`** | Compiles installer binary | `./build.sh` |
-| **`cloud-setup-server.sh`** | VM installation script | Executed automatically |
-| **`install.go`** | Legacy database installer | Compatibility/reference |
+| **`installer/build.sh`** | Compiles installer binary (centralized build logic) | `cd installer && ./build.sh` |
+| **`installer/install-dvarpala.sh`** | One-click launcher (advanced) - auto-installs Go | `curl ... \| bash` |
+| **`installer/install-dvarpala-simple.sh`** | One-click launcher (simple) - requires Go | `curl ... \| bash` |
+| **`installer/cloud-setup-server.sh`** | VM installation script executed via user-data | Executed automatically |
 
 ### **☁️ Cloud Provider Integration**
 
@@ -342,30 +343,59 @@ The `scripts/installation/` directory contains all cloud installer components:
 | **`examples/config-gcp.json`** | GCP configuration template | Service accounts, machine types, zones |
 | **`examples/config-azure.json`** | Azure configuration template | Service principals, VM sizes, regions |
 
-### **📖 Documentation**
+### **📖 Documentation & Dependencies**
 
 | File | Purpose | Contains |
 |------|---------|----------|
 | **`README.md`** | Complete installation guide | Usage, troubleshooting, examples |
+| **`go.mod`** | Go module definition | Dependencies, module name, version requirements |
+| **`go.sum`** | Dependency checksums | Cryptographic hashes for security |
 
 ## 🔄 Installation File Flow
 
+### **Complete Automated Flow:**
 ```
-install-dvarpala.sh
+install-dvarpala.sh (downloads & installs Go if needed)
        ↓
    Downloads repo
        ↓
-   Builds binary → dvarpala-installer
+   Calls build.sh → dvarpala-installer binary
        ↓                    ↓
-   Runs installer → cloud-installer.go
+   Runs via launcher.go → cloud-installer.go
                            ↓
-                   Creates VM with
+                   Uses providers/{aws,gcp,azure}.go
                            ↓
-              cloud-setup-server.sh (user data)
+                   Creates VM with cloud-setup-server.sh (user data)
                            ↓
-                   Installs dvarpala
+                   Uses databaseInstaller.go functions for DB setup
                            ↓
-              Ready-to-use VPN server
+              Ready-to-use VPN server with database
+```
+
+### **Direct Development Flow:**
+```
+launcher.go (or go run installer/cloud-installer.go)
+       ↓
+   installer/cloud-installer.go (interactive wizard)
+       ↓
+   providers/*.go (cloud-specific logic)
+       ↓
+   VM created with installer/cloud-setup-server.sh
+       ↓
+   installer/databaseInstaller.go (database initialization)
+       ↓
+   Complete VPN server deployment
+```
+
+### **Build-Only Flow:**
+```
+build.sh
+   ↓
+go mod tidy + go build
+   ↓
+dvarpala-installer (standalone binary)
+   ↓
+./dvarpala-installer (runs cloud-installer.go)
 ```
 
 ## 🔧 Usage Examples
@@ -376,14 +406,17 @@ install-dvarpala.sh
 git clone https://github.com/yourcompany/dvarpala.git
 cd dvarpala/scripts/installation
 
-# Run installer directly
-go run cloud-installer.go
+# Option 1: Use launcher (recommended)
+go run launcher.go
 
-# Or with configuration file
-go run cloud-installer.go -config=examples/config-aws.json
+# Option 2: Run cloud installer directly
+go run installer/cloud-installer.go
 
-# Or with command line flags
-go run cloud-installer.go -provider=aws -region=us-east-1 -interactive=false
+# Option 3: With configuration file
+go run installer/cloud-installer.go -config=../examples/config-aws.json
+
+# Option 4: With command line flags
+go run installer/cloud-installer.go -provider=aws -region=us-east-1 -interactive=false
 ```
 
 ### **One-Click Methods** (For End Users)
@@ -397,19 +430,24 @@ curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/i
 
 ### **Build Standalone Binary**
 ```bash
-# Build distributable installer
-./build.sh
+# Build distributable installer using centralized build script
+cd installer && ./build.sh
 
-# Run standalone binary
+# Run standalone binary (from installer directory)
 ./dvarpala-installer
+
+# Or build manually (not recommended - use build.sh instead)
+cd installer && go build -o dvarpala-installer cloud-installer.go
 ```
 
 ## ⚠️ Important Notes
 
 ### **Compilation Notes**
-- Run `go run cloud-installer.go` directly for best results
-- If using `go build`, ensure only one main package in directory
-- Use the launcher scripts for automated builds
+- **Recommended**: Use `go run launcher.go` or `./build.sh` for best results
+- **Alternative**: Run `go run cloud-installer.go` directly 
+- **Build process**: `install-dvarpala.sh` now uses `build.sh` (no code duplication)
+- **Architecture**: Modular design with separate files for specific purposes
+- **Database setup**: `databaseInstaller.go` provides reusable database functions
 
 ### **Cloud Provider Requirements**
 - **AWS**: AWS CLI installed and configured, or access keys provided
@@ -418,11 +456,18 @@ curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/i
 
 ### **Current Implementation Status**
 - ✅ **Interactive Setup**: Full implementation for all providers
-- ✅ **VPC Creation**: Basic VPC/resource group creation
-- ⚠️ **VM Provisioning**: Simplified placeholder implementation
-- ⚠️ **Full Automation**: Requires manual VM setup completion
+- ✅ **Modular Architecture**: Clean separation of concerns with dedicated files
+- ✅ **Build Process**: Centralized build logic in `build.sh` (no duplication)
+- ✅ **Entry Points**: Multiple ways to run the installer (`launcher.go`, direct execution)
+- ✅ **Database Setup**: Standalone `databaseInstaller.go` with reusable functions
+- ✅ **Provider Integration**: Dedicated files for AWS, GCP, and Azure implementations
 
-> **Note**: This is a foundational implementation. VM provisioning currently returns placeholders and requires manual completion. The full automation using the separate provider files is available for advanced users.
+### **Architecture Improvements**
+- **🔄 DRY Principle**: `install-dvarpala.sh` now calls `build.sh` instead of duplicating logic
+- **📁 Clear Naming**: `install.go` → `databaseInstaller.go` for better purpose identification  
+- **🚀 Multiple Entry Points**: `launcher.go` as primary entry, direct execution as alternative
+- **🛠️ Centralized Build**: Single `build.sh` script handles all compilation needs
+- **📦 Modular Design**: Each file has a single, clear responsibility
 
 ## Cost Optimization
 

@@ -59,7 +59,7 @@ type NetworkConfig struct {
 	AllowedIPs        []string `json:"allowed_ips"`
 }
 
-func mainInstaller() {
+func cloudInstaller() {
 	var (
 		configFile  = flag.String("config", "", "Configuration file (JSON) with cloud and admin settings")
 		interactive = flag.Bool("interactive", true, "Run in interactive mode")
@@ -612,210 +612,34 @@ type VMInfo struct {
 }
 
 func setupVPC(config InstallationConfig) (string, error) {
-	switch config.Cloud.Provider {
-	case AWS:
-		awsProvider := providers.NewAWSProvider(config.Cloud.Region, providers.AWSCredentials{
-			AccessKeyID:     getStringFromCredentials(config.Cloud.Credentials, "access_key"),
-			SecretAccessKey: getStringFromCredentials(config.Cloud.Credentials, "secret_key"),
-		})
-		if err := awsProvider.SetupEnvironment(); err != nil {
-			return "", err
-		}
-		vpcInfo, err := awsProvider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
-			VPCCidr:           config.NetworkConfig.VPCCidr,
-			PublicSubnetCidr:  config.NetworkConfig.PublicSubnetCidr,
-			PrivateSubnetCidr: config.NetworkConfig.PrivateSubnetCidr,
-			AllowedIPs:        config.NetworkConfig.AllowedIPs,
-		})
-		if err != nil {
-			return "", err
-		}
-		return vpcInfo.VPCID, nil
-
-	case GCP:
-		gcpProvider := providers.NewGCPProvider(config.Cloud.ProjectID, config.Cloud.Region, providers.GCPCredentials{
-			ServiceAccountKey: getStringFromCredentials(config.Cloud.Credentials, "service_account_key"),
-		})
-		if err := gcpProvider.SetupEnvironment(); err != nil {
-			return "", err
-		}
-		vpcInfo, err := gcpProvider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
-			VPCCidr:           config.NetworkConfig.VPCCidr,
-			PublicSubnetCidr:  config.NetworkConfig.PublicSubnetCidr,
-			PrivateSubnetCidr: config.NetworkConfig.PrivateSubnetCidr,
-			AllowedIPs:        config.NetworkConfig.AllowedIPs,
-		})
-		if err != nil {
-			return "", err
-		}
-		return vpcInfo.VPCName, nil
-
-	case Azure:
-		azureProvider := providers.NewAzureProvider("", config.Cloud.Region, providers.AzureCredentials{
-			ClientID:     getStringFromCredentials(config.Cloud.Credentials, "client_id"),
-			ClientSecret: getStringFromCredentials(config.Cloud.Credentials, "client_secret"),
-			TenantID:     getStringFromCredentials(config.Cloud.Credentials, "tenant_id"),
-		})
-		if err := azureProvider.SetupEnvironment(); err != nil {
-			return "", err
-		}
-		vpcInfo, err := azureProvider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
-			VPCCidr:           config.NetworkConfig.VPCCidr,
-			PublicSubnetCidr:  config.NetworkConfig.PublicSubnetCidr,
-			PrivateSubnetCidr: config.NetworkConfig.PrivateSubnetCidr,
-			AllowedIPs:        config.NetworkConfig.AllowedIPs,
-		})
-		if err != nil {
-			return "", err
-		}
-		return vpcInfo.ResourceGroup, nil
-
-	default:
-		return "", fmt.Errorf("unsupported cloud provider: %s", config.Cloud.Provider)
+	cloudService, err := NewCloudService(config)
+	if err != nil {
+		return "", err
 	}
+
+	return cloudService.SetupVPC()
 }
 
 func createAndConfigureVM(config InstallationConfig, vpcID string) (*VMInfo, error) {
-	instanceConfig := providers.InstanceConfig{
-		InstanceType: config.VMConfig.InstanceType,
-		DiskSizeGB:   config.VMConfig.DiskSize,
-		AdminEmail:   config.Admin.Email,
-		AdminName:    config.Admin.FullName,
+	cloudService, err := NewCloudService(config)
+	if err != nil {
+		return nil, err
 	}
 
-	switch config.Cloud.Provider {
-	case AWS:
-		awsProvider := providers.NewAWSProvider(config.Cloud.Region, providers.AWSCredentials{
-			AccessKeyID:     getStringFromCredentials(config.Cloud.Credentials, "access_key"),
-			SecretAccessKey: getStringFromCredentials(config.Cloud.Credentials, "secret_key"),
-		})
-		awsProvider.SetupEnvironment()
-
-		vpcInfo, _ := awsProvider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
-			VPCCidr:           config.NetworkConfig.VPCCidr,
-			PublicSubnetCidr:  config.NetworkConfig.PublicSubnetCidr,
-			PrivateSubnetCidr: config.NetworkConfig.PrivateSubnetCidr,
-			AllowedIPs:        config.NetworkConfig.AllowedIPs,
-		})
-
-		instanceInfo, err := awsProvider.CreateInstance(vpcInfo, instanceConfig)
-		if err != nil {
-			return nil, err
-		}
-
-		return &VMInfo{
-			InstanceID: instanceInfo.InstanceID,
-			PublicIP:   instanceInfo.PublicIP,
-			PrivateIP:  instanceInfo.PrivateIP,
-			SSHKeyPath: instanceInfo.KeyPairName + ".pem",
-		}, nil
-
-	case GCP:
-		gcpProvider := providers.NewGCPProvider(config.Cloud.ProjectID, config.Cloud.Region, providers.GCPCredentials{
-			ServiceAccountKey: getStringFromCredentials(config.Cloud.Credentials, "service_account_key"),
-		})
-		gcpProvider.SetupEnvironment()
-
-		vpcInfo, _ := gcpProvider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
-			VPCCidr:           config.NetworkConfig.VPCCidr,
-			PublicSubnetCidr:  config.NetworkConfig.PublicSubnetCidr,
-			PrivateSubnetCidr: config.NetworkConfig.PrivateSubnetCidr,
-			AllowedIPs:        config.NetworkConfig.AllowedIPs,
-		})
-
-		instanceInfo, err := gcpProvider.CreateInstance(vpcInfo, instanceConfig)
-		if err != nil {
-			return nil, err
-		}
-
-		return &VMInfo{
-			InstanceID: instanceInfo.InstanceName,
-			PublicIP:   instanceInfo.ExternalIP,
-			PrivateIP:  instanceInfo.InternalIP,
-		}, nil
-
-	case Azure:
-		azureProvider := providers.NewAzureProvider("", config.Cloud.Region, providers.AzureCredentials{
-			ClientID:     getStringFromCredentials(config.Cloud.Credentials, "client_id"),
-			ClientSecret: getStringFromCredentials(config.Cloud.Credentials, "client_secret"),
-			TenantID:     getStringFromCredentials(config.Cloud.Credentials, "tenant_id"),
-		})
-		azureProvider.SetupEnvironment()
-
-		vpcInfo, _ := azureProvider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
-			VPCCidr:           config.NetworkConfig.VPCCidr,
-			PublicSubnetCidr:  config.NetworkConfig.PublicSubnetCidr,
-			PrivateSubnetCidr: config.NetworkConfig.PrivateSubnetCidr,
-			AllowedIPs:        config.NetworkConfig.AllowedIPs,
-		})
-
-		instanceInfo, err := azureProvider.CreateInstance(vpcInfo, instanceConfig)
-		if err != nil {
-			return nil, err
-		}
-
-		return &VMInfo{
-			InstanceID: instanceInfo.VMName,
-			PublicIP:   instanceInfo.PublicIP,
-			PrivateIP:  instanceInfo.PrivateIP,
-			SSHKeyPath: instanceInfo.SSHKeyPath,
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported cloud provider: %s", config.Cloud.Provider)
-	}
+	return cloudService.CreateVM(vpcID)
 }
 
 func setupObjectStorage(config InstallationConfig, vmInfo *VMInfo) error {
-	switch config.Cloud.Provider {
-	case AWS:
-		awsProvider := providers.NewAWSProvider(config.Cloud.Region, providers.AWSCredentials{
-			AccessKeyID:     getStringFromCredentials(config.Cloud.Credentials, "access_key"),
-			SecretAccessKey: getStringFromCredentials(config.Cloud.Credentials, "secret_key"),
-		})
-		awsProvider.SetupEnvironment()
-
-		if err := awsProvider.CreateS3Bucket(config.StorageBucket); err != nil {
-			return err
-		}
-
-		// Upload configuration
-		configData, _ := json.MarshalIndent(config, "", "  ")
-		return awsProvider.UploadConfiguration(config.StorageBucket, configData, "installation-config.json")
-
-	case GCP:
-		gcpProvider := providers.NewGCPProvider(config.Cloud.ProjectID, config.Cloud.Region, providers.GCPCredentials{
-			ServiceAccountKey: getStringFromCredentials(config.Cloud.Credentials, "service_account_key"),
-		})
-		gcpProvider.SetupEnvironment()
-
-		if err := gcpProvider.CreateStorageBucket(config.StorageBucket); err != nil {
-			return err
-		}
-
-		// Upload configuration
-		configData, _ := json.MarshalIndent(config, "", "  ")
-		return gcpProvider.UploadConfiguration(config.StorageBucket, configData, "installation-config.json")
-
-	case Azure:
-		azureProvider := providers.NewAzureProvider("", config.Cloud.Region, providers.AzureCredentials{
-			ClientID:     getStringFromCredentials(config.Cloud.Credentials, "client_id"),
-			ClientSecret: getStringFromCredentials(config.Cloud.Credentials, "client_secret"),
-			TenantID:     getStringFromCredentials(config.Cloud.Credentials, "tenant_id"),
-		})
-		azureProvider.SetupEnvironment()
-
-		if err := azureProvider.CreateStorageAccount(config.StorageBucket); err != nil {
-			return err
-		}
-
-		// Upload configuration
-		configData, _ := json.MarshalIndent(config, "", "  ")
-		return azureProvider.UploadConfiguration(config.StorageBucket, configData, "installation-config.json")
-
-	default:
-		return fmt.Errorf("unsupported cloud provider: %s", config.Cloud.Provider)
+	cloudService, err := NewCloudService(config)
+	if err != nil {
+		return err
 	}
+
+	if err := cloudService.SetupObjectStorage(); err != nil {
+		return err
+	}
+
+	return cloudService.UploadConfiguration()
 }
 
 func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
@@ -918,6 +742,301 @@ func getStringFromCredentials(credentials map[string]interface{}, key string) st
 	return ""
 }
 
-func cloudInstaller() {
-	mainInstaller()
+// CloudService provides a unified interface for cloud operations
+type CloudService struct {
+	config   InstallationConfig
+	provider CloudProviderWrapper
+}
+
+// CloudProviderWrapper wraps the different provider types with a common interface
+type CloudProviderWrapper interface {
+	SetupVPC(name string) (string, error)
+	CreateVM(vpcID string, instanceConfig InstanceConfig) (*VMInfo, error)
+	SetupStorage(bucketName string) error
+	UploadConfig(bucketName string, data []byte, filename string) error
+}
+
+// InstanceConfig represents VM configuration for service layer
+type InstanceConfig struct {
+	InstanceType string
+	DiskSizeGB   int
+	AdminEmail   string
+	AdminName    string
+}
+
+// NewCloudService creates a new cloud service
+func NewCloudService(config InstallationConfig) (*CloudService, error) {
+	service := &CloudService{config: config}
+
+	var wrapper CloudProviderWrapper
+	var err error
+
+	switch config.Cloud.Provider {
+	case AWS:
+		wrapper, err = NewAWSWrapper(config)
+	case GCP:
+		wrapper, err = NewGCPWrapper(config)
+	case Azure:
+		wrapper, err = NewAzureWrapper(config)
+	default:
+		return nil, fmt.Errorf("unsupported cloud provider: %s", config.Cloud.Provider)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	service.provider = wrapper
+	return service, nil
+}
+
+// SetupVPC creates or gets VPC
+func (cs *CloudService) SetupVPC() (string, error) {
+	return cs.provider.SetupVPC("frigga-labs")
+}
+
+// CreateVM creates a virtual machine
+func (cs *CloudService) CreateVM(vpcID string) (*VMInfo, error) {
+	instanceConfig := InstanceConfig{
+		InstanceType: cs.config.VMConfig.InstanceType,
+		DiskSizeGB:   cs.config.VMConfig.DiskSize,
+		AdminEmail:   cs.config.Admin.Email,
+		AdminName:    cs.config.Admin.FullName,
+	}
+
+	return cs.provider.CreateVM(vpcID, instanceConfig)
+}
+
+// SetupObjectStorage sets up object storage
+func (cs *CloudService) SetupObjectStorage() error {
+	return cs.provider.SetupStorage(cs.config.StorageBucket)
+}
+
+// UploadConfiguration uploads configuration to object storage
+func (cs *CloudService) UploadConfiguration() error {
+	configData, err := json.MarshalIndent(cs.config, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return cs.provider.UploadConfig(cs.config.StorageBucket, configData, "installation-config.json")
+}
+
+// AWS Wrapper
+type AWSWrapper struct {
+	provider *providers.AWSProvider
+	config   InstallationConfig
+}
+
+func NewAWSWrapper(config InstallationConfig) (*AWSWrapper, error) {
+	awsProvider := providers.NewAWSProvider(config.Cloud.Region, providers.AWSCredentials{
+		AccessKeyID:     getStringFromCredentials(config.Cloud.Credentials, "access_key"),
+		SecretAccessKey: getStringFromCredentials(config.Cloud.Credentials, "secret_key"),
+	})
+
+	if err := awsProvider.SetupEnvironment(); err != nil {
+		return nil, err
+	}
+
+	return &AWSWrapper{
+		provider: awsProvider,
+		config:   config,
+	}, nil
+}
+
+func (aw *AWSWrapper) SetupVPC(name string) (string, error) {
+	vpcInfo, err := aw.provider.CreateOrGetVPC(name, providers.NetworkConfig{
+		VPCCidr:           aw.config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  aw.config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: aw.config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        aw.config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return "", err
+	}
+	return vpcInfo.VPCID, nil
+}
+
+func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VMInfo, error) {
+	vpcInfo, err := aw.provider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
+		VPCCidr:           aw.config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  aw.config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: aw.config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        aw.config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	instanceInfo, err := aw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
+		InstanceType: instanceConfig.InstanceType,
+		DiskSizeGB:   instanceConfig.DiskSizeGB,
+		AdminEmail:   instanceConfig.AdminEmail,
+		AdminName:    instanceConfig.AdminName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &VMInfo{
+		InstanceID: instanceInfo.InstanceID,
+		PublicIP:   instanceInfo.PublicIP,
+		PrivateIP:  instanceInfo.PrivateIP,
+		SSHKeyPath: instanceInfo.KeyPairName + ".pem",
+	}, nil
+}
+
+func (aw *AWSWrapper) SetupStorage(bucketName string) error {
+	return aw.provider.CreateS3Bucket(bucketName)
+}
+
+func (aw *AWSWrapper) UploadConfig(bucketName string, data []byte, filename string) error {
+	return aw.provider.UploadConfiguration(bucketName, data, filename)
+}
+
+// GCP Wrapper
+type GCPWrapper struct {
+	provider *providers.GCPProvider
+	config   InstallationConfig
+}
+
+func NewGCPWrapper(config InstallationConfig) (*GCPWrapper, error) {
+	gcpProvider := providers.NewGCPProvider(config.Cloud.ProjectID, config.Cloud.Region, providers.GCPCredentials{
+		ServiceAccountKey: getStringFromCredentials(config.Cloud.Credentials, "service_account_key"),
+	})
+
+	if err := gcpProvider.SetupEnvironment(); err != nil {
+		return nil, err
+	}
+
+	return &GCPWrapper{
+		provider: gcpProvider,
+		config:   config,
+	}, nil
+}
+
+func (gw *GCPWrapper) SetupVPC(name string) (string, error) {
+	vpcInfo, err := gw.provider.CreateOrGetVPC(name, providers.NetworkConfig{
+		VPCCidr:           gw.config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  gw.config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: gw.config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        gw.config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return "", err
+	}
+	return vpcInfo.VPCName, nil
+}
+
+func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VMInfo, error) {
+	vpcInfo, err := gw.provider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
+		VPCCidr:           gw.config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  gw.config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: gw.config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        gw.config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	instanceInfo, err := gw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
+		InstanceType: instanceConfig.InstanceType,
+		DiskSizeGB:   instanceConfig.DiskSizeGB,
+		AdminEmail:   instanceConfig.AdminEmail,
+		AdminName:    instanceConfig.AdminName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &VMInfo{
+		InstanceID: instanceInfo.InstanceName,
+		PublicIP:   instanceInfo.ExternalIP,
+		PrivateIP:  instanceInfo.InternalIP,
+	}, nil
+}
+
+func (gw *GCPWrapper) SetupStorage(bucketName string) error {
+	return gw.provider.CreateStorageBucket(bucketName)
+}
+
+func (gw *GCPWrapper) UploadConfig(bucketName string, data []byte, filename string) error {
+	return gw.provider.UploadConfiguration(bucketName, data, filename)
+}
+
+// Azure Wrapper
+type AzureWrapper struct {
+	provider *providers.AzureProvider
+	config   InstallationConfig
+}
+
+func NewAzureWrapper(config InstallationConfig) (*AzureWrapper, error) {
+	azureProvider := providers.NewAzureProvider("", config.Cloud.Region, providers.AzureCredentials{
+		ClientID:     getStringFromCredentials(config.Cloud.Credentials, "client_id"),
+		ClientSecret: getStringFromCredentials(config.Cloud.Credentials, "client_secret"),
+		TenantID:     getStringFromCredentials(config.Cloud.Credentials, "tenant_id"),
+	})
+
+	if err := azureProvider.SetupEnvironment(); err != nil {
+		return nil, err
+	}
+
+	return &AzureWrapper{
+		provider: azureProvider,
+		config:   config,
+	}, nil
+}
+
+func (azw *AzureWrapper) SetupVPC(name string) (string, error) {
+	vpcInfo, err := azw.provider.CreateOrGetVPC(name, providers.NetworkConfig{
+		VPCCidr:           azw.config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  azw.config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: azw.config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        azw.config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return "", err
+	}
+	return vpcInfo.ResourceGroup, nil
+}
+
+func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VMInfo, error) {
+	vpcInfo, err := azw.provider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
+		VPCCidr:           azw.config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  azw.config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: azw.config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        azw.config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	instanceInfo, err := azw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
+		InstanceType: instanceConfig.InstanceType,
+		DiskSizeGB:   instanceConfig.DiskSizeGB,
+		AdminEmail:   instanceConfig.AdminEmail,
+		AdminName:    instanceConfig.AdminName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &VMInfo{
+		InstanceID: instanceInfo.VMName,
+		PublicIP:   instanceInfo.PublicIP,
+		PrivateIP:  instanceInfo.PrivateIP,
+		SSHKeyPath: instanceInfo.SSHKeyPath,
+	}, nil
+}
+
+func (azw *AzureWrapper) SetupStorage(bucketName string) error {
+	return azw.provider.CreateStorageAccount(bucketName)
+}
+
+func (azw *AzureWrapper) UploadConfig(bucketName string, data []byte, filename string) error {
+	return azw.provider.UploadConfiguration(bucketName, data, filename)
+}
+
+func main() {
+	cloudInstaller()
 }
