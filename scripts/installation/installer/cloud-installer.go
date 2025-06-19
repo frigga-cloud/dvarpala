@@ -18,11 +18,11 @@ type CloudProvider string
 
 // InstallationProgress represents the current state of installation
 type InstallationProgress struct {
-	CurrentStep     string   `json:"current_step"`
-	CompletedSteps  []string `json:"completed_steps"`
-	TotalSteps      int      `json:"total_steps"`
-	FailedSteps     []string `json:"failed_steps"`
-	InstallationID  string   `json:"installation_id"`
+	CurrentStep    string   `json:"current_step"`
+	CompletedSteps []string `json:"completed_steps"`
+	TotalSteps     int      `json:"total_steps"`
+	FailedSteps    []string `json:"failed_steps"`
+	InstallationID string   `json:"installation_id"`
 }
 
 const (
@@ -55,10 +55,10 @@ type InstallationConfig struct {
 }
 
 type ResourceNames struct {
-	VPCName      string `json:"vpc_name"`
-	VMName       string `json:"vm_name"`
-	BucketName   string `json:"bucket_name"`
-	KeyPairName  string `json:"keypair_name"`
+	VPCName     string `json:"vpc_name"`
+	VMName      string `json:"vm_name"`
+	BucketName  string `json:"bucket_name"`
+	KeyPairName string `json:"keypair_name"`
 }
 
 type VMConfig struct {
@@ -96,9 +96,12 @@ func cloudInstaller() {
 		}
 		fmt.Printf("✅ Configuration loaded from: %s\n", *configFile)
 	} else if *interactive {
+		fmt.Printf("✅ Running in interactive mode\n")
 		config = runInteractiveSetup()
 	} else {
+		fmt.Printf("✅ Creating configuration from flags\n")
 		config = createConfigFromFlags(*provider, *region, *outputDir)
+		fmt.Printf("💬 Config: %+v\n", config)
 	}
 
 	// Generate Frigga resource names
@@ -108,23 +111,27 @@ func cloudInstaller() {
 	if err := validateConfig(config); err != nil {
 		log.Fatalf("❌ Configuration validation failed: %v", err)
 	}
+	fmt.Printf("✅ Configuration validated successfully\n")
 
 	// Create output directory
 	if err := os.MkdirAll(config.OutputDirectory, 0755); err != nil {
 		log.Fatalf("❌ Failed to create output directory: %v", err)
 	}
+	fmt.Printf("✅ Output directory created: %s\n", config.OutputDirectory)
 
 	// Install cloud provider tools
 	fmt.Println("\n🔧 Installing cloud provider tools...")
 	if err := installCloudTools(config.Cloud.Provider); err != nil {
 		log.Fatalf("❌ Failed to install cloud tools: %v", err)
 	}
+	fmt.Printf("✅ Cloud provider tools installed successfully\n")
 
 	// Authenticate with cloud provider
 	fmt.Println("\n🔐 Authenticating with cloud provider...")
 	if err := authenticateCloudProvider(config); err != nil {
 		log.Fatalf("❌ Cloud authentication failed: %v", err)
 	}
+	fmt.Printf("✅ Cloud authentication successful\n")
 
 	// Create or use existing VPC
 	fmt.Println("\n🌐 Setting up VPC infrastructure...")
@@ -136,7 +143,7 @@ func cloudInstaller() {
 
 	// Create VM and install dvarpala
 	fmt.Println("\n💻 Creating VM and installing dvarpala...")
-	vmInfo, err := createAndConfigureVM(config, vpcID)
+	vmInfo, err := CreateVM(config, vpcID)
 	if err != nil {
 		log.Fatalf("❌ VM creation failed: %v", err)
 	}
@@ -543,27 +550,29 @@ func installCloudTools(provider CloudProvider) error {
 
 func installAWSCLI() error {
 	if commandExists("aws") {
+		fmt.Println("✅ AWS CLI already installed")
 		return nil
 	}
-	fmt.Println("Installing AWS CLI...")
-	// Implementation depends on OS
-	return fmt.Errorf("AWS CLI not found. Please install from: https://aws.amazon.com/cli/")
+	fmt.Println("📦 Installing AWS CLI...")
+	return installAWSCLIForPlatform()
 }
 
 func installGCloudCLI() error {
 	if commandExists("gcloud") {
+		fmt.Println("✅ Google Cloud CLI already installed")
 		return nil
 	}
-	fmt.Println("Installing Google Cloud CLI...")
-	return fmt.Errorf("gcloud CLI not found. Please install from: https://cloud.google.com/sdk/docs/install")
+	fmt.Println("📦 Installing Google Cloud CLI...")
+	return installGCloudCLIForPlatform()
 }
 
 func installAzureCLI() error {
 	if commandExists("az") {
+		fmt.Println("✅ Azure CLI already installed")
 		return nil
 	}
-	fmt.Println("Installing Azure CLI...")
-	return fmt.Errorf("Azure CLI not found. Please install from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli")
+	fmt.Println("📦 Installing Azure CLI...")
+	return installAzureCLIForPlatform()
 }
 
 func authenticateCloudProvider(config InstallationConfig) error {
@@ -652,7 +661,7 @@ func setupVPC(config InstallationConfig) (string, error) {
 	return cloudService.SetupVPC()
 }
 
-func createAndConfigureVM(config InstallationConfig, vpcID string) (*VMInfo, error) {
+func CreateVM(config InstallationConfig, vpcID string) (*VMInfo, error) {
 	cloudService, err := NewCloudService(config)
 	if err != nil {
 		return nil, err
@@ -716,7 +725,7 @@ Files Generated:
 - installation-config.json: Full installation configuration
 - admin.ovpn: Admin VPN configuration with auto-open
 - connection-info.txt: This file
-`, config.ResourceNames.VPCName, config.ResourceNames.VMName, 
+`, config.ResourceNames.VPCName, config.ResourceNames.VMName,
 		config.ResourceNames.BucketName, config.ResourceNames.KeyPairName,
 		vmInfo.InstanceID, vmInfo.PublicIP, vmInfo.PrivateIP,
 		config.Admin.Email, config.OutputDirectory,
@@ -780,13 +789,13 @@ func generateResourceNames(config *InstallationConfig) {
 	// Generate consistent resource names with Frigga naming convention
 	config.ResourceNames.VPCName = generateFriggaResourceName("vpc")
 	config.ResourceNames.VMName = generateFriggaResourceName("vm")
-	
+
 	// Use shared bucket for all Frigga tools
 	config.ResourceNames.BucketName = "friggalabs"
 	config.StorageBucket = config.ResourceNames.BucketName
-	
+
 	config.ResourceNames.KeyPairName = generateFriggaResourceName("keypair")
-	
+
 	fmt.Printf("🏷️ Generated resource names:\n")
 	fmt.Printf("   VPC: %s\n", config.ResourceNames.VPCName)
 	fmt.Printf("   VM: %s\n", config.ResourceNames.VMName)
@@ -819,7 +828,7 @@ func waitForInstallationComplete(vmIP string) error {
 	startTime := time.Now()
 	checkInterval := 30 * time.Second
 	progressCheckInterval := 0
-	
+
 	fmt.Println("📊 Monitoring installation progress...")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("🎯 Target VM: %s\n", vmIP)
@@ -830,7 +839,7 @@ func waitForInstallationComplete(vmIP string) error {
 	fmt.Printf("  - Progress: http://%s:8080/installation-progress\n", vmIP)
 	fmt.Printf("  - Status: http://%s:8080/installation-status\n", vmIP)
 	fmt.Println()
-	
+
 	for {
 		// Check if the installation is complete
 		if checkInstallationStatus(vmIP) {
@@ -839,13 +848,13 @@ func waitForInstallationComplete(vmIP string) error {
 			fmt.Printf("⏱️ Total installation time: %s\n", elapsed.Round(time.Second))
 			return nil
 		}
-		
+
 		// Get current installation progress based on actual steps
 		progressCheckInterval++
 		if progressCheckInterval%2 == 0 { // Check every minute (30 seconds * 2)
 			// Debug: Check what's actually happening
 			fmt.Printf("🔍 DEBUG: Checking VM %s\n", vmIP)
-			
+
 			// Test basic connectivity (Note: Many cloud VMs disable ICMP/ping)
 			pingCmd := exec.Command("ping", "-c", "1", "-W", "3", vmIP)
 			if pingErr := pingCmd.Run(); pingErr != nil {
@@ -853,7 +862,7 @@ func waitForInstallationComplete(vmIP string) error {
 			} else {
 				fmt.Printf("✅ VM is reachable via ping\n")
 			}
-			
+
 			// Test SSH connectivity (more reliable than ping)
 			sshCmd := exec.Command("nc", "-z", "-v", "-w", "3", vmIP, "22")
 			if sshErr := sshCmd.Run(); sshErr != nil {
@@ -861,7 +870,7 @@ func waitForInstallationComplete(vmIP string) error {
 			} else {
 				fmt.Printf("✅ SSH port 22 is accessible\n")
 			}
-			
+
 			// Test port 8080 specifically
 			ncCmd := exec.Command("nc", "-z", "-v", "-w", "3", vmIP, "8080")
 			if ncErr := ncCmd.Run(); ncErr != nil {
@@ -869,7 +878,7 @@ func waitForInstallationComplete(vmIP string) error {
 			} else {
 				fmt.Printf("✅ Port 8080 is accessible\n")
 			}
-			
+
 			// Show raw curl output for debugging
 			curlCmd := exec.Command("curl", "-v", "--connect-timeout", "5", "--max-time", "10",
 				fmt.Sprintf("http://%s:8080/health", vmIP))
@@ -878,7 +887,7 @@ func waitForInstallationComplete(vmIP string) error {
 			if curlErr != nil {
 				fmt.Printf("❌ Curl error: %v\n", curlErr)
 			}
-			
+
 			// Test additional endpoints
 			statusCmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "5",
 				fmt.Sprintf("http://%s:8080/installation-status", vmIP))
@@ -888,46 +897,46 @@ func waitForInstallationComplete(vmIP string) error {
 			} else {
 				fmt.Printf("❌ No installation status available: %v\n", statusErr)
 			}
-			
+
 			currentProgress := getActualInstallationProgress(vmIP)
-			fmt.Printf("📊 Progress Debug: CurrentStep='%s', CompletedSteps=%d, TotalSteps=%d\n", 
+			fmt.Printf("📊 Progress Debug: CurrentStep='%s', CompletedSteps=%d, TotalSteps=%d\n",
 				currentProgress.CurrentStep, len(currentProgress.CompletedSteps), currentProgress.TotalSteps)
-			
+
 			if currentProgress.CurrentStep != lastStatus && currentProgress.CurrentStep != "" {
 				fmt.Printf("📋 %s\n", currentProgress.CurrentStep)
 				lastStatus = currentProgress.CurrentStep
-				
+
 				// Show progress summary
 				if len(currentProgress.CompletedSteps) > len(lastCompletedSteps) {
 					newlyCompleted := len(currentProgress.CompletedSteps) - len(lastCompletedSteps)
-					fmt.Printf("✅ Progress: %d/%d steps completed (+%d new)\n", 
-						len(currentProgress.CompletedSteps), 
+					fmt.Printf("✅ Progress: %d/%d steps completed (+%d new)\n",
+						len(currentProgress.CompletedSteps),
 						currentProgress.TotalSteps,
 						newlyCompleted)
 					lastCompletedSteps = currentProgress.CompletedSteps
 				}
 			}
 		}
-		
+
 		// Show periodic status every 4 minutes
 		if progressCheckInterval%8 == 0 {
 			elapsed := time.Since(startTime)
 			fmt.Printf("⏳ Installation running... %s elapsed\n", elapsed.Round(time.Second))
-			
+
 			// Enhanced debugging every 4 minutes
 			fmt.Printf("🔍 DETAILED DEBUG (every 4 minutes):\n")
 			fmt.Printf("  VM IP: %s\n", vmIP)
 			fmt.Printf("  Progress Check Interval: %d\n", progressCheckInterval)
-			
+
 			// Test all monitoring endpoints
 			endpoints := []string{
 				"/health",
-				"/installation-status", 
+				"/installation-status",
 				"/installation-progress",
 				"/completed-steps",
 				"/installation-log",
 			}
-			
+
 			for _, endpoint := range endpoints {
 				url := fmt.Sprintf("http://%s:8080%s", vmIP, endpoint)
 				cmd := exec.Command("curl", "-s", "-I", "--connect-timeout", "3", "--max-time", "5", url)
@@ -943,16 +952,16 @@ func waitForInstallationComplete(vmIP string) error {
 					}
 				}
 			}
-			
+
 			// Show detailed progress
 			currentProgress := getActualInstallationProgress(vmIP)
 			if currentProgress.TotalSteps > 0 {
 				progressPercent := (len(currentProgress.CompletedSteps) * 100) / currentProgress.TotalSteps
-				fmt.Printf("📈 Overall progress: %d%% (%d/%d steps)\n", 
-					progressPercent, 
-					len(currentProgress.CompletedSteps), 
+				fmt.Printf("📈 Overall progress: %d%% (%d/%d steps)\n",
+					progressPercent,
+					len(currentProgress.CompletedSteps),
 					currentProgress.TotalSteps)
-				
+
 				if len(currentProgress.CompletedSteps) > 0 {
 					fmt.Printf("  ✅ Completed steps:\n")
 					for i, step := range currentProgress.CompletedSteps {
@@ -966,9 +975,9 @@ func waitForInstallationComplete(vmIP string) error {
 			}
 			fmt.Printf("\n")
 		}
-		
+
 		time.Sleep(checkInterval)
-		
+
 		// Add a simple counter for user feedback
 		if progressCheckInterval%40 == 0 { // Every 20 minutes
 			fmt.Printf("❤️ Still monitoring... (%d checks completed)\n", progressCheckInterval)
@@ -979,9 +988,9 @@ func waitForInstallationComplete(vmIP string) error {
 // checkInstallationStatus checks if the installation is complete
 func checkInstallationStatus(vmIP string) bool {
 	// Check for completion marker via HTTP endpoint
-	cmd := exec.Command("curl", "-s", "--connect-timeout", "5", "--max-time", "10", 
+	cmd := exec.Command("curl", "-s", "--connect-timeout", "5", "--max-time", "10",
 		fmt.Sprintf("http://%s:8080/health", vmIP))
-	
+
 	err := cmd.Run()
 	return err == nil
 }
@@ -991,7 +1000,7 @@ func getActualInstallationProgress(vmIP string) InstallationProgress {
 	// Try to get structured progress from JSON endpoint
 	cmd := exec.Command("curl", "-s", "--connect-timeout", "5", "--max-time", "10",
 		fmt.Sprintf("http://%s:8080/installation-progress", vmIP))
-	
+
 	output, err := cmd.Output()
 	if err == nil {
 		var progress InstallationProgress
@@ -999,7 +1008,7 @@ func getActualInstallationProgress(vmIP string) InstallationProgress {
 			return progress
 		}
 	}
-	
+
 	// Fallback: parse progress from installation status
 	return parseProgressFromStatus(vmIP)
 }
@@ -1009,18 +1018,18 @@ func getInstallationProgress(vmIP string) string {
 	// Try to get installation progress from the VM log file
 	cmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "8",
 		fmt.Sprintf("http://%s:8080/installation-status", vmIP))
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		// Fallback: try to get progress from installation log
 		return getProgressFromSSH(vmIP)
 	}
-	
+
 	status := strings.TrimSpace(string(output))
 	if status != "" {
 		return status
 	}
-	
+
 	return ""
 }
 
@@ -1029,12 +1038,12 @@ func getProgressFromSSH(vmIP string) string {
 	// Try to read last few lines of installation log via curl to a simple log endpoint
 	cmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "5",
 		fmt.Sprintf("http://%s/installation-log", vmIP))
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) > 0 {
 		lastLine := strings.TrimSpace(lines[len(lines)-1])
@@ -1047,7 +1056,7 @@ func getProgressFromSSH(vmIP string) string {
 		}
 		return lastLine
 	}
-	
+
 	return ""
 }
 
@@ -1055,12 +1064,12 @@ func getProgressFromSSH(vmIP string) string {
 func parseProgressFromStatus(vmIP string) InstallationProgress {
 	// Get current status
 	currentStatus := getInstallationProgress(vmIP)
-	
+
 	// Define expected installation steps
 	allSteps := []string{
 		"System updates and package installations",
 		"Installing core dependencies (PostgreSQL, Redis, OpenVPN)",
-		"Downloading and installing Go programming language", 
+		"Downloading and installing Go programming language",
 		"Downloading dvarpala source code from GitHub",
 		"Compiling dvarpala binaries (server, worker, auth)",
 		"Configuring PostgreSQL database and creating users",
@@ -1072,10 +1081,10 @@ func parseProgressFromStatus(vmIP string) InstallationProgress {
 		"Starting all services and performing health checks",
 		"Finalizing installation and performing cleanup",
 	}
-	
+
 	// Try to determine completed steps based on current status
 	completedSteps := determineCompletedSteps(vmIP, currentStatus, allSteps)
-	
+
 	return InstallationProgress{
 		CurrentStep:    currentStatus,
 		CompletedSteps: completedSteps,
@@ -1088,11 +1097,11 @@ func parseProgressFromStatus(vmIP string) InstallationProgress {
 func determineCompletedSteps(vmIP, currentStatus string, allSteps []string) []string {
 	// This is a basic implementation - in practice, the server should provide this info
 	var completed []string
-	
+
 	// Try to get completed steps from a structured endpoint
 	cmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "5",
 		fmt.Sprintf("http://%s:8080/completed-steps", vmIP))
-	
+
 	output, err := cmd.Output()
 	if err == nil {
 		// Parse JSON array of completed steps
@@ -1101,7 +1110,7 @@ func determineCompletedSteps(vmIP, currentStatus string, allSteps []string) []st
 			return steps
 		}
 	}
-	
+
 	// Fallback: estimate based on current status
 	for i, step := range allSteps {
 		if strings.Contains(currentStatus, step) {
@@ -1112,7 +1121,7 @@ func determineCompletedSteps(vmIP, currentStatus string, allSteps []string) []st
 			break
 		}
 	}
-	
+
 	return completed
 }
 
@@ -1152,24 +1161,24 @@ func getExpectedInstallationStep(minutes int) string {
 func downloadAdminOVPN(config InstallationConfig, vmInfo *VMInfo) error {
 	// Download admin.ovpn file from VM
 	adminOVPNURL := fmt.Sprintf("http://%s/admin.ovpn", vmInfo.PublicIP)
-	
+
 	maxAttempts := 10
 	for i := 0; i < maxAttempts; i++ {
-		cmd := exec.Command("curl", "-s", "-o", 
-			filepath.Join(config.OutputDirectory, "admin.ovpn"), 
+		cmd := exec.Command("curl", "-s", "-o",
+			filepath.Join(config.OutputDirectory, "admin.ovpn"),
 			adminOVPNURL)
-		
+
 		if err := cmd.Run(); err == nil {
 			// Verify the file was downloaded and is not empty
 			if fileExists(filepath.Join(config.OutputDirectory, "admin.ovpn")) {
 				return nil
 			}
 		}
-		
+
 		fmt.Printf("⏳ Waiting for admin.ovpn to be ready... (%d/%d)\n", i+1, maxAttempts)
 		time.Sleep(30 * time.Second)
 	}
-	
+
 	// If download fails, try to generate a basic template
 	return generateBasicOVPNTemplate(config, vmInfo)
 }
@@ -1229,6 +1238,202 @@ up "echo 'Opening captive portal...' && (open http://172.30.100.1:8080 2>/dev/nu
 	return os.WriteFile(ovpnPath, []byte(ovpnTemplate), 0644)
 }
 
+// Platform-specific CLI installation functions
+
+func installAWSCLIForPlatform() error {
+	switch getOperatingSystem() {
+	case "darwin":
+		return installAWSCLIMacOS()
+	case "linux":
+		return installAWSCLILinux()
+	case "windows":
+		return installAWSCLIWindows()
+	default:
+		return fmt.Errorf("AWS CLI installation not supported for this OS. Please install manually from: https://aws.amazon.com/cli/")
+	}
+}
+
+func installGCloudCLIForPlatform() error {
+	switch getOperatingSystem() {
+	case "darwin":
+		return installGCloudCLIMacOS()
+	case "linux":
+		return installGCloudCLILinux()
+	case "windows":
+		return installGCloudCLIWindows()
+	default:
+		return fmt.Errorf("Google Cloud CLI installation not supported for this OS. Please install manually from: https://cloud.google.com/sdk/docs/install")
+	}
+}
+
+func installAzureCLIForPlatform() error {
+	switch getOperatingSystem() {
+	case "darwin":
+		return installAzureCLIMacOS()
+	case "linux":
+		return installAzureCLILinux()
+	case "windows":
+		return installAzureCLIWindows()
+	default:
+		return fmt.Errorf("Azure CLI installation not supported for this OS. Please install manually from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli")
+	}
+}
+
+// macOS installations using Homebrew
+func installAWSCLIMacOS() error {
+	if !commandExists("brew") {
+		return fmt.Errorf("Homebrew not found. Install Homebrew first or install AWS CLI manually")
+	}
+	fmt.Println("📦 Installing AWS CLI via Homebrew...")
+	cmd := exec.Command("brew", "install", "awscli")
+	return cmd.Run()
+}
+
+func installGCloudCLIMacOS() error {
+	if !commandExists("brew") {
+		return fmt.Errorf("Homebrew not found. Install Homebrew first or install Google Cloud CLI manually")
+	}
+	fmt.Println("📦 Installing Google Cloud CLI via Homebrew...")
+	cmd := exec.Command("brew", "install", "--cask", "google-cloud-sdk")
+	return cmd.Run()
+}
+
+func installAzureCLIMacOS() error {
+	if !commandExists("brew") {
+		return fmt.Errorf("Homebrew not found. Install Homebrew first or install Azure CLI manually")
+	}
+	fmt.Println("📦 Installing Azure CLI via Homebrew...")
+	cmd := exec.Command("brew", "install", "azure-cli")
+	return cmd.Run()
+}
+
+// Linux installations
+func installAWSCLILinux() error {
+	fmt.Println("📦 Installing AWS CLI for Linux...")
+
+	// Download and install AWS CLI v2
+	commands := [][]string{
+		{"curl", "-fsSL", "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip", "-o", "/tmp/awscliv2.zip"},
+		{"unzip", "-q", "/tmp/awscliv2.zip", "-d", "/tmp"},
+		{"sudo", "/tmp/aws/install"},
+		{"rm", "-rf", "/tmp/awscliv2.zip", "/tmp/aws"},
+	}
+
+	for _, cmdArgs := range commands {
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to install AWS CLI: %v", err)
+		}
+	}
+	fmt.Println("✅ AWS CLI installed successfully")
+	return nil
+}
+
+func installGCloudCLILinux() error {
+	fmt.Println("📦 Installing Google Cloud CLI for Linux...")
+
+	commands := [][]string{
+		{"curl", "-fsSL", "https://sdk.cloud.google.com", "-o", "/tmp/install.sh"},
+		{"bash", "/tmp/install.sh", "--disable-prompts"},
+		{"rm", "/tmp/install.sh"},
+	}
+
+	for _, cmdArgs := range commands {
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to install Google Cloud CLI: %v", err)
+		}
+	}
+	fmt.Println("✅ Google Cloud CLI installed successfully")
+	return nil
+}
+
+func installAzureCLILinux() error {
+	fmt.Println("📦 Installing Azure CLI for Linux...")
+
+	commands := [][]string{
+		{"curl", "-sL", "https://aka.ms/InstallAzureCLIDeb", "-o", "/tmp/azure_cli_install.sh"},
+		{"sudo", "bash", "/tmp/azure_cli_install.sh"},
+		{"rm", "/tmp/azure_cli_install.sh"},
+	}
+
+	for _, cmdArgs := range commands {
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to install Azure CLI: %v", err)
+		}
+	}
+	fmt.Println("✅ Azure CLI installed successfully")
+	return nil
+}
+
+// Windows installations
+func installAWSCLIWindows() error {
+	fmt.Println("📦 Installing AWS CLI for Windows...")
+
+	if commandExists("winget") {
+		// Use winget if available
+		cmd := exec.Command("winget", "install", "Amazon.AWSCLI")
+		return cmd.Run()
+	} else if commandExists("choco") {
+		// Use chocolatey if available
+		cmd := exec.Command("choco", "install", "awscli", "-y")
+		return cmd.Run()
+	}
+
+	return fmt.Errorf("please install AWS CLI manually from: https://aws.amazon.com/cli/")
+}
+
+func installGCloudCLIWindows() error {
+	fmt.Println("📦 Installing Google Cloud CLI for Windows...")
+
+	if commandExists("winget") {
+		cmd := exec.Command("winget", "install", "Google.CloudSDK")
+		return cmd.Run()
+	} else if commandExists("choco") {
+		cmd := exec.Command("choco", "install", "gcloudsdk", "-y")
+		return cmd.Run()
+	}
+
+	return fmt.Errorf("please install Google Cloud CLI manually from: https://cloud.google.com/sdk/docs/install")
+}
+
+func installAzureCLIWindows() error {
+	fmt.Println("📦 Installing Azure CLI for Windows...")
+
+	if commandExists("winget") {
+		cmd := exec.Command("winget", "install", "Microsoft.AzureCLI")
+		return cmd.Run()
+	} else if commandExists("choco") {
+		cmd := exec.Command("choco", "install", "azure-cli", "-y")
+		return cmd.Run()
+	}
+
+	return fmt.Errorf("please install Azure CLI manually from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli")
+}
+
+// getOperatingSystem returns the current operating system
+func getOperatingSystem() string {
+	cmd := exec.Command("uname", "-s")
+	if output, err := cmd.Output(); err == nil {
+		os := strings.ToLower(strings.TrimSpace(string(output)))
+		switch os {
+		case "darwin":
+			return "darwin"
+		case "linux":
+			return "linux"
+		default:
+			return "unknown"
+		}
+	}
+
+	// Fallback for Windows
+	if commandExists("powershell") || commandExists("cmd") {
+		return "windows"
+	}
+
+	return "unknown"
+}
 
 func main() {
 	cloudInstaller()

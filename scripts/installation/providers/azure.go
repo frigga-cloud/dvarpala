@@ -211,8 +211,8 @@ func (az *AzureProvider) addSecurityRules(resourceGroup, nsgName string) {
 	}
 }
 
-func (az *AzureProvider) CreateInstance(vpcInfo *AzureVPCInfo, config InstanceConfig) (*AzureInstanceInfo, error) {
-	vmName := fmt.Sprintf("dvarpala-vm-%d", time.Now().Unix())
+func (az *AzureProvider) CreateInstance(vpcInfo *AzureVPCInfo, config InstanceConfig, vmName string) (*AzureInstanceInfo, error) {
+	// Use the provided VM name with Frigga Labs naming convention
 	publicIPName := vmName + "-ip"
 	
 	// Create public IP

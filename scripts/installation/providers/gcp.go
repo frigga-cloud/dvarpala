@@ -21,10 +21,10 @@ type GCPCredentials struct {
 }
 
 type GCPVPCInfo struct {
-	VPCName         string
-	SubnetName      string
-	FirewallRule    string
-	ExternalIP      string
+	VPCName      string
+	SubnetName   string
+	FirewallRule string
+	ExternalIP   string
 }
 
 type GCPInstanceInfo struct {
@@ -48,13 +48,13 @@ func (gcp *GCPProvider) SetupEnvironment() error {
 	if gcp.Credentials.ServiceAccountKey != "" {
 		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", gcp.Credentials.ServiceAccountKey)
 	}
-	
+
 	// Set project
 	cmd := exec.Command("gcloud", "config", "set", "project", gcp.ProjectID)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to set GCP project: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -64,16 +64,16 @@ func (gcp *GCPProvider) ValidateAuthentication() error {
 	if err != nil {
 		return fmt.Errorf("GCP authentication failed: %v", err)
 	}
-	
+
 	var accounts []map[string]interface{}
 	if err := json.Unmarshal(output, &accounts); err != nil {
 		return fmt.Errorf("failed to parse GCP auth response: %v", err)
 	}
-	
+
 	if len(accounts) == 0 {
 		return fmt.Errorf("no active GCP authentication found")
 	}
-	
+
 	fmt.Printf("✅ Authenticated as: %s\n", accounts[0]["account"])
 	return nil
 }
@@ -84,12 +84,12 @@ func (gcp *GCPProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*G
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if existingVPC != nil {
 		fmt.Printf("✅ Using existing VPC: %s\n", existingVPC.VPCName)
 		return existingVPC, nil
 	}
-	
+
 	fmt.Printf("🏗️ Creating new VPC: %s\n", vpcName)
 	return gcp.createNewVPC(vpcName, config)
 }
@@ -97,32 +97,32 @@ func (gcp *GCPProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*G
 func (gcp *GCPProvider) findVPCByName(vpcName string) (*GCPVPCInfo, error) {
 	cmd := exec.Command("gcloud", "compute", "networks", "describe", vpcName,
 		"--format=json")
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		// VPC doesn't exist
 		return nil, nil
 	}
-	
+
 	var network map[string]interface{}
 	if err := json.Unmarshal(output, &network); err != nil {
 		return nil, err
 	}
-	
+
 	// Get subnet details
 	subnetName := vpcName + "-subnet"
 	vpcInfo := &GCPVPCInfo{
 		VPCName:    vpcName,
 		SubnetName: subnetName,
 	}
-	
+
 	// Check for existing firewall rule
 	cmd = exec.Command("gcloud", "compute", "firewall-rules", "describe", vpcName+"-allow-dvarpala",
 		"--format=json")
 	if cmd.Run() == nil {
 		vpcInfo.FirewallRule = vpcName + "-allow-dvarpala"
 	}
-	
+
 	return vpcInfo, nil
 }
 
@@ -131,27 +131,27 @@ func (gcp *GCPProvider) createNewVPC(vpcName string, config NetworkConfig) (*GCP
 		VPCName:    vpcName,
 		SubnetName: vpcName + "-subnet",
 	}
-	
+
 	// Create VPC network
 	cmd := exec.Command("gcloud", "compute", "networks", "create", vpcName,
 		"--subnet-mode=custom",
 		"--description=Frigga Labs VPC for dvarpala")
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create VPC: %v", err)
 	}
-	
+
 	// Create subnet
 	cmd = exec.Command("gcloud", "compute", "networks", "subnets", "create", vpcInfo.SubnetName,
 		"--network", vpcName,
 		"--range", config.PublicSubnetCidr,
 		"--region", gcp.Region,
 		"--description=Subnet for dvarpala instances")
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create subnet: %v", err)
 	}
-	
+
 	// Create firewall rules
 	firewallName := vpcName + "-allow-dvarpala"
 	cmd = exec.Command("gcloud", "compute", "firewall-rules", "create", firewallName,
@@ -159,26 +159,27 @@ func (gcp *GCPProvider) createNewVPC(vpcName string, config NetworkConfig) (*GCP
 		"--allow", "tcp:22,tcp:8080,tcp:443,udp:1194",
 		"--source-ranges", "0.0.0.0/0",
 		"--description=Allow dvarpala VPN and web access")
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create firewall rules: %v", err)
 	}
 	vpcInfo.FirewallRule = firewallName
-	
+
 	fmt.Printf("✅ VPC created successfully: %s\n", vpcName)
 	return vpcInfo, nil
 }
 
-func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfig) (*GCPInstanceInfo, error) {
-	instanceName := fmt.Sprintf("dvarpala-server-%d", time.Now().Unix())
-	
+func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfig, vmName string) (*GCPInstanceInfo, error) {
+	// Use the provided VM name with Frigga Labs naming convention
+	instanceName := vmName
+
 	// Get latest Ubuntu image
 	imageFamily := "ubuntu-2204-lts"
 	imageProject := "ubuntu-os-cloud"
-	
+
 	// Generate startup script
 	startupScript := gcp.generateStartupScript(config)
-	
+
 	// Create instance
 	cmd := exec.Command("gcloud", "compute", "instances", "create", instanceName,
 		"--zone", gcp.Zone,
@@ -193,11 +194,11 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 		"--tags", "dvarpala-server",
 		"--labels", "project=dvarpala,managed-by=frigga-labs",
 		"--scopes", "https://www.googleapis.com/auth/cloud-platform")
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create instance: %v", err)
 	}
-	
+
 	// Wait for instance to be running
 	fmt.Printf("⏳ Waiting for instance %s to be running...\n", instanceName)
 	for i := 0; i < 30; i++ {
@@ -206,13 +207,13 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 		}
 		time.Sleep(10 * time.Second)
 	}
-	
+
 	// Get instance details
 	instanceInfo, err := gcp.getInstanceDetails(instanceName)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	fmt.Printf("✅ Instance created: %s (IP: %s)\n", instanceName, instanceInfo.ExternalIP)
 	return instanceInfo, nil
 }
@@ -289,12 +290,12 @@ func (gcp *GCPProvider) isInstanceRunning(instanceName string) bool {
 	cmd := exec.Command("gcloud", "compute", "instances", "describe", instanceName,
 		"--zone", gcp.Zone,
 		"--format=value(status)")
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	
+
 	return strings.TrimSpace(string(output)) == "RUNNING"
 }
 
@@ -302,26 +303,26 @@ func (gcp *GCPProvider) getInstanceDetails(instanceName string) (*GCPInstanceInf
 	cmd := exec.Command("gcloud", "compute", "instances", "describe", instanceName,
 		"--zone", gcp.Zone,
 		"--format=json")
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance details: %v", err)
 	}
-	
+
 	var instance map[string]interface{}
 	if err := json.Unmarshal(output, &instance); err != nil {
 		return nil, err
 	}
-	
+
 	// Extract IP addresses
 	networkInterfaces := instance["networkInterfaces"].([]interface{})
 	if len(networkInterfaces) == 0 {
 		return nil, fmt.Errorf("no network interfaces found")
 	}
-	
+
 	firstInterface := networkInterfaces[0].(map[string]interface{})
 	internalIP := firstInterface["networkIP"].(string)
-	
+
 	var externalIP string
 	if accessConfigs := firstInterface["accessConfigs"]; accessConfigs != nil {
 		configs := accessConfigs.([]interface{})
@@ -332,7 +333,7 @@ func (gcp *GCPProvider) getInstanceDetails(instanceName string) (*GCPInstanceInf
 			}
 		}
 	}
-	
+
 	return &GCPInstanceInfo{
 		InstanceName: instanceName,
 		Zone:         gcp.Zone,
@@ -348,21 +349,21 @@ func (gcp *GCPProvider) CreateStorageBucket(bucketName string) error {
 		fmt.Printf("✅ Using existing GCS bucket: %s\n", bucketName)
 		return nil
 	}
-	
+
 	// Create bucket
 	cmd = exec.Command("gsutil", "mb", "-l", gcp.Region, fmt.Sprintf("gs://%s", bucketName))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create GCS bucket: %v", err)
 	}
-	
+
 	// Enable versioning
 	cmd = exec.Command("gsutil", "versioning", "set", "on", fmt.Sprintf("gs://%s", bucketName))
 	cmd.Run()
-	
+
 	// Create dvarpala folder
 	cmd = exec.Command("gsutil", "cp", "/dev/null", fmt.Sprintf("gs://%s/dvarpala/.gitkeep", bucketName))
 	cmd.Run()
-	
+
 	fmt.Printf("✅ GCS bucket created: %s\n", bucketName)
 	return nil
 }
@@ -378,12 +379,12 @@ func (gcp *GCPProvider) UploadConfiguration(bucketName string, configData []byte
 		return err
 	}
 	defer os.Remove(tempFile)
-	
+
 	// Upload to GCS
 	cmd := exec.Command("gsutil", "cp", tempFile, fmt.Sprintf("gs://%s/dvarpala/%s", bucketName, filename))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to upload configuration to GCS: %v", err)
 	}
-	
+
 	return nil
 }

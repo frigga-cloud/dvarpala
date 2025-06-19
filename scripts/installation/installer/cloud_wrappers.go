@@ -55,13 +55,12 @@ func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 	}
 
 	// Use Frigga naming convention for VM instance
-	// Note: InstanceName and KeyPairName will be handled by the provider internally
 	instanceInfo, err := aw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
 		InstanceType: instanceConfig.InstanceType,
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
-	})
+	}, aw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
 	}
@@ -134,13 +133,12 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 	}
 
 	// Use Frigga naming convention for VM instance
-	// Note: InstanceName will be handled by the provider internally
 	instanceInfo, err := gw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
 		InstanceType: instanceConfig.InstanceType,
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
-	})
+	}, gw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
 	}
@@ -214,13 +212,12 @@ func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (
 	}
 
 	// Use Frigga naming convention for VM instance
-	// Note: InstanceName will be handled by the provider internally
 	instanceInfo, err := azw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
 		InstanceType: instanceConfig.InstanceType,
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
-	})
+	}, azw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
 	}

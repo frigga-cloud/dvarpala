@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 )
 
 type AWSProvider struct {
@@ -293,9 +292,9 @@ func (aws *AWSProvider) addSecurityGroupRules(sgID string, allowedIPs []string) 
 		"--cidr", "0.0.0.0/0").Run()
 }
 
-func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfig) (*AWSInstanceInfo, error) {
-	// Generate key pair name
-	keyPairName := fmt.Sprintf("dvarpala-%d", time.Now().Unix())
+func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfig, vmName string) (*AWSInstanceInfo, error) {
+	// Use Frigga Labs naming convention for key pair
+	keyPairName := vmName + "-keypair"
 	
 	// Create key pair
 	cmd := exec.Command("aws", "ec2", "create-key-pair",
