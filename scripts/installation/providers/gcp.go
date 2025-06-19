@@ -173,6 +173,25 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 	// Use the provided VM name with Frigga Labs naming convention
 	instanceName := vmName
 
+	// Create deployment directory if it doesn't exist
+	deploymentDir := "./dvarpala-deployment"
+	if err := os.MkdirAll(deploymentDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create deployment directory: %v", err)
+	}
+
+	// Generate SSH key pair for this instance
+	sshKeyPath := fmt.Sprintf("%s/%s-key", deploymentDir, instanceName)
+	if err := gcp.generateSSHKeyPair(sshKeyPath); err != nil {
+		return nil, fmt.Errorf("failed to generate SSH key pair: %v", err)
+	}
+
+	// Read public key for instance metadata
+	pubKeyData, err := os.ReadFile(sshKeyPath + ".pub")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read public key: %v", err)
+	}
+	pubKey := strings.TrimSpace(string(pubKeyData))
+
 	// Get latest Ubuntu image
 	imageFamily := "ubuntu-2204-lts"
 	imageProject := "ubuntu-os-cloud"
@@ -180,7 +199,7 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 	// Generate minimal startup script - just basic system prep
 	startupScript := gcp.generateMinimalStartupScript(config)
 
-	// Create instance
+	// Create instance with SSH key
 	cmd := exec.Command("gcloud", "compute", "instances", "create", instanceName,
 		"--zone", gcp.Zone,
 		"--machine-type", config.InstanceType,
@@ -191,6 +210,7 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 		"--boot-disk-type", "pd-standard",
 		"--boot-disk-device-name", instanceName,
 		"--metadata", fmt.Sprintf("startup-script=%s", startupScript),
+		"--metadata", fmt.Sprintf("ssh-keys=ubuntu:%s", pubKey),
 		"--tags", "dvarpala-server",
 		"--labels", "project=dvarpala,managed-by=frigga-labs",
 		"--scopes", "https://www.googleapis.com/auth/cloud-platform")
@@ -253,12 +273,25 @@ echo "Minimal setup completed. Ready for installer connection."
 `, config.AdminEmail, config.AdminName)
 }
 
+// generateSSHKeyPair creates an SSH key pair for the instance
+func (gcp *GCPProvider) generateSSHKeyPair(keyPath string) error {
+	// Generate SSH key pair
+	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-f", keyPath, "-N", "")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to generate SSH key pair: %v", err)
+	}
+	
+	fmt.Printf("🔑 SSH key pair generated: %s\n", keyPath)
+	return nil
+}
+
 // InstallDvarpalaDirectly performs the installation directly via SSH from the installer
-func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, config InstanceConfig) error {
-	fmt.Println("🔗 Connecting to VM for direct installation...")
+func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, config InstanceConfig, keyPath string) error {
+	fmt.Println("🔗 Connecting to GCP VM for direct installation...")
+	fmt.Printf("🔑 Using SSH key: %s\n", keyPath)
 	
 	// Wait for VM to be SSH accessible
-	if err := gcp.waitForSSHAccess(instanceInfo.ExternalIP); err != nil {
+	if err := gcp.waitForSSHAccess(instanceInfo.ExternalIP, keyPath); err != nil {
 		return fmt.Errorf("failed to establish SSH connection: %v", err)
 	}
 	
@@ -283,7 +316,7 @@ func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, c
 	for i, step := range steps {
 		fmt.Printf("📦 Step %d/%d: %s\n", i+1, len(steps), step.name)
 		
-		if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, step.cmd); err != nil {
+		if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, step.cmd, keyPath); err != nil {
 			return fmt.Errorf("failed at step '%s': %v", step.name, err)
 		}
 		
@@ -294,20 +327,16 @@ func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, c
 	return nil
 }
 
-func (gcp *GCPProvider) waitForSSHAccess(vmIP string) error {
+func (gcp *GCPProvider) waitForSSHAccess(vmIP, keyPath string) error {
 	fmt.Printf("⏳ Waiting for SSH access to %s...\n", vmIP)
 	
 	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
-		// Test SSH connectivity
-		cmd := exec.Command("nc", "-z", "-w", "3", vmIP, "22")
-		if cmd.Run() == nil {
-			// SSH port is open, try actual SSH connection
-			sshCmd := exec.Command("ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", 
-				fmt.Sprintf("ubuntu@%s", vmIP), "echo 'SSH Ready'")
-			if sshCmd.Run() == nil {
-				return nil
-			}
+		// Test SSH connectivity with key
+		sshCmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", 
+			fmt.Sprintf("ubuntu@%s", vmIP), "echo 'SSH Ready'")
+		if sshCmd.Run() == nil {
+			return nil
 		}
 		
 		fmt.Printf("⏳ SSH not ready yet... attempt %d/%d\n", i+1, maxAttempts)
@@ -317,8 +346,8 @@ func (gcp *GCPProvider) waitForSSHAccess(vmIP string) error {
 	return fmt.Errorf("SSH access not available after %d attempts", maxAttempts)
 }
 
-func (gcp *GCPProvider) executeSSHCommand(vmIP, command string) error {
-	cmd := exec.Command("ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+func (gcp *GCPProvider) executeSSHCommand(vmIP, command, keyPath string) error {
+	cmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
 		fmt.Sprintf("ubuntu@%s", vmIP), command)
 	
 	output, err := cmd.CombinedOutput()

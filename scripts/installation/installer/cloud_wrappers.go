@@ -66,11 +66,25 @@ func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		return nil, err
 	}
 
+	// Construct SSH key path
+	sshKeyPath := fmt.Sprintf("./dvarpala-deployment/%s.pem", instanceInfo.KeyPairName)
+
+	// Perform direct installation instead of relying on user-data
+	fmt.Println("🚀 Starting direct installation on AWS VM...")
+	if err := aw.provider.InstallDvarpalaDirectly(instanceInfo, providers.InstanceConfig{
+		InstanceType: instanceConfig.InstanceType,
+		DiskSizeGB:   instanceConfig.DiskSizeGB,
+		AdminEmail:   instanceConfig.AdminEmail,
+		AdminName:    instanceConfig.AdminName,
+	}, sshKeyPath); err != nil {
+		return nil, fmt.Errorf("direct installation failed: %v", err)
+	}
+
 	return &VMInfo{
 		InstanceID: instanceInfo.InstanceID,
 		PublicIP:   instanceInfo.PublicIP,
 		PrivateIP:  instanceInfo.PrivateIP,
-		SSHKeyPath: instanceInfo.KeyPairName + ".pem",
+		SSHKeyPath: sshKeyPath,
 	}, nil
 }
 
@@ -144,14 +158,17 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		return nil, err
 	}
 
+	// Construct SSH key path
+	sshKeyPath := fmt.Sprintf("./dvarpala-deployment/%s-key", instanceInfo.InstanceName)
+
 	// Perform direct installation instead of relying on cloud-init
-	fmt.Println("🚀 Starting direct installation on VM...")
+	fmt.Println("🚀 Starting direct installation on GCP VM...")
 	if err := gw.provider.InstallDvarpalaDirectly(instanceInfo, providers.InstanceConfig{
 		InstanceType: instanceConfig.InstanceType,
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
-	}); err != nil {
+	}, sshKeyPath); err != nil {
 		return nil, fmt.Errorf("direct installation failed: %v", err)
 	}
 
@@ -159,6 +176,7 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		InstanceID: instanceInfo.InstanceName,
 		PublicIP:   instanceInfo.ExternalIP,
 		PrivateIP:  instanceInfo.InternalIP,
+		SSHKeyPath: sshKeyPath,
 	}, nil
 }
 
@@ -232,6 +250,17 @@ func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (
 	}, azw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Perform direct installation instead of relying on cloud-init
+	fmt.Println("🚀 Starting direct installation on Azure VM...")
+	if err := azw.provider.InstallDvarpalaDirectly(instanceInfo, providers.InstanceConfig{
+		InstanceType: instanceConfig.InstanceType,
+		DiskSizeGB:   instanceConfig.DiskSizeGB,
+		AdminEmail:   instanceConfig.AdminEmail,
+		AdminName:    instanceConfig.AdminName,
+	}, instanceInfo.SSHKeyPath); err != nil {
+		return nil, fmt.Errorf("direct installation failed: %v", err)
 	}
 
 	return &VMInfo{

@@ -183,6 +183,9 @@ func cloudInstaller() {
 
 	// Final summary
 	printInstallationSummary(config, vmInfo)
+	
+	// Print SSH connection details for manual access
+	printSSHConnectionInfo(vmInfo)
 }
 
 func runInteractiveSetup() InstallationConfig {
@@ -747,6 +750,32 @@ func printInstallationSummary(config InstallationConfig, vmInfo *VMInfo) {
 	}
 	fmt.Println("\n✨ Your Dvarpala VPN server is ready to use!")
 	fmt.Printf("📖 See %s/connection-info.txt for next steps\n", config.OutputDirectory)
+}
+
+func printSSHConnectionInfo(vmInfo *VMInfo) {
+	fmt.Println("\n🔗 SSH Connection Information")
+	fmt.Println("=============================")
+	fmt.Printf("🌐 Server IP: %s\n", vmInfo.PublicIP)
+	if vmInfo.SSHKeyPath != "" {
+		fmt.Printf("🔑 SSH Key: %s\n", vmInfo.SSHKeyPath)
+		
+		// Determine the correct SSH user based on the key path or instance info
+		var sshUser string
+		if strings.Contains(vmInfo.SSHKeyPath, "aws") || strings.Contains(vmInfo.InstanceID, "i-") {
+			sshUser = "ubuntu"
+		} else if strings.Contains(vmInfo.SSHKeyPath, "gcp") || strings.Contains(vmInfo.InstanceID, "friggalabs-vm") {
+			sshUser = "ubuntu"
+		} else if strings.Contains(vmInfo.SSHKeyPath, "azure") {
+			sshUser = "azureuser"
+		} else {
+			sshUser = "ubuntu" // default
+		}
+		
+		fmt.Printf("\n📋 To connect manually:\n")
+		fmt.Printf("   ssh -i %s %s@%s\n", vmInfo.SSHKeyPath, sshUser, vmInfo.PublicIP)
+		fmt.Printf("\n🌐 Access Dvarpala web interface:\n")
+		fmt.Printf("   http://%s:8080/health\n", vmInfo.PublicIP)
+	}
 }
 
 // Utility functions
