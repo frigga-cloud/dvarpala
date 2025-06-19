@@ -821,7 +821,13 @@ func waitForInstallationComplete(vmIP string) error {
 	
 	fmt.Println("📊 Monitoring installation progress...")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("🎯 Target VM: %s\n", vmIP)
 	fmt.Println("⏰ No timeout limit - monitoring until installation completes")
+	fmt.Printf("🔄 Starting monitoring at: %s\n", startTime.Format("2006-01-02 15:04:05"))
+	fmt.Println("📊 Monitoring endpoints:")
+	fmt.Printf("  - Health: http://%s:8080/health\n", vmIP)
+	fmt.Printf("  - Progress: http://%s:8080/installation-progress\n", vmIP)
+	fmt.Printf("  - Status: http://%s:8080/installation-status\n", vmIP)
 	fmt.Println()
 	
 	for {
@@ -836,7 +842,48 @@ func waitForInstallationComplete(vmIP string) error {
 		// Get current installation progress based on actual steps
 		progressCheckInterval++
 		if progressCheckInterval%2 == 0 { // Check every minute (30 seconds * 2)
+			// Debug: Check what's actually happening
+			fmt.Printf("🔍 DEBUG: Checking VM %s\n", vmIP)
+			
+			// Test basic connectivity
+			pingCmd := exec.Command("ping", "-c", "1", "-W", "3", vmIP)
+			if pingErr := pingCmd.Run(); pingErr != nil {
+				fmt.Printf("❌ VM not reachable via ping: %v\n", pingErr)
+			} else {
+				fmt.Printf("✅ VM is reachable via ping\n")
+			}
+			
+			// Test port 8080 specifically
+			ncCmd := exec.Command("nc", "-z", "-v", "-w", "3", vmIP, "8080")
+			if ncErr := ncCmd.Run(); ncErr != nil {
+				fmt.Printf("❌ Port 8080 not accessible: %v\n", ncErr)
+			} else {
+				fmt.Printf("✅ Port 8080 is accessible\n")
+			}
+			
+			// Show raw curl output for debugging
+			curlCmd := exec.Command("curl", "-v", "--connect-timeout", "5", "--max-time", "10",
+				fmt.Sprintf("http://%s:8080/health", vmIP))
+			output, curlErr := curlCmd.CombinedOutput()
+			fmt.Printf("🔍 Raw curl output: %s\n", string(output))
+			if curlErr != nil {
+				fmt.Printf("❌ Curl error: %v\n", curlErr)
+			}
+			
+			// Test additional endpoints
+			statusCmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "5",
+				fmt.Sprintf("http://%s:8080/installation-status", vmIP))
+			statusOutput, statusErr := statusCmd.Output()
+			if statusErr == nil && len(statusOutput) > 0 {
+				fmt.Printf("📝 Installation Status: %s\n", strings.TrimSpace(string(statusOutput)))
+			} else {
+				fmt.Printf("❌ No installation status available: %v\n", statusErr)
+			}
+			
 			currentProgress := getActualInstallationProgress(vmIP)
+			fmt.Printf("📊 Progress Debug: CurrentStep='%s', CompletedSteps=%d, TotalSteps=%d\n", 
+				currentProgress.CurrentStep, len(currentProgress.CompletedSteps), currentProgress.TotalSteps)
+			
 			if currentProgress.CurrentStep != lastStatus && currentProgress.CurrentStep != "" {
 				fmt.Printf("📋 %s\n", currentProgress.CurrentStep)
 				lastStatus = currentProgress.CurrentStep
@@ -858,6 +905,36 @@ func waitForInstallationComplete(vmIP string) error {
 			elapsed := time.Since(startTime)
 			fmt.Printf("⏳ Installation running... %s elapsed\n", elapsed.Round(time.Second))
 			
+			// Enhanced debugging every 4 minutes
+			fmt.Printf("🔍 DETAILED DEBUG (every 4 minutes):\n")
+			fmt.Printf("  VM IP: %s\n", vmIP)
+			fmt.Printf("  Progress Check Interval: %d\n", progressCheckInterval)
+			
+			// Test all monitoring endpoints
+			endpoints := []string{
+				"/health",
+				"/installation-status", 
+				"/installation-progress",
+				"/completed-steps",
+				"/installation-log",
+			}
+			
+			for _, endpoint := range endpoints {
+				url := fmt.Sprintf("http://%s:8080%s", vmIP, endpoint)
+				cmd := exec.Command("curl", "-s", "-I", "--connect-timeout", "3", "--max-time", "5", url)
+				output, err := cmd.Output()
+				if err != nil {
+					fmt.Printf("  ❌ %s: %v\n", endpoint, err)
+				} else {
+					fmt.Printf("  ✅ %s: Available\n", endpoint)
+					// Show first line of HTTP response
+					lines := strings.Split(string(output), "\n")
+					if len(lines) > 0 {
+						fmt.Printf("    Response: %s\n", strings.TrimSpace(lines[0]))
+					}
+				}
+			}
+			
 			// Show detailed progress
 			currentProgress := getActualInstallationProgress(vmIP)
 			if currentProgress.TotalSteps > 0 {
@@ -866,10 +943,27 @@ func waitForInstallationComplete(vmIP string) error {
 					progressPercent, 
 					len(currentProgress.CompletedSteps), 
 					currentProgress.TotalSteps)
+				
+				if len(currentProgress.CompletedSteps) > 0 {
+					fmt.Printf("  ✅ Completed steps:\n")
+					for i, step := range currentProgress.CompletedSteps {
+						fmt.Printf("    %d. %s\n", i+1, step)
+					}
+				} else {
+					fmt.Printf("  ❌ No steps completed yet\n")
+				}
+			} else {
+				fmt.Printf("❌ No progress data available\n")
 			}
+			fmt.Printf("\n")
 		}
 		
 		time.Sleep(checkInterval)
+		
+		// Add a simple counter for user feedback
+		if progressCheckInterval%40 == 0 { // Every 20 minutes
+			fmt.Printf("❤️ Still monitoring... (%d checks completed)\n", progressCheckInterval)
+		}
 	}
 }
 
