@@ -421,30 +421,30 @@ func (az *AzureProvider) executeSSHCommand(vmIP, command, keyPath string) error 
 }
 
 func (az *AzureProvider) configureNginxMonitoring(vmIP, keyPath string) error {
-	// Create the nginx configuration file with proper sudo handling and escaped quotes
-	nginxConfig := `server {
+	// Create the nginx configuration file using a heredoc to avoid quoting issues
+	command := `sudo tee /etc/nginx/sites-available/dvarpala-monitoring > /dev/null << 'EOF'
+server {
     listen 8080;
     server_name _;
     root /var/www/html;
     
     location /health {
-        return 200 "{\"status\":\"healthy\",\"service\":\"dvarpala\"}";
+        return 200 '{"status":"healthy","service":"dvarpala"}';
         add_header Content-Type application/json;
     }
     
     location /installation-progress {
-        return 200 "{\"current_step\":\"Installation completed\",\"completed_steps\":9,\"total_steps\":9}";
+        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
         add_header Content-Type application/json;
     }
     
     location /installation-status {
-        return 200 "Installation completed successfully";
+        return 200 'Installation completed successfully';
         add_header Content-Type text/plain;
     }
-}`
+}
+EOF`
 	
-	// Use printf to handle special characters properly, then pipe to sudo tee
-	command := fmt.Sprintf("printf '%s' | sudo tee /etc/nginx/sites-available/dvarpala-monitoring > /dev/null", nginxConfig)
 	return az.executeSSHCommand(vmIP, command, keyPath)
 }
 
