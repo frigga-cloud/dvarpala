@@ -843,6 +843,25 @@ cloud-installer.go receives and processes the configuration file
 }
 ```
 
+### **🏷️ Automatic Resource Naming**
+
+**Important:** All cloud resource names (VPC, VM, storage buckets, key pairs) are **automatically generated** using the Frigga naming convention. You **cannot manually specify** resource names in the configuration file.
+
+**Generated Names Example:**
+```
+🏷️ Generated resource names:
+   VPC: friggalabs-vpc-k2m9x
+   VM: friggalabs-vm-p3q8n  
+   Storage: friggalabs-storage-7r4t2    // Auto-generated, not user-defined
+   KeyPair: friggalabs-keypair-5h6w1
+```
+
+**Why Automatic Naming:**
+- ✅ **Prevents conflicts**: Unique names across all deployments
+- ✅ **Consistent branding**: All resources easily identifiable as Frigga
+- ✅ **No user errors**: No invalid names or naming conflicts
+- ✅ **Easy management**: Standard pattern for finding resources
+
 ### **Configuration File Usage Scenarios**
 
 #### **1. Automated Deployment**

@@ -383,24 +383,51 @@ func (aws *AWSProvider) getLatestUbuntuAMI() (string, error) {
 
 func (aws *AWSProvider) generateUserData(config InstanceConfig) string {
 	return fmt.Sprintf(`#!/bin/bash
+# Dvarpala AWS Instance Setup Script
+set -euo pipefail
+
+# Logging
+exec > >(tee /var/log/dvarpala-setup.log)
+exec 2>&1
+
+echo "Starting Dvarpala installation at $(date)"
+
 # Update system
 apt-get update -y
 apt-get upgrade -y
 
 # Install dependencies
-apt-get install -y curl wget unzip postgresql-client
+apt-get install -y curl wget unzip git jq postgresql-client
 
-# Download and run dvarpala installation
+# Set environment variables for installation
+export ADMIN_EMAIL='%s'
+export ADMIN_NAME='%s'
+export CLOUD_PROVIDER='aws'
+
+# Download and run dvarpala installation script
 cd /tmp
-curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/provisioning/setup-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/installer/cloud-setup-server.sh -o cloud-setup-server.sh
 
-# Configure admin user
-echo '%s' > /opt/dvarpala/config/admin-email.txt
-echo '%s' > /opt/dvarpala/config/admin-name.txt
+# Make script executable and run
+chmod +x cloud-setup-server.sh
+./cloud-setup-server.sh
+
+# Create admin OpenVPN configuration
+if [ -f /etc/openvpn/server/ca.crt ] && [ -f /opt/dvarpala/certs/admin.crt ]; then
+    echo "Generating admin.ovpn file..."
+    /opt/dvarpala/bin/generate-client-config admin '%s' > /opt/dvarpala/config/admin.ovpn
+    
+    # Copy to web-accessible location for download
+    cp /opt/dvarpala/config/admin.ovpn /var/www/html/admin.ovpn 2>/dev/null || true
+fi
 
 # Signal completion
-/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region} || true
-`, config.AdminEmail, config.AdminName)
+echo "Dvarpala installation completed successfully at $(date)"
+logger "Dvarpala installation completed successfully"
+
+# Create completion marker
+touch /opt/dvarpala/installation-complete
+`, config.AdminEmail, config.AdminName, config.AdminEmail)
 }
 
 func (aws *AWSProvider) getInstanceDetails(instanceID string) (*AWSInstanceInfo, error) {
