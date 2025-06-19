@@ -16,6 +16,15 @@ import (
 
 type CloudProvider string
 
+// InstallationProgress represents the current state of installation
+type InstallationProgress struct {
+	CurrentStep     string   `json:"current_step"`
+	CompletedSteps  []string `json:"completed_steps"`
+	TotalSteps      int      `json:"total_steps"`
+	FailedSteps     []string `json:"failed_steps"`
+	InstallationID  string   `json:"installation_id"`
+}
+
 const (
 	AWS   CloudProvider = "aws"
 	GCP   CloudProvider = "gcp"
@@ -804,50 +813,64 @@ func getStringFromCredentials(credentials map[string]interface{}, key string) st
 
 // waitForInstallationComplete waits for the dvarpala installation to complete on the VM
 func waitForInstallationComplete(vmIP string) error {
-	maxAttempts := 120 // 60 minutes max (30 seconds * 120)
 	lastStatus := ""
+	lastCompletedSteps := []string{}
+	startTime := time.Now()
+	checkInterval := 30 * time.Second
+	progressCheckInterval := 0
 	
 	fmt.Println("📊 Monitoring installation progress...")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("⏰ No timeout limit - monitoring until installation completes")
+	fmt.Println()
 	
-	for i := 0; i < maxAttempts; i++ {
+	for {
 		// Check if the installation is complete
 		if checkInstallationStatus(vmIP) {
 			fmt.Println("✅ Installation completed successfully!")
+			elapsed := time.Since(startTime)
+			fmt.Printf("⏱️ Total installation time: %s\n", elapsed.Round(time.Second))
 			return nil
 		}
 		
-		// Get current installation status every minute
-		if i%2 == 0 { // Check every minute (30 seconds * 2)
-			currentStatus := getInstallationProgress(vmIP)
-			if currentStatus != lastStatus && currentStatus != "" {
-				fmt.Printf("📋 %s\n", currentStatus)
-				lastStatus = currentStatus
+		// Get current installation progress based on actual steps
+		progressCheckInterval++
+		if progressCheckInterval%2 == 0 { // Check every minute (30 seconds * 2)
+			currentProgress := getActualInstallationProgress(vmIP)
+			if currentProgress.CurrentStep != lastStatus && currentProgress.CurrentStep != "" {
+				fmt.Printf("📋 %s\n", currentProgress.CurrentStep)
+				lastStatus = currentProgress.CurrentStep
+				
+				// Show progress summary
+				if len(currentProgress.CompletedSteps) > len(lastCompletedSteps) {
+					newlyCompleted := len(currentProgress.CompletedSteps) - len(lastCompletedSteps)
+					fmt.Printf("✅ Progress: %d/%d steps completed (+%d new)\n", 
+						len(currentProgress.CompletedSteps), 
+						currentProgress.TotalSteps,
+						newlyCompleted)
+					lastCompletedSteps = currentProgress.CompletedSteps
+				}
 			}
 		}
 		
-		// Show progress every 2 minutes
-		if i%4 == 0 {
-			minutesElapsed := (i * 30) / 60
-			fmt.Printf("⏳ Installation in progress... %d minutes elapsed (timeout: 60 minutes)\n", minutesElapsed)
+		// Show periodic status every 4 minutes
+		if progressCheckInterval%8 == 0 {
+			elapsed := time.Since(startTime)
+			fmt.Printf("⏳ Installation running... %s elapsed\n", elapsed.Round(time.Second))
 			
-			// Show what typically happens at this time
-			expectedStep := getExpectedInstallationStep(minutesElapsed)
-			if expectedStep != "" {
-				fmt.Printf("💡 Expected at %d minutes: %s\n", minutesElapsed, expectedStep)
+			// Show detailed progress
+			currentProgress := getActualInstallationProgress(vmIP)
+			if currentProgress.TotalSteps > 0 {
+				progressPercent := (len(currentProgress.CompletedSteps) * 100) / currentProgress.TotalSteps
+				fmt.Printf("📈 Overall progress: %d%% (%d/%d steps)\n", 
+					progressPercent, 
+					len(currentProgress.CompletedSteps), 
+					currentProgress.TotalSteps)
 			}
 		}
 		
-		time.Sleep(30 * time.Second)
+		time.Sleep(checkInterval)
 	}
-	
-	// Try to get final status before timing out
-	finalStatus := getInstallationProgress(vmIP)
-	if finalStatus != "" {
-		fmt.Printf("🔍 Last known status: %s\n", finalStatus)
-	}
-	
-	return fmt.Errorf("installation did not complete within 60 minutes")
 }
 
 // checkInstallationStatus checks if the installation is complete
@@ -860,7 +883,25 @@ func checkInstallationStatus(vmIP string) bool {
 	return err == nil
 }
 
-// getInstallationProgress fetches the current installation status from the VM
+// getActualInstallationProgress fetches structured installation progress from the VM
+func getActualInstallationProgress(vmIP string) InstallationProgress {
+	// Try to get structured progress from JSON endpoint
+	cmd := exec.Command("curl", "-s", "--connect-timeout", "5", "--max-time", "10",
+		fmt.Sprintf("http://%s:8080/installation-progress", vmIP))
+	
+	output, err := cmd.Output()
+	if err == nil {
+		var progress InstallationProgress
+		if json.Unmarshal(output, &progress) == nil {
+			return progress
+		}
+	}
+	
+	// Fallback: parse progress from installation status
+	return parseProgressFromStatus(vmIP)
+}
+
+// getInstallationProgress fetches the current installation status from the VM (legacy function)
 func getInstallationProgress(vmIP string) string {
 	// Try to get installation progress from the VM log file
 	cmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "8",
@@ -907,7 +948,72 @@ func getProgressFromSSH(vmIP string) string {
 	return ""
 }
 
-// getExpectedInstallationStep returns what should typically be happening at a given time
+// parseProgressFromStatus parses installation progress from status endpoint
+func parseProgressFromStatus(vmIP string) InstallationProgress {
+	// Get current status
+	currentStatus := getInstallationProgress(vmIP)
+	
+	// Define expected installation steps
+	allSteps := []string{
+		"System updates and package installations",
+		"Installing core dependencies (PostgreSQL, Redis, OpenVPN)",
+		"Downloading and installing Go programming language", 
+		"Downloading dvarpala source code from GitHub",
+		"Compiling dvarpala binaries (server, worker, auth)",
+		"Configuring PostgreSQL database and creating users",
+		"Setting up Redis cache and OpenVPN server",
+		"Generating SSL certificates and OpenVPN keys",
+		"Configuring firewall rules and network settings",
+		"Creating systemd services and starting processes",
+		"Generating admin certificates and VPN configuration",
+		"Starting all services and performing health checks",
+		"Finalizing installation and performing cleanup",
+	}
+	
+	// Try to determine completed steps based on current status
+	completedSteps := determineCompletedSteps(vmIP, currentStatus, allSteps)
+	
+	return InstallationProgress{
+		CurrentStep:    currentStatus,
+		CompletedSteps: completedSteps,
+		TotalSteps:     len(allSteps),
+		FailedSteps:    []string{}, // TODO: implement failure detection
+	}
+}
+
+// determineCompletedSteps tries to figure out which steps are completed
+func determineCompletedSteps(vmIP, currentStatus string, allSteps []string) []string {
+	// This is a basic implementation - in practice, the server should provide this info
+	var completed []string
+	
+	// Try to get completed steps from a structured endpoint
+	cmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "5",
+		fmt.Sprintf("http://%s:8080/completed-steps", vmIP))
+	
+	output, err := cmd.Output()
+	if err == nil {
+		// Parse JSON array of completed steps
+		var steps []string
+		if json.Unmarshal(output, &steps) == nil {
+			return steps
+		}
+	}
+	
+	// Fallback: estimate based on current status
+	for i, step := range allSteps {
+		if strings.Contains(currentStatus, step) {
+			// Current step found, assume all previous steps are completed
+			for j := 0; j < i; j++ {
+				completed = append(completed, allSteps[j])
+			}
+			break
+		}
+	}
+	
+	return completed
+}
+
+// getExpectedInstallationStep returns what should typically be happening at a given time (deprecated)
 func getExpectedInstallationStep(minutes int) string {
 	switch {
 	case minutes < 2:
