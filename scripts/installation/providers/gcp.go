@@ -377,13 +377,23 @@ func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, c
 	}
 	fmt.Printf("✅ Completed: Generating admin OpenVPN configuration\n")
 	
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+5, "Making admin.ovpn available for download")
+	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+6, "Making admin.ovpn temporarily available for download")
 	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, "echo '🔍 DEBUG: Copying admin.ovpn to web directory' && sudo cp /home/$(whoami)/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn && echo '🔍 DEBUG: File copied. Checking web directory:' && ls -la /var/www/html/admin.ovpn && wc -l /var/www/html/admin.ovpn && echo '🔍 DEBUG: Testing HTTP access:' && curl -s -I http://localhost/admin.ovpn", keyPath); err != nil {
 		return fmt.Errorf("failed to make admin.ovpn downloadable: %v", err)
 	}
-	fmt.Printf("✅ Completed: Making admin.ovpn available for download\n")
+	fmt.Printf("✅ Completed: Making admin.ovpn temporarily available for download\n")
+	
+	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+6, len(steps)+6, "Cleaning up public admin.ovpn file")
+	// Give the installer 2 minutes to download the file, then remove it from public access
+	cleanupCommand := "sleep 120 && sudo rm -f /var/www/html/admin.ovpn && echo '🔒 SECURITY: admin.ovpn removed from public web directory for security'"
+	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, fmt.Sprintf("nohup bash -c '%s' > /dev/null 2>&1 &", cleanupCommand), keyPath); err != nil {
+		return fmt.Errorf("failed to schedule admin.ovpn cleanup: %v", err)
+	}
+	fmt.Printf("✅ Completed: Scheduled cleanup of public admin.ovpn file in 2 minutes\n")
 	
 	fmt.Println("🎉 Dvarpala installation completed successfully!")
+	fmt.Println("🔒 SECURITY NOTE: admin.ovpn will be automatically removed from public access in 2 minutes")
+	fmt.Println("📋 The installer will download the file immediately - please wait for download completion")
 	return nil
 }
 

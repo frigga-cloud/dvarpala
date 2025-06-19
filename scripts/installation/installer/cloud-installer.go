@@ -183,7 +183,7 @@ func cloudInstaller() {
 
 	// Final summary
 	printInstallationSummary(config, vmInfo)
-	
+
 	// Print SSH connection details for manual access
 	printSSHConnectionInfo(vmInfo)
 }
@@ -758,7 +758,7 @@ func printSSHConnectionInfo(vmInfo *VMInfo) {
 	fmt.Printf("🌐 Server IP: %s\n", vmInfo.PublicIP)
 	if vmInfo.SSHKeyPath != "" {
 		fmt.Printf("🔑 SSH Key: %s\n", vmInfo.SSHKeyPath)
-		
+
 		// Determine the correct SSH user based on the key path or instance info
 		var sshUser string
 		if strings.Contains(vmInfo.SSHKeyPath, "aws") || strings.Contains(vmInfo.InstanceID, "i-") {
@@ -770,7 +770,7 @@ func printSSHConnectionInfo(vmInfo *VMInfo) {
 		} else {
 			sshUser = "ubuntu" // default
 		}
-		
+
 		fmt.Printf("\n📋 To connect manually:\n")
 		fmt.Printf("   ssh -i %s %s@%s\n", vmInfo.SSHKeyPath, sshUser, vmInfo.PublicIP)
 		fmt.Printf("\n🌐 Access Dvarpala web interface:\n")
@@ -1206,7 +1206,7 @@ func getExpectedInstallationStep(minutes int) string {
 // downloadAdminOVPN downloads the admin.ovpn file from the VM
 func downloadAdminOVPN(config InstallationConfig, vmInfo *VMInfo) error {
 	// Download admin.ovpn file from VM
-	adminOVPNURL := fmt.Sprintf("http://%s/admin.ovpn", vmInfo.PublicIP)
+	adminOVPNURL := fmt.Sprintf("http://%s:8080/admin.ovpn", vmInfo.PublicIP)
 
 	maxAttempts := 10
 	for i := 0; i < maxAttempts; i++ {
