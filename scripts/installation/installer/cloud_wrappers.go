@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"dvarpala-cloud-installer/providers"
 )
 
@@ -141,6 +142,17 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 	}, gw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Perform direct installation instead of relying on cloud-init
+	fmt.Println("🚀 Starting direct installation on VM...")
+	if err := gw.provider.InstallDvarpalaDirectly(instanceInfo, providers.InstanceConfig{
+		InstanceType: instanceConfig.InstanceType,
+		DiskSizeGB:   instanceConfig.DiskSizeGB,
+		AdminEmail:   instanceConfig.AdminEmail,
+		AdminName:    instanceConfig.AdminName,
+	}); err != nil {
+		return nil, fmt.Errorf("direct installation failed: %v", err)
 	}
 
 	return &VMInfo{

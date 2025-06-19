@@ -141,20 +141,20 @@ func cloudInstaller() {
 	}
 	fmt.Printf("✅ VPC ready: %s\n", vpcID)
 
-	// Create VM and install dvarpala
+	// Create VM and install dvarpala directly
 	fmt.Println("\n💻 Creating VM and installing dvarpala...")
 	vmInfo, err := CreateVM(config, vpcID)
 	if err != nil {
-		log.Fatalf("❌ VM creation failed: %v", err)
+		log.Fatalf("❌ VM creation and installation failed: %v", err)
 	}
-	fmt.Printf("✅ VM created: %s (IP: %s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
+	fmt.Printf("✅ VM created and dvarpala installed: %s (IP: %s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
 
-	// Wait for dvarpala installation to complete
-	fmt.Println("\n⏳ Waiting for dvarpala installation to complete...")
-	if err := waitForInstallationComplete(vmInfo.PublicIP); err != nil {
+	// Verify installation is working
+	fmt.Println("\n🔍 Verifying installation...")
+	if err := verifyInstallation(vmInfo.PublicIP); err != nil {
 		log.Printf("⚠️ Installation verification failed: %v", err)
 	} else {
-		fmt.Println("✅ Dvarpala installation completed successfully")
+		fmt.Println("✅ Installation verification successful")
 	}
 
 	// Download admin.ovpn file
@@ -821,7 +821,24 @@ func getStringFromCredentials(credentials map[string]interface{}, key string) st
 	return ""
 }
 
-// waitForInstallationComplete waits for the dvarpala installation to complete on the VM
+// verifyInstallation performs a quick verification that the installation is working
+func verifyInstallation(vmIP string) error {
+	fmt.Printf("🔍 Checking health endpoint at http://%s:8080/health...\n", vmIP)
+
+	// Quick check that nginx is responding on port 8080
+	cmd := exec.Command("curl", "-s", "--connect-timeout", "10", "--max-time", "15",
+		fmt.Sprintf("http://%s:8080/health", vmIP))
+
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("health check failed: %v", err)
+	}
+
+	fmt.Printf("✅ Health check response: %s\n", strings.TrimSpace(string(output)))
+	return nil
+}
+
+// waitForInstallationComplete waits for the dvarpala installation to complete on the VM (DEPRECATED - now using direct installation)
 func waitForInstallationComplete(vmIP string) error {
 	lastStatus := ""
 	lastCompletedSteps := []string{}

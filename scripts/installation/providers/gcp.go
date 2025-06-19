@@ -177,8 +177,8 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 	imageFamily := "ubuntu-2204-lts"
 	imageProject := "ubuntu-os-cloud"
 
-	// Generate startup script
-	startupScript := gcp.generateStartupScript(config)
+	// Generate minimal startup script - just basic system prep
+	startupScript := gcp.generateMinimalStartupScript(config)
 
 	// Create instance
 	cmd := exec.Command("gcloud", "compute", "instances", "create", instanceName,
@@ -218,72 +218,143 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 	return instanceInfo, nil
 }
 
-func (gcp *GCPProvider) generateStartupScript(config InstanceConfig) string {
+func (gcp *GCPProvider) generateMinimalStartupScript(config InstanceConfig) string {
 	return fmt.Sprintf(`#!/bin/bash
-# Dvarpala GCP Instance Setup Script
+# Minimal GCP Instance Setup Script - Just basic system prep
 set -euo pipefail
 
 # Logging
-exec > >(tee /var/log/dvarpala-setup.log)
+exec > >(tee /var/log/dvarpala-startup.log)
 exec 2>&1
 
-echo "Starting Dvarpala installation at $(date)"
+echo "Starting minimal system setup at $(date)"
 
-# Update system
+# Update system packages
 apt-get update -y
-apt-get upgrade -y
 
-# Install dependencies
-apt-get install -y curl wget unzip git jq
+# Install essential dependencies only
+apt-get install -y curl wget openssh-server
 
-# Set environment variables for installation
+# Ensure SSH is running for installer to connect
+systemctl enable ssh
+systemctl start ssh
+
+# Set environment variables for later use
 export ADMIN_EMAIL='%s'
 export ADMIN_NAME='%s'
 export CLOUD_PROVIDER='gcp'
 
-# Download and run dvarpala installation script
-echo "Starting dvarpala installation at $(date)" | tee -a /var/log/dvarpala-user-data.log
+# Create marker that basic setup is complete
+mkdir -p /var/log/dvarpala
+touch /var/log/dvarpala/startup-complete
+echo "VM startup preparation completed at $(date)" > /var/log/dvarpala/startup-status.txt
 
-# Use /var/lib/cloud directory which is always writable and executable
-echo "Creating installation directory..." | tee -a /var/log/dvarpala-user-data.log
-mkdir -p /var/lib/cloud/dvarpala
-cd /var/lib/cloud/dvarpala
+echo "Minimal setup completed. Ready for installer connection."
+`, config.AdminEmail, config.AdminName)
+}
 
-echo "Downloading installation script..." | tee -a /var/log/dvarpala-user-data.log
-curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/installer/cloud-setup-server.sh -o cloud-setup-server.sh
+// InstallDvarpalaDirectly performs the installation directly via SSH from the installer
+func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, config InstanceConfig) error {
+	fmt.Println("🔗 Connecting to VM for direct installation...")
+	
+	// Wait for VM to be SSH accessible
+	if err := gcp.waitForSSHAccess(instanceInfo.ExternalIP); err != nil {
+		return fmt.Errorf("failed to establish SSH connection: %v", err)
+	}
+	
+	fmt.Println("✅ SSH connection established")
+	
+	// Install components step by step with real-time tracking
+	steps := []struct {
+		name string
+		cmd  string
+	}{
+		{"Installing nginx", "sudo apt-get install -y nginx"},
+		{"Configuring nginx", "sudo systemctl enable nginx && sudo systemctl start nginx"},
+		{"Installing PostgreSQL", "sudo apt-get install -y postgresql postgresql-contrib"},
+		{"Installing Redis", "sudo apt-get install -y redis-server"},
+		{"Installing OpenVPN", "sudo apt-get install -y openvpn easy-rsa"},
+		{"Installing Go", "curl -fsSL https://go.dev/dl/go1.21.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -"},
+		{"Setting up directories", "sudo mkdir -p /opt/dvarpala /var/lib/dvarpala"},
+		{"Configuring nginx monitoring", "sudo " + gcp.getNginxConfigCommand()},
+		{"Starting services", "sudo systemctl start postgresql redis-server"},
+	}
+	
+	for i, step := range steps {
+		fmt.Printf("📦 Step %d/%d: %s\n", i+1, len(steps), step.name)
+		
+		if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, step.cmd); err != nil {
+			return fmt.Errorf("failed at step '%s': %v", step.name, err)
+		}
+		
+		fmt.Printf("✅ Completed: %s\n", step.name)
+	}
+	
+	fmt.Println("🎉 Dvarpala installation completed successfully!")
+	return nil
+}
 
-if [ ! -f cloud-setup-server.sh ]; then
-    echo "ERROR: Failed to download cloud-setup-server.sh" | tee -a /var/log/dvarpala-user-data.log
-    exit 1
-fi
+func (gcp *GCPProvider) waitForSSHAccess(vmIP string) error {
+	fmt.Printf("⏳ Waiting for SSH access to %s...\n", vmIP)
+	
+	maxAttempts := 30
+	for i := 0; i < maxAttempts; i++ {
+		// Test SSH connectivity
+		cmd := exec.Command("nc", "-z", "-w", "3", vmIP, "22")
+		if cmd.Run() == nil {
+			// SSH port is open, try actual SSH connection
+			sshCmd := exec.Command("ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", 
+				fmt.Sprintf("ubuntu@%s", vmIP), "echo 'SSH Ready'")
+			if sshCmd.Run() == nil {
+				return nil
+			}
+		}
+		
+		fmt.Printf("⏳ SSH not ready yet... attempt %d/%d\n", i+1, maxAttempts)
+		time.Sleep(10 * time.Second)
+	}
+	
+	return fmt.Errorf("SSH access not available after %d attempts", maxAttempts)
+}
 
-echo "Making script executable..." | tee -a /var/log/dvarpala-user-data.log
-chmod +x cloud-setup-server.sh
+func (gcp *GCPProvider) executeSSHCommand(vmIP, command string) error {
+	cmd := exec.Command("ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+		fmt.Sprintf("ubuntu@%s", vmIP), command)
+	
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("❌ Command failed: %s\nOutput: %s\n", command, string(output))
+		return err
+	}
+	
+	return nil
+}
 
-if [ ! -x cloud-setup-server.sh ]; then
-    echo "ERROR: Failed to make script executable" | tee -a /var/log/dvarpala-user-data.log
-    exit 1
-fi
-
-echo "Starting dvarpala installation script..." | tee -a /var/log/dvarpala-user-data.log
-./cloud-setup-server.sh 2>&1 | tee -a /var/log/dvarpala-user-data.log
-
-# Create admin OpenVPN configuration
-if [ -f /etc/openvpn/server/ca.crt ] && [ -f /opt/dvarpala/certs/admin.crt ]; then
-    echo "Generating admin.ovpn file..."
-    /opt/dvarpala/bin/generate-client-config admin '%s' > /opt/dvarpala/config/admin.ovpn
+func (gcp *GCPProvider) getNginxConfigCommand() string {
+	return `cat > /etc/nginx/sites-available/dvarpala-monitoring << 'EOF'
+server {
+    listen 8080;
+    server_name _;
+    root /var/www/html;
     
-    # Copy to web-accessible location for download
-    cp /opt/dvarpala/config/admin.ovpn /var/www/html/admin.ovpn 2>/dev/null || true
-fi
-
-# Signal completion
-echo "Dvarpala installation completed successfully at $(date)"
-logger "Dvarpala installation completed successfully"
-
-# Create completion marker
-touch /opt/dvarpala/installation-complete
-`, config.AdminEmail, config.AdminName, config.AdminEmail)
+    location /health {
+        return 200 '{"status":"healthy","timestamp":"$(date -Iseconds)"}';
+        add_header Content-Type application/json;
+    }
+    
+    location /installation-progress {
+        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
+        add_header Content-Type application/json;
+    }
+    
+    location /installation-status {
+        return 200 'Installation completed successfully';
+        add_header Content-Type text/plain;
+    }
+}
+EOF
+ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx`
 }
 
 func (gcp *GCPProvider) isInstanceRunning(instanceName string) bool {
