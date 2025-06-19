@@ -780,16 +780,17 @@ func generateResourceNames(config *InstallationConfig) {
 	// Generate consistent resource names with Frigga naming convention
 	config.ResourceNames.VPCName = generateFriggaResourceName("vpc")
 	config.ResourceNames.VMName = generateFriggaResourceName("vm")
-	config.ResourceNames.BucketName = generateFriggaResourceName("storage")
-	config.ResourceNames.KeyPairName = generateFriggaResourceName("keypair")
 	
-	// Update storage bucket name to use new naming convention
+	// Use shared bucket for all Frigga tools
+	config.ResourceNames.BucketName = "friggalabs"
 	config.StorageBucket = config.ResourceNames.BucketName
+	
+	config.ResourceNames.KeyPairName = generateFriggaResourceName("keypair")
 	
 	fmt.Printf("🏷️ Generated resource names:\n")
 	fmt.Printf("   VPC: %s\n", config.ResourceNames.VPCName)
 	fmt.Printf("   VM: %s\n", config.ResourceNames.VMName)
-	fmt.Printf("   Storage: %s\n", config.ResourceNames.BucketName)
+	fmt.Printf("   Storage: %s (shared Frigga bucket)\n", config.ResourceNames.BucketName)
 	fmt.Printf("   KeyPair: %s\n", config.ResourceNames.KeyPairName)
 }
 

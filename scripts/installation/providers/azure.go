@@ -412,6 +412,11 @@ func (az *AzureProvider) CreateStorageAccount(accountName string) error {
 		"--resource-group", resourceGroup)
 	if cmd.Run() == nil {
 		fmt.Printf("✅ Using existing storage account: %s\n", accountName)
+		// Ensure friggalabs container exists
+		cmd = exec.Command("az", "storage", "container", "create",
+			"--name", "friggalabs",
+			"--account-name", accountName)
+		cmd.Run() // Create container if it doesn't exist
 		return nil
 	}
 	
@@ -422,19 +427,27 @@ func (az *AzureProvider) CreateStorageAccount(accountName string) error {
 		"--location", az.Region,
 		"--sku", "Standard_LRS",
 		"--kind", "StorageV2",
-		"--tags", "Project=dvarpala", "ManagedBy=frigga-labs")
+		"--tags", "Project=frigga-tools", "ManagedBy=frigga-labs")
 	
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create storage account: %v", err)
 	}
 	
-	// Create container
+	// Create shared friggalabs container
 	cmd = exec.Command("az", "storage", "container", "create",
-		"--name", "dvarpala",
+		"--name", "friggalabs",
 		"--account-name", accountName)
 	cmd.Run()
 	
-	fmt.Printf("✅ Storage account created: %s\n", accountName)
+	// Create dvarpala directory marker (Azure blob)
+	cmd = exec.Command("az", "storage", "blob", "upload",
+		"--account-name", accountName,
+		"--container-name", "friggalabs",
+		"--name", "dvarpala/.gitkeep",
+		"--file", "/dev/null")
+	cmd.Run()
+	
+	fmt.Printf("✅ Storage account created: %s (with shared friggalabs container)\n", accountName)
 	return nil
 }
 
@@ -446,11 +459,11 @@ func (az *AzureProvider) UploadConfiguration(accountName string, configData []by
 	}
 	defer os.Remove(tempFile)
 	
-	// Upload to Azure Storage
+	// Upload to Azure Storage in shared friggalabs container, dvarpala directory
 	cmd := exec.Command("az", "storage", "blob", "upload",
 		"--account-name", accountName,
-		"--container-name", "dvarpala",
-		"--name", filename,
+		"--container-name", "friggalabs",
+		"--name", fmt.Sprintf("dvarpala/%s", filename),
 		"--file", tempFile)
 	
 	if err := cmd.Run(); err != nil {
