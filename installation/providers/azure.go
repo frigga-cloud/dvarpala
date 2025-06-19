@@ -588,32 +588,6 @@ chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
 	return az.executeSSHCommand(vmIP, command, keyPath)
 }
 
-func (az *AzureProvider) getNginxConfigCommand() string {
-	return `cat > /etc/nginx/sites-available/dvarpala-monitoring << 'EOF'
-server {
-    listen 8080;
-    server_name _;
-    root /var/www/html;
-    
-    location /health {
-        return 200 '{"status":"healthy","timestamp":"$(date -Iseconds)"}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-progress {
-        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-status {
-        return 200 'Installation completed successfully';
-        add_header Content-Type text/plain;
-    }
-}
-EOF
-ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx`
-}
 
 func (az *AzureProvider) isVMRunning(resourceGroup, vmName string) bool {
 	cmd := exec.Command("az", "vm", "get-instance-view",

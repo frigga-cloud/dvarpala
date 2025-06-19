@@ -593,32 +593,6 @@ echo "🔍 DEBUG: Admin.ovpn generation completed"
 	return gcp.executeSSHCommand(vmIP, command, keyPath)
 }
 
-func (gcp *GCPProvider) getNginxConfigCommand() string {
-	return `cat > /etc/nginx/sites-available/dvarpala-monitoring << 'EOF'
-server {
-    listen 8080;
-    server_name _;
-    root /var/www/html;
-    
-    location /health {
-        return 200 '{"status":"healthy","timestamp":"$(date -Iseconds)"}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-progress {
-        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-status {
-        return 200 'Installation completed successfully';
-        add_header Content-Type text/plain;
-    }
-}
-EOF
-ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx`
-}
 
 func (gcp *GCPProvider) isInstanceRunning(instanceName string) bool {
 	cmd := exec.Command("gcloud", "compute", "instances", "describe", instanceName,

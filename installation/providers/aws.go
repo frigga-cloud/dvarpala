@@ -684,32 +684,6 @@ chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
 	return aws.executeSSHCommand(vmIP, command, keyPath)
 }
 
-func (aws *AWSProvider) getNginxConfigCommand() string {
-	return `cat > /etc/nginx/sites-available/dvarpala-monitoring << 'EOF'
-server {
-    listen 8080;
-    server_name _;
-    root /var/www/html;
-    
-    location /health {
-        return 200 '{"status":"healthy","timestamp":"$(date -Iseconds)"}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-progress {
-        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-status {
-        return 200 'Installation completed successfully';
-        add_header Content-Type text/plain;
-    }
-}
-EOF
-ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx`
-}
 
 func (aws *AWSProvider) getInstanceDetails(instanceID string) (*AWSInstanceInfo, error) {
 	cmd := exec.Command("aws", "ec2", "describe-instances",
