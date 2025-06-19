@@ -804,32 +804,139 @@ func getStringFromCredentials(credentials map[string]interface{}, key string) st
 
 // waitForInstallationComplete waits for the dvarpala installation to complete on the VM
 func waitForInstallationComplete(vmIP string) error {
-	maxAttempts := 60 // 30 minutes max (30 seconds * 60)
+	maxAttempts := 120 // 60 minutes max (30 seconds * 120)
+	lastStatus := ""
+	
+	fmt.Println("📊 Monitoring installation progress...")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	
 	for i := 0; i < maxAttempts; i++ {
-		// Check if the installation completion marker exists
+		// Check if the installation is complete
 		if checkInstallationStatus(vmIP) {
+			fmt.Println("✅ Installation completed successfully!")
 			return nil
 		}
 		
-		if i%4 == 0 { // Print status every 2 minutes
-			fmt.Printf("⏳ Still waiting for installation... (%d/%d)\n", i+1, maxAttempts)
+		// Get current installation status every minute
+		if i%2 == 0 { // Check every minute (30 seconds * 2)
+			currentStatus := getInstallationProgress(vmIP)
+			if currentStatus != lastStatus && currentStatus != "" {
+				fmt.Printf("📋 %s\n", currentStatus)
+				lastStatus = currentStatus
+			}
+		}
+		
+		// Show progress every 2 minutes
+		if i%4 == 0 {
+			minutesElapsed := (i * 30) / 60
+			fmt.Printf("⏳ Installation in progress... %d minutes elapsed (timeout: 60 minutes)\n", minutesElapsed)
+			
+			// Show what typically happens at this time
+			expectedStep := getExpectedInstallationStep(minutesElapsed)
+			if expectedStep != "" {
+				fmt.Printf("💡 Expected at %d minutes: %s\n", minutesElapsed, expectedStep)
+			}
 		}
 		
 		time.Sleep(30 * time.Second)
 	}
 	
-	return fmt.Errorf("installation did not complete within 30 minutes")
+	// Try to get final status before timing out
+	finalStatus := getInstallationProgress(vmIP)
+	if finalStatus != "" {
+		fmt.Printf("🔍 Last known status: %s\n", finalStatus)
+	}
+	
+	return fmt.Errorf("installation did not complete within 60 minutes")
 }
 
 // checkInstallationStatus checks if the installation is complete
 func checkInstallationStatus(vmIP string) bool {
-	// Try to check if the completion marker exists
-	// We'll use SSH to check for the completion file
+	// Check for completion marker via HTTP endpoint
 	cmd := exec.Command("curl", "-s", "--connect-timeout", "5", "--max-time", "10", 
 		fmt.Sprintf("http://%s:8080/health", vmIP))
 	
 	err := cmd.Run()
 	return err == nil
+}
+
+// getInstallationProgress fetches the current installation status from the VM
+func getInstallationProgress(vmIP string) string {
+	// Try to get installation progress from the VM log file
+	cmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "8",
+		fmt.Sprintf("http://%s:8080/installation-status", vmIP))
+	
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback: try to get progress from installation log
+		return getProgressFromSSH(vmIP)
+	}
+	
+	status := strings.TrimSpace(string(output))
+	if status != "" {
+		return status
+	}
+	
+	return ""
+}
+
+// getProgressFromSSH attempts to get progress via SSH (fallback method)
+func getProgressFromSSH(vmIP string) string {
+	// Try to read last few lines of installation log via curl to a simple log endpoint
+	cmd := exec.Command("curl", "-s", "--connect-timeout", "3", "--max-time", "5",
+		fmt.Sprintf("http://%s/installation-log", vmIP))
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) > 0 {
+		lastLine := strings.TrimSpace(lines[len(lines)-1])
+		// Extract meaningful status from log line
+		if strings.Contains(lastLine, "] ") {
+			parts := strings.SplitN(lastLine, "] ", 2)
+			if len(parts) > 1 {
+				return parts[1]
+			}
+		}
+		return lastLine
+	}
+	
+	return ""
+}
+
+// getExpectedInstallationStep returns what should typically be happening at a given time
+func getExpectedInstallationStep(minutes int) string {
+	switch {
+	case minutes < 2:
+		return "System updates and package installations"
+	case minutes < 5:
+		return "Installing core dependencies (PostgreSQL, Redis, OpenVPN)"
+	case minutes < 8:
+		return "Downloading and installing Go programming language"
+	case minutes < 12:
+		return "Downloading dvarpala source code from GitHub"
+	case minutes < 18:
+		return "Compiling dvarpala binaries (server, worker, auth)"
+	case minutes < 22:
+		return "Configuring PostgreSQL database and creating users"
+	case minutes < 25:
+		return "Setting up Redis cache and OpenVPN server"
+	case minutes < 30:
+		return "Generating SSL certificates and OpenVPN keys"
+	case minutes < 35:
+		return "Configuring firewall rules and network settings"
+	case minutes < 40:
+		return "Creating systemd services and starting processes"
+	case minutes < 45:
+		return "Generating admin certificates and VPN configuration"
+	case minutes < 50:
+		return "Starting all services and performing health checks"
+	default:
+		return "Finalizing installation and performing cleanup"
+	}
 }
 
 // downloadAdminOVPN downloads the admin.ovpn file from the VM

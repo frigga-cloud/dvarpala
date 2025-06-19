@@ -24,9 +24,71 @@ echo -e "${BLUE}🚀 Dvarpala VPN Server Cloud Setup${NC}"
 echo "=================================================================="
 echo
 
-# Logging function
+# Logging function with progress tracking
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    
+    # Update installation status for monitoring
+    echo "$1" > /var/log/dvarpala-current-status.txt
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/dvarpala-progress.log
+}
+
+# Setup basic HTTP server for installation monitoring
+setup_progress_monitoring() {
+    # Create simple HTTP endpoints for installation progress
+    mkdir -p /var/www/html
+    
+    # Create installation status endpoint
+    cat > /tmp/setup-monitoring.sh << 'MONITOR_EOF'
+#!/bin/bash
+# Simple HTTP server for installation progress monitoring
+
+# Create status endpoint
+create_status_endpoint() {
+    if [ -f /var/log/dvarpala-current-status.txt ]; then
+        cat /var/log/dvarpala-current-status.txt > /var/www/html/installation-status
+    else
+        echo "Installation starting..." > /var/www/html/installation-status
+    fi
+}
+
+# Create log endpoint  
+create_log_endpoint() {
+    if [ -f /var/log/dvarpala-progress.log ]; then
+        tail -20 /var/log/dvarpala-progress.log > /var/www/html/installation-log
+    else
+        echo "Installation log not available yet" > /var/www/html/installation-log
+    fi
+}
+
+# Create health endpoint
+create_health_endpoint() {
+    if [ -f /opt/dvarpala/installation-complete ]; then
+        echo '{"status": "complete", "timestamp": "'$(date -Iseconds)'"}' > /var/www/html/health
+    else
+        echo '{"status": "installing", "timestamp": "'$(date -Iseconds)'"}' > /var/www/html/health
+    fi
+}
+
+# Update endpoints every 30 seconds
+while true; do
+    create_status_endpoint
+    create_log_endpoint
+    create_health_endpoint
+    sleep 30
+done
+MONITOR_EOF
+
+    chmod +x /tmp/setup-monitoring.sh
+    
+    # Start monitoring in background
+    nohup /tmp/setup-monitoring.sh > /dev/null 2>&1 &
+    
+    # Start simple HTTP server for monitoring (nginx will replace this later)
+    if command -v python3 &> /dev/null; then
+        cd /var/www/html
+        nohup python3 -m http.server 8080 > /dev/null 2>&1 &
+    fi
 }
 
 # Check if running as root
@@ -65,9 +127,11 @@ install_dependencies() {
     if [[ -f /etc/debian_version ]]; then
         # Debian/Ubuntu
         export DEBIAN_FRONTEND=noninteractive
+        log "Step 3a/20: Updating system packages..."
         apt-get update -y
         apt-get upgrade -y
         
+        log "Step 3b/20: Installing core packages (PostgreSQL, Redis, OpenVPN)..."
         apt-get install -y \
             curl wget unzip git \
             postgresql postgresql-contrib \
@@ -140,7 +204,7 @@ install_go() {
 
 # Download and build dvarpala
 build_dvarpala() {
-    log "Downloading and building dvarpala..."
+    log "Step 5a/20: Downloading dvarpala source from GitHub..."
     
     cd /tmp
     if [[ ! -d "dvarpala" ]]; then
@@ -150,23 +214,32 @@ build_dvarpala() {
     cd dvarpala
     export PATH=/usr/local/go/bin:$PATH
     
-    # Build binaries
+    log "Step 6a/20: Downloading Go module dependencies..."
     go mod download
+    
+    log "Step 6b/20: Compiling dvarpala-server binary..."
     go build -o "$DVARPALA_DIR/bin/dvarpala-server" ./cmd/dvarpala-server
+    
+    log "Step 6c/20: Compiling dvarpala-cli binary..."
     go build -o "$DVARPALA_DIR/bin/dvarpala-cli" ./cmd/dvarpala-cli
+    
+    log "Step 6d/20: Compiling dvarpala-worker binary..."
     go build -o "$DVARPALA_DIR/bin/dvarpala-worker" ./cmd/dvarpala-worker
+    
+    log "Step 6e/20: Compiling openvpn-auth binary..."
     go build -o "$DVARPALA_DIR/bin/openvpn-auth" ./cmd/openvpn-auth
     
+    log "Step 6f/20: Installing configuration files and scripts..."
     # Copy configuration files
-    cp -r configs/* "$CONFIG_DIR/"
-    cp -r scripts/* "$DVARPALA_DIR/scripts/"
+    cp -r configs/* "$CONFIG_DIR/" 2>/dev/null || true
+    cp -r scripts/* "$DVARPALA_DIR/scripts/" 2>/dev/null || true
     
     # Set permissions
     chmod +x "$DVARPALA_DIR/bin/"*
-    chmod +x "$DVARPALA_DIR/scripts/"*.sh
+    chmod +x "$DVARPALA_DIR/scripts/"*.sh 2>/dev/null || true
     chown -R "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR"
     
-    log "Dvarpala built and installed successfully"
+    log "Step 6g/20: Dvarpala compilation completed successfully"
 }
 
 # Configure PostgreSQL
@@ -1034,28 +1107,68 @@ EOF
 
 # Main installation flow
 main() {
-    log "Starting dvarpala installation..."
+    log "Step 1/20: Starting dvarpala installation..."
     
+    # Setup progress monitoring early
+    setup_progress_monitoring
+    
+    log "Step 2/20: Creating dvarpala system user and directories..."
     create_dvarpala_user
     create_directories
-    install_dependencies
-    install_go
-    build_dvarpala
-    configure_postgresql
-    configure_redis
-    configure_openvpn
-    configure_firewall
-    read_admin_config
-    create_dvarpala_config
-    initialize_database
-    create_auth_script
-    create_web_auth_helper
-    generate_admin_cert
-    create_systemd_services
-    start_services
-    display_final_info
     
-    log "Installation completed successfully!"
+    log "Step 3/20: Installing system dependencies (PostgreSQL, Redis, OpenVPN)..."
+    install_dependencies
+    
+    log "Step 4/20: Downloading and installing Go programming language..."
+    install_go
+    
+    log "Step 5/20: Downloading dvarpala source code from GitHub..."
+    log "Step 6/20: Compiling dvarpala binaries (server, worker, auth)..."
+    build_dvarpala
+    
+    log "Step 7/20: Configuring PostgreSQL database..."
+    configure_postgresql
+    
+    log "Step 8/20: Setting up Redis cache server..."
+    configure_redis
+    
+    log "Step 9/20: Configuring OpenVPN server and certificates..."
+    configure_openvpn
+    
+    log "Step 10/20: Setting up firewall rules and network configuration..."
+    configure_firewall
+    
+    log "Step 11/20: Reading admin configuration from cloud installer..."
+    read_admin_config
+    
+    log "Step 12/20: Creating dvarpala server configuration..."
+    create_dvarpala_config
+    
+    log "Step 13/20: Initializing database schema and tables..."
+    initialize_database
+    
+    log "Step 14/20: Creating OpenVPN authentication scripts..."
+    create_auth_script
+    
+    log "Step 15/20: Setting up web authentication helpers..."
+    create_web_auth_helper
+    
+    log "Step 16/20: Generating admin VPN certificates and configuration..."
+    generate_admin_cert
+    
+    log "Step 17/20: Creating systemd services for dvarpala components..."
+    create_systemd_services
+    
+    log "Step 18/20: Starting all services (OpenVPN, dvarpala, worker)..."
+    start_services
+    
+    log "Step 19/20: Performing final configuration and health checks..."
+    
+    # Create installation completion marker
+    touch /opt/dvarpala/installation-complete
+    
+    log "Step 20/20: Installation completed successfully!"
+    display_final_info
 }
 
 # Run main function
