@@ -754,6 +754,140 @@ go run launcher.go -config=examples/config-aws.json
 go run launcher.go -provider=aws -region=us-east-1 -interactive=false
 ```
 
+## 🔍 How launcher.go Works
+
+### **Modular Compilation Process**
+
+The `launcher.go` file serves as an intelligent entry point that compiles multiple Go files together:
+
+```go
+// launcher.go automatically includes all necessary components
+installerFiles := []string{
+    "run",
+    "installer/cloud-installer.go",    // Main installer logic
+    "installer/cloud_service.go",      // Service layer abstraction  
+    "installer/cloud_wrappers.go",     // Provider-specific wrappers
+}
+```
+
+### **Argument Passing Flow**
+
+```
+User Input: go run launcher.go -config=examples/config-aws.json
+     ↓
+Launcher compiles: go run installer/*.go -config=examples/config-aws.json
+     ↓
+cloud-installer.go receives and processes the configuration file
+```
+
+### **Configuration File Processing**
+
+1. **Command Line Flag Parsing**:
+   ```go
+   configFile := flag.String("config", "", "Configuration file (JSON)")
+   ```
+
+2. **File Loading Logic**:
+   ```go
+   if *configFile != "" {
+       loadConfigFromFile(*configFile, &config)
+   }
+   ```
+
+3. **Configuration Priority**:
+   - Configuration file (highest priority)
+   - Interactive mode (default)
+   - Command line flags (lowest priority)
+
+## 📁 Configuration File Examples
+
+### **Available Templates in `examples/` Directory**
+
+| **File** | **Purpose** | **Usage** |
+|----------|-------------|-----------|
+| `config-aws.json` | AWS deployment configuration | `go run launcher.go -config=examples/config-aws.json` |
+| `config-gcp.json` | Google Cloud configuration | `go run launcher.go -config=examples/config-gcp.json` |
+| `config-azure.json` | Microsoft Azure configuration | `go run launcher.go -config=examples/config-azure.json` |
+
+### **Configuration File Structure**
+
+```json
+{
+  "cloud": {
+    "provider": "aws|gcp|azure",
+    "region": "us-east-1",
+    "credentials": {
+      "access_key": "AKIA...",
+      "secret_key": "..."
+    }
+  },
+  "admin": {
+    "email": "admin@company.com",
+    "full_name": "Administrator"
+  },
+  "vm_config": {
+    "instance_type": "t3.medium",
+    "disk_size_gb": 50,
+    "tags": {
+      "Project": "dvarpala",
+      "Environment": "production"
+    }
+  },
+  "network_config": {
+    "vpc_cidr": "172.30.0.0/26",           // Frigga brand IP
+    "public_subnet_cidr": "172.30.0.0/27",
+    "private_subnet_cidr": "172.30.0.32/27"
+  },
+  "backup_enabled": true,
+  "output_directory": "./dvarpala-deployment"
+}
+```
+
+### **Configuration File Usage Scenarios**
+
+#### **1. Automated Deployment**
+```bash
+# Prepare configuration
+cp examples/config-aws.json my-deployment.json
+# Edit credentials and settings
+vim my-deployment.json
+
+# Deploy automatically (no interaction required)
+go run launcher.go -config=my-deployment.json -interactive=false
+```
+
+#### **2. Development Testing**
+```bash
+# Test different cloud providers quickly
+go run launcher.go -config=examples/config-aws.json
+go run launcher.go -config=examples/config-gcp.json
+go run launcher.go -config=examples/config-azure.json
+```
+
+#### **3. CI/CD Integration**
+```bash
+# Environment-specific deployments
+go run launcher.go -config=configs/production-aws.json
+go run launcher.go -config=configs/staging-gcp.json
+go run launcher.go -config=configs/development-azure.json
+```
+
+### **Configuration File Validation**
+
+The installer validates configuration files for:
+- ✅ **Required fields**: cloud provider, region, admin email
+- ✅ **Valid values**: provider types, instance types, network CIDRs
+- ✅ **Credential formats**: access keys, service account paths
+- ✅ **Network configurations**: valid CIDR notation, IP ranges
+
+### **Configuration File Security**
+
+⚠️ **Important Security Notes**:
+- **Never commit** configuration files with real credentials to version control
+- Use **environment variables** or **secure vaults** for production credentials
+- **Example files** contain placeholder values only
+- Consider using **IAM roles** instead of access keys where possible
+
 ### **One-Click Methods** (For End Users)
 ```bash
 # Simple version (requires Go pre-installed)
