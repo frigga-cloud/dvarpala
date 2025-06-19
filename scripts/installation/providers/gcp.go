@@ -329,15 +329,15 @@ func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, c
 		{"Installing Redis", "sudo apt-get install -y redis-server"},
 		{"Installing OpenVPN", "sudo apt-get install -y openvpn easy-rsa"},
 		{"Installing Go", "curl -fsSL https://go.dev/dl/go1.21.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -"},
-		{"Setting up directories", "sudo mkdir -p /opt/dvarpala /var/lib/dvarpala /opt/dvarpala/certs"},
+		{"Setting up directories", "mkdir -p /home/$(whoami)/dvarpala /home/$(whoami)/dvarpala/certs && sudo mkdir -p /var/lib/dvarpala"},
 		{"Starting basic services", "sudo systemctl start postgresql redis-server"},
-		{"Setting up Easy-RSA", "sudo make-cadir /opt/dvarpala/easy-rsa && sudo chown -R ubuntu:ubuntu /opt/dvarpala && echo '🔍 DEBUG: Easy-RSA directory created' && ls -la /opt/dvarpala/"},
+		{"Setting up Easy-RSA", "make-cadir /home/$(whoami)/dvarpala/easy-rsa && echo '🔍 DEBUG: Easy-RSA directory created' && ls -la /home/$(whoami)/dvarpala/"},
 		{"Configuring Easy-RSA vars", gcp.getEasyRSAVarsCommand()},
-		{"Building Certificate Authority", "cd /opt/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting CA generation' && ./easyrsa init-pki && echo '🔍 DEBUG: PKI initialized' && ./easyrsa --batch build-ca nopass && echo '🔍 DEBUG: CA generated' && ls -la pki/"},
-		{"Generating server certificate", "cd /opt/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting server cert generation' && ./easyrsa --batch build-server-full server nopass && echo '🔍 DEBUG: Server cert generated' && ls -la pki/issued/ && ls -la pki/private/"},
-		{"Generating admin client certificate", "cd /opt/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting admin cert generation' && ./easyrsa --batch build-client-full admin nopass && echo '🔍 DEBUG: Admin cert generated' && ls -la pki/issued/ && ls -la pki/private/"},
-		{"Generating TLS authentication key", "cd /opt/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting TLS auth key generation' && openvpn --genkey --secret pki/ta.key && echo '🔍 DEBUG: TLS auth key generated' && ls -la pki/ta.key"},
-		{"Copying certificates to OpenVPN directory", "sudo cp /opt/dvarpala/easy-rsa/pki/ca.crt /opt/dvarpala/easy-rsa/pki/issued/server.crt /opt/dvarpala/easy-rsa/pki/private/server.key /opt/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/ && echo '🔍 DEBUG: Certificates copied to OpenVPN directory' && sudo ls -la /etc/openvpn/server/"},
+		{"Building Certificate Authority", "cd /home/$(whoami)/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting CA generation' && ./easyrsa init-pki && echo '🔍 DEBUG: PKI initialized' && ./easyrsa --batch build-ca nopass && echo '🔍 DEBUG: CA generated' && ls -la pki/"},
+		{"Generating server certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting server cert generation' && ./easyrsa --batch build-server-full server nopass && echo '🔍 DEBUG: Server cert generated' && ls -la pki/issued/ && ls -la pki/private/"},
+		{"Generating admin client certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting admin cert generation' && ./easyrsa --batch build-client-full admin nopass && echo '🔍 DEBUG: Admin cert generated' && ls -la pki/issued/ && ls -la pki/private/"},
+		{"Generating TLS authentication key", "cd /home/$(whoami)/dvarpala/easy-rsa && echo '🔍 DEBUG: Starting TLS auth key generation' && openvpn --genkey --secret pki/ta.key && echo '🔍 DEBUG: TLS auth key generated' && ls -la pki/ta.key"},
+		{"Copying certificates to OpenVPN directory", "sudo cp /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt /home/$(whoami)/dvarpala/easy-rsa/pki/issued/server.crt /home/$(whoami)/dvarpala/easy-rsa/pki/private/server.key /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/ && echo '🔍 DEBUG: Certificates copied to OpenVPN directory' && sudo ls -la /etc/openvpn/server/"},
 		{"Creating OpenVPN server configuration", gcp.getOpenVPNServerConfigCommand()},
 		{"Starting OpenVPN server", "sudo systemctl enable openvpn-server@server && sudo systemctl start openvpn-server@server && echo '🔍 DEBUG: OpenVPN server status:' && sudo systemctl status openvpn-server@server --no-pager"},
 	}
@@ -378,7 +378,7 @@ func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, c
 	fmt.Printf("✅ Completed: Generating admin OpenVPN configuration\n")
 	
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+5, "Making admin.ovpn available for download")
-	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, "echo '🔍 DEBUG: Copying admin.ovpn to web directory' && sudo cp /opt/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn && echo '🔍 DEBUG: File copied. Checking web directory:' && ls -la /var/www/html/admin.ovpn && wc -l /var/www/html/admin.ovpn && echo '🔍 DEBUG: Testing HTTP access:' && curl -s -I http://localhost/admin.ovpn", keyPath); err != nil {
+	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, "echo '🔍 DEBUG: Copying admin.ovpn to web directory' && sudo cp /home/$(whoami)/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn && echo '🔍 DEBUG: File copied. Checking web directory:' && ls -la /var/www/html/admin.ovpn && wc -l /var/www/html/admin.ovpn && echo '🔍 DEBUG: Testing HTTP access:' && curl -s -I http://localhost/admin.ovpn", keyPath); err != nil {
 		return fmt.Errorf("failed to make admin.ovpn downloadable: %v", err)
 	}
 	fmt.Printf("✅ Completed: Making admin.ovpn available for download\n")
@@ -448,7 +448,7 @@ EOF`
 }
 
 func (gcp *GCPProvider) getEasyRSAVarsCommand() string {
-	return `echo "🔍 DEBUG: Creating Easy-RSA vars file" && sudo tee /opt/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
+	return `echo "🔍 DEBUG: Creating Easy-RSA vars file" && tee /home/$(whoami)/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
 set_var EASYRSA_REQ_COUNTRY    "US"
 set_var EASYRSA_REQ_PROVINCE   "CA"
 set_var EASYRSA_REQ_CITY       "San Francisco"
@@ -460,7 +460,7 @@ set_var EASYRSA_ALGO           rsa
 set_var EASYRSA_CA_EXPIRE      3650
 set_var EASYRSA_CERT_EXPIRE    365
 EOF
-echo "🔍 DEBUG: Easy-RSA vars file created" && ls -la /opt/dvarpala/easy-rsa/vars`
+echo "🔍 DEBUG: Easy-RSA vars file created" && ls -la /home/$(whoami)/dvarpala/easy-rsa/vars`
 }
 
 func (gcp *GCPProvider) getOpenVPNServerConfigCommand() string {
@@ -499,16 +499,16 @@ echo "🔍 DEBUG: Starting admin.ovpn generation"
 
 # Check if certificate files exist before proceeding
 echo "🔍 DEBUG: Checking if certificate files exist:"
-ls -la /opt/dvarpala/easy-rsa/pki/ca.crt
-ls -la /opt/dvarpala/easy-rsa/pki/issued/admin.crt
-ls -la /opt/dvarpala/easy-rsa/pki/private/admin.key  
-ls -la /opt/dvarpala/easy-rsa/pki/ta.key
+ls -la /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt
+ls -la /home/$(whoami)/dvarpala/easy-rsa/pki/issued/admin.crt
+ls -la /home/$(whoami)/dvarpala/easy-rsa/pki/private/admin.key  
+ls -la /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key
 
 echo "🔍 DEBUG: File sizes:"
-wc -l /opt/dvarpala/easy-rsa/pki/ca.crt
-wc -l /opt/dvarpala/easy-rsa/pki/issued/admin.crt
-wc -l /opt/dvarpala/easy-rsa/pki/private/admin.key
-wc -l /opt/dvarpala/easy-rsa/pki/ta.key
+wc -l /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt
+wc -l /home/$(whoami)/dvarpala/easy-rsa/pki/issued/admin.crt
+wc -l /home/$(whoami)/dvarpala/easy-rsa/pki/private/admin.key
+wc -l /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key
 
 # Get the external IP address
 EXTERNAL_IP=$(curl -s http://checkip.amazonaws.com)
@@ -516,7 +516,7 @@ echo "🔍 DEBUG: External IP detected: $EXTERNAL_IP"
 
 # Create admin.ovpn with embedded certificates
 echo "🔍 DEBUG: Creating admin.ovpn file..."
-sudo tee /opt/dvarpala/certs/admin.ovpn > /dev/null << EOF
+tee /home/$(whoami)/dvarpala/certs/admin.ovpn > /dev/null << EOF
 # Dvarpala VPN - Captive Portal Mode
 # Browser will auto-open to: http://172.30.100.1:8080
 # Complete authentication via web portal for full VPN access
@@ -542,42 +542,40 @@ up "echo 'Opening captive portal...' && (open http://172.30.100.1:8080 2>/dev/nu
 auth-user-pass
 
 <ca>
-$(cat /opt/dvarpala/easy-rsa/pki/ca.crt)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt)
 </ca>
 
 <cert>
-$(cat /opt/dvarpala/easy-rsa/pki/issued/admin.crt)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/issued/admin.crt)
 </cert>
 
 <key>
-$(cat /opt/dvarpala/easy-rsa/pki/private/admin.key)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/private/admin.key)
 </key>
 
 <tls-auth>
-$(cat /opt/dvarpala/easy-rsa/pki/ta.key)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key)
 </tls-auth>
 key-direction 1
 EOF
 
 # Create credentials file
-sudo tee /opt/dvarpala/certs/admin-credentials.txt > /dev/null << EOF
+tee /home/$(whoami)/dvarpala/certs/admin-credentials.txt > /dev/null << EOF
 portal
 access
 EOF
 
 # Set proper permissions
-sudo chmod 600 /opt/dvarpala/certs/admin.ovpn
-sudo chmod 600 /opt/dvarpala/certs/admin-credentials.txt
-sudo chown ubuntu:ubuntu /opt/dvarpala/certs/admin.ovpn
-sudo chown ubuntu:ubuntu /opt/dvarpala/certs/admin-credentials.txt
+chmod 600 /home/$(whoami)/dvarpala/certs/admin.ovpn
+chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
 
 echo "🔍 DEBUG: Admin.ovpn file created. Checking file:"
-ls -la /opt/dvarpala/certs/admin.ovpn
-wc -l /opt/dvarpala/certs/admin.ovpn
+ls -la /home/$(whoami)/dvarpala/certs/admin.ovpn
+wc -l /home/$(whoami)/dvarpala/certs/admin.ovpn
 echo "🔍 DEBUG: First 10 lines of admin.ovpn:"
-head -10 /opt/dvarpala/certs/admin.ovpn
+head -10 /home/$(whoami)/dvarpala/certs/admin.ovpn
 echo "🔍 DEBUG: Last 10 lines of admin.ovpn:"
-tail -10 /opt/dvarpala/certs/admin.ovpn
+tail -10 /home/$(whoami)/dvarpala/certs/admin.ovpn
 echo "🔍 DEBUG: Admin.ovpn generation completed"
 `
 	

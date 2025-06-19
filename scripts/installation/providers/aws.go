@@ -447,15 +447,15 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 		{"Installing Redis", "sudo apt-get install -y redis-server"},
 		{"Installing OpenVPN", "sudo apt-get install -y openvpn easy-rsa"},
 		{"Installing Go", "curl -fsSL https://go.dev/dl/go1.21.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -"},
-		{"Setting up directories", "sudo mkdir -p /opt/dvarpala /var/lib/dvarpala /opt/dvarpala/certs"},
+		{"Setting up directories", "mkdir -p /home/$(whoami)/dvarpala /home/$(whoami)/dvarpala/certs && sudo mkdir -p /var/lib/dvarpala"},
 		{"Starting basic services", "sudo systemctl start postgresql redis-server"},
-		{"Setting up Easy-RSA", "sudo make-cadir /opt/dvarpala/easy-rsa && sudo chown -R ubuntu:ubuntu /opt/dvarpala"},
+		{"Setting up Easy-RSA", "make-cadir /home/$(whoami)/dvarpala/easy-rsa"},
 		{"Configuring Easy-RSA vars", aws.getEasyRSAVarsCommand()},
-		{"Building Certificate Authority", "cd /opt/dvarpala/easy-rsa && ./easyrsa init-pki && ./easyrsa --batch build-ca nopass"},
-		{"Generating server certificate", "cd /opt/dvarpala/easy-rsa && ./easyrsa --batch build-server-full server nopass"},
-		{"Generating admin client certificate", "cd /opt/dvarpala/easy-rsa && ./easyrsa --batch build-client-full admin nopass"},
-		{"Generating TLS authentication key", "cd /opt/dvarpala/easy-rsa && openvpn --genkey --secret pki/ta.key"},
-		{"Copying certificates to OpenVPN directory", "sudo cp /opt/dvarpala/easy-rsa/pki/ca.crt /opt/dvarpala/easy-rsa/pki/issued/server.crt /opt/dvarpala/easy-rsa/pki/private/server.key /opt/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/"},
+		{"Building Certificate Authority", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa init-pki && ./easyrsa --batch build-ca nopass"},
+		{"Generating server certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-server-full server nopass"},
+		{"Generating admin client certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-client-full admin nopass"},
+		{"Generating TLS authentication key", "cd /home/$(whoami)/dvarpala/easy-rsa && openvpn --genkey --secret pki/ta.key"},
+		{"Copying certificates to OpenVPN directory", "sudo cp /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt /home/$(whoami)/dvarpala/easy-rsa/pki/issued/server.crt /home/$(whoami)/dvarpala/easy-rsa/pki/private/server.key /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/"},
 		{"Creating OpenVPN server configuration", aws.getOpenVPNServerConfigCommand()},
 		{"Starting OpenVPN server", "sudo systemctl enable openvpn-server@server && sudo systemctl start openvpn-server@server"},
 	}
@@ -496,7 +496,7 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 	fmt.Printf("✅ Completed: Generating admin OpenVPN configuration\n")
 	
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+5, "Making admin.ovpn available for download")
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo cp /opt/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn", keyPath); err != nil {
+	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo cp /home/$(whoami)/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn", keyPath); err != nil {
 		return fmt.Errorf("failed to make admin.ovpn downloadable: %v", err)
 	}
 	fmt.Printf("✅ Completed: Making admin.ovpn available for download\n")
@@ -566,7 +566,7 @@ EOF`
 }
 
 func (aws *AWSProvider) getEasyRSAVarsCommand() string {
-	return `sudo tee /opt/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
+	return `tee /home/$(whoami)/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
 set_var EASYRSA_REQ_COUNTRY    "US"
 set_var EASYRSA_REQ_PROVINCE   "CA"
 set_var EASYRSA_REQ_CITY       "San Francisco"
@@ -616,7 +616,7 @@ func (aws *AWSProvider) generateAdminOVPN(vmIP, keyPath string) error {
 EXTERNAL_IP=$(curl -s http://checkip.amazonaws.com)
 
 # Create admin.ovpn with embedded certificates
-sudo tee /opt/dvarpala/certs/admin.ovpn > /dev/null << EOF
+tee /home/$(whoami)/dvarpala/certs/admin.ovpn > /dev/null << EOF
 # Dvarpala VPN - Captive Portal Mode
 # Browser will auto-open to: http://172.30.100.1:8080
 # Complete authentication via web portal for full VPN access
@@ -642,34 +642,32 @@ up "echo 'Opening captive portal...' && (open http://172.30.100.1:8080 2>/dev/nu
 auth-user-pass
 
 <ca>
-$(cat /opt/dvarpala/easy-rsa/pki/ca.crt)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt)
 </ca>
 
 <cert>
-$(cat /opt/dvarpala/easy-rsa/pki/issued/admin.crt)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/issued/admin.crt)
 </cert>
 
 <key>
-$(cat /opt/dvarpala/easy-rsa/pki/private/admin.key)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/private/admin.key)
 </key>
 
 <tls-auth>
-$(cat /opt/dvarpala/easy-rsa/pki/ta.key)
+$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key)
 </tls-auth>
 key-direction 1
 EOF
 
 # Create credentials file
-sudo tee /opt/dvarpala/certs/admin-credentials.txt > /dev/null << EOF
+tee /home/$(whoami)/dvarpala/certs/admin-credentials.txt > /dev/null << EOF
 portal
 access
 EOF
 
 # Set proper permissions
-sudo chmod 600 /opt/dvarpala/certs/admin.ovpn
-sudo chmod 600 /opt/dvarpala/certs/admin-credentials.txt
-sudo chown ubuntu:ubuntu /opt/dvarpala/certs/admin.ovpn
-sudo chown ubuntu:ubuntu /opt/dvarpala/certs/admin-credentials.txt
+chmod 600 /home/$(whoami)/dvarpala/certs/admin.ovpn
+chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
 `
 	
 	return aws.executeSSHCommand(vmIP, command, keyPath)
