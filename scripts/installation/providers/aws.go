@@ -448,7 +448,6 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 		{"Installing OpenVPN", "sudo apt-get install -y openvpn easy-rsa"},
 		{"Installing Go", "curl -fsSL https://go.dev/dl/go1.21.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -"},
 		{"Setting up directories", "sudo mkdir -p /opt/dvarpala /var/lib/dvarpala"},
-		{"Configuring nginx monitoring", "sudo " + aws.getNginxConfigCommand()},
 		{"Starting services", "sudo systemctl start postgresql redis-server"},
 	}
 	
@@ -461,6 +460,25 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 		
 		fmt.Printf("✅ Completed: %s\n", step.name)
 	}
+	
+	// Configure nginx monitoring as separate steps with proper sudo handling
+	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+1, len(steps)+3, "Creating nginx monitoring config")
+	if err := aws.configureNginxMonitoring(instanceInfo.PublicIP, keyPath); err != nil {
+		return fmt.Errorf("failed to configure nginx monitoring: %v", err)
+	}
+	fmt.Printf("✅ Completed: Creating nginx monitoring config\n")
+	
+	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+2, len(steps)+3, "Enabling nginx monitoring site")
+	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/", keyPath); err != nil {
+		return fmt.Errorf("failed to enable nginx site: %v", err)
+	}
+	fmt.Printf("✅ Completed: Enabling nginx monitoring site\n")
+	
+	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+3, len(steps)+3, "Reloading nginx configuration")
+	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo nginx -t && sudo systemctl reload nginx", keyPath); err != nil {
+		return fmt.Errorf("failed to reload nginx: %v", err)
+	}
+	fmt.Printf("✅ Completed: Reloading nginx configuration\n")
 	
 	fmt.Println("🎉 Dvarpala installation completed successfully!")
 	return nil
@@ -496,6 +514,34 @@ func (aws *AWSProvider) executeSSHCommand(vmIP, command, keyPath string) error {
 	}
 	
 	return nil
+}
+
+func (aws *AWSProvider) configureNginxMonitoring(vmIP, keyPath string) error {
+	// Create the nginx configuration file with proper sudo handling
+	nginxConfig := `server {
+    listen 8080;
+    server_name _;
+    root /var/www/html;
+    
+    location /health {
+        return 200 '{"status":"healthy","timestamp":"$(date -Iseconds)"}';
+        add_header Content-Type application/json;
+    }
+    
+    location /installation-progress {
+        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
+        add_header Content-Type application/json;
+    }
+    
+    location /installation-status {
+        return 200 'Installation completed successfully';
+        add_header Content-Type text/plain;
+    }
+}`
+	
+	// Use tee with sudo to write the file
+	command := fmt.Sprintf("echo '%s' | sudo tee /etc/nginx/sites-available/dvarpala-monitoring > /dev/null", nginxConfig)
+	return aws.executeSSHCommand(vmIP, command, keyPath)
 }
 
 func (aws *AWSProvider) getNginxConfigCommand() string {
