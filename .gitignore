@@ -42,3 +42,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Dvarpala deployment files
+dvarpala-deployment/
+scripts/installation/dvarpala-deployment/

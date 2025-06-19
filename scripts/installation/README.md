@@ -47,8 +47,14 @@ Frigga VPC: 172.30.0.0/26 (64 total IPs)
     └── Database: 172.30.0.36 (example)
 
 VPN Networks:
-├── Captive Portal: 172.30.100.0/24 (guest access)
-└── Full Access: 172.30.8.0/21 (authenticated users)
+├── Captive Portal: 172.30.100.0/24 (initial connection - limited access)
+└── Full Access: 172.30.8.0/21 (post-authentication - complete access)
+
+Authentication Flow:
+├── VPN Connect (portal/access) → Limited routing (172.30.100.1 only)
+├── Web Auth (OAuth) → Sets authentication flag
+├── VPN Reconnect → Full routing granted
+└── VPN Disconnect → Authentication flag cleared (security)
 ```
 
 ### **Frigga IP Allocation Strategy**
@@ -63,6 +69,53 @@ VPN Networks:
 
 This creates a **consistent brand identity** where any `172.30.x.x` IP immediately identifies Frigga Cloud Labs infrastructure.
 
+### **🏷️ Frigga Resource Naming Convention**
+
+All cloud resources follow the pattern: `friggalabs-{resourceName}-{XXXXX}`
+
+- **Pattern**: Consistent naming across all cloud providers
+- **Prefix**: `friggalabs` for brand identification  
+- **Suffix**: 5-character alphanumeric string for uniqueness
+- **Benefits**: Easy searching, no conflicts, clear ownership
+
+**Example Resource Names:**
+```
+friggalabs-vpc-3k9m2        # Virtual Private Cloud
+friggalabs-vm-7x4n8         # Virtual Machine  
+friggalabs-storage-9p1q5    # Storage Bucket
+friggalabs-keypair-2m8r4    # SSH Key Pair
+```
+
+**Resource Management:**
+```bash
+# AWS: Find all Frigga resources
+aws ec2 describe-instances --filters "Name=tag:Name,Values=friggalabs-*"
+aws s3 ls | grep friggalabs
+
+# GCP: Find all Frigga resources  
+gcloud compute instances list --filter="name~friggalabs-"
+gcloud storage buckets list --filter="name~friggalabs-"
+
+# Azure: Find all Frigga resources
+az vm list --query "[?contains(name,'friggalabs')]"
+az storage account list --query "[?contains(name,'friggalabs')]"
+```
+
+### **🚀 Quick Reference: Captive Portal Configuration**
+
+| **Component** | **Value** | **Purpose** |
+|---------------|-----------|-------------|
+| **VPN Credentials** | `portal` / `access` | Initial VPN connection |
+| **Captive Portal URL** | `http://172.30.100.1:8080` | Web authentication interface |
+| **VPN Network** | `172.30.100.0/24` | VPN client IP range |
+| **Full Access Network** | `172.30.8.0/21` | Post-authentication routing |
+| **Allowed Captive Ports** | `8080`, `53` (DNS) | Firewall-permitted traffic |
+| **Blocked Captive Ports** | `22` (SSH), `80`, all others | Restricted until authenticated |
+| **Auth Status Location** | `/tmp/dvarpala-auth-status-<user>` | Session management |
+| **Connection Scripts** | `/opt/dvarpala/scripts/client-*.sh` | Dynamic routing logic |
+| **Auto-Open Script** | `open-captive-portal.sh` | Browser auto-launch |
+| **Platform Scripts** | `scripts/` folder | Windows/macOS/Linux variants |
+
 ### **Benefits of /26 Network Design**
 
 **Right-Sized for VPN Infrastructure:**
@@ -76,6 +129,58 @@ This creates a **consistent brand identity** where any `172.30.x.x` IP immediate
 - **Segmented** public/private subnets for defense in depth
 - **Limited scope** for network scanning attempts
 - **Focused monitoring** with manageable IP range
+
+### **🔒 Captive Portal Security Model**
+
+Dvarpala implements a **true captive portal** with strict network access controls:
+
+#### **Access Restrictions by Connection Type:**
+
+| **Connection Type** | **Accessible Services** | **Blocked Services** | **Implementation** |
+|-------------------|----------------------|-------------------|------------------|
+| **No VPN** | Public ports only (22, 80, 443, 1194, 8080) | All other ports | Cloud security groups |
+| **VPN Captive Mode** | Only `172.30.100.1:8080` (captive portal) | SSH, other web services, internet | iptables firewall rules |
+| **VPN Full Access** | All services, internet, SSH | None (after authentication) | Dynamic routing + firewall bypass |
+
+#### **Firewall Implementation Details:**
+
+The captive portal uses **multi-layer security**:
+
+1. **Cloud Security Groups**: Control internet → VM traffic
+2. **iptables Rules**: Control VPN clients → VM traffic
+3. **Dynamic Routing**: Conditional network access based on auth status
+
+**Specific iptables Rules Applied:**
+```bash
+# Allow ONLY captive portal access
+iptables -I FORWARD -s 172.30.100.0/24 -d 172.30.100.1 -p tcp --dport 8080 -j ACCEPT
+
+# Allow DNS for portal functionality  
+iptables -I FORWARD -s 172.30.100.0/24 -p udp --dport 53 -j ACCEPT
+
+# Block SSH access until authenticated
+iptables -I FORWARD -s 172.30.100.0/24 -d 172.30.100.1 -p tcp --dport 22 -j DROP
+
+# Block ALL other traffic from VPN clients
+iptables -A FORWARD -s 172.30.100.0/24 -j DROP
+```
+
+#### **Example Scenarios:**
+
+**Scenario 1: NGINX on Port 8081**
+- ❌ **No VPN**: Blocked by cloud security groups
+- ❌ **Captive VPN**: Blocked by iptables DROP rule
+- ✅ **Full VPN**: Accessible after authentication
+
+**Scenario 2: NGINX on Port 80**
+- ✅ **No VPN**: Accessible (cloud security group allows port 80)
+- ❌ **Captive VPN**: Blocked by iptables (only port 8080 allowed)
+- ✅ **Full VPN**: Accessible after authentication
+
+**Scenario 3: SSH Access**
+- ✅ **No VPN**: Accessible from internet (cloud security group allows port 22)
+- ❌ **Captive VPN**: Explicitly blocked by iptables DROP rule
+- ✅ **Full VPN**: Accessible after authentication
 
 ## Supported Cloud Providers
 
@@ -235,27 +340,38 @@ go run cloud-installer.go \
 
 ## What Gets Created
 
+During installation, the system automatically generates unique resource names:
+
+```
+🏷️ Generated resource names:
+   VPC: friggalabs-vpc-k2m9x
+   VM: friggalabs-vm-p3q8n  
+   Storage: friggalabs-storage-7r4t2
+   KeyPair: friggalabs-keypair-5h6w1
+```
+
 ### AWS Infrastructure
-- **VPC**: `frigga-labs` with DNS hostnames enabled
+- **VPC**: `friggalabs-vpc-{XXXXX}` with DNS hostnames enabled
 - **Subnets**: Public subnet for dvarpala server  
 - **Internet Gateway**: For internet access
 - **Security Group**: Ports 22, 1194, 8080, 443 open
-- **EC2 Instance**: Ubuntu 22.04 with dvarpala installed
-- **S3 Bucket**: For configuration backups
+- **EC2 Instance**: `friggalabs-vm-{XXXXX}` Ubuntu 22.04 with dvarpala installed
+- **S3 Bucket**: `friggalabs-storage-{XXXXX}` for configuration backups
+- **Key Pair**: `friggalabs-keypair-{XXXXX}` for SSH access
 
 ### GCP Infrastructure  
-- **VPC Network**: `frigga-labs` in custom mode
+- **VPC Network**: `friggalabs-vpc-{XXXXX}` in custom mode
 - **Subnet**: Regional subnet for instances
 - **Firewall Rules**: Allow dvarpala traffic
-- **Compute Instance**: Ubuntu 22.04 with dvarpala installed
-- **Cloud Storage**: Bucket for configuration backups
+- **Compute Instance**: `friggalabs-vm-{XXXXX}` Ubuntu 22.04 with dvarpala installed
+- **Cloud Storage**: `friggalabs-storage-{XXXXX}` bucket for configuration backups
 
 ### Azure Infrastructure
-- **Resource Group**: `frigga-labs-rg`
+- **Resource Group**: `friggalabs-vpc-{XXXXX}` (used as resource group name)
 - **Virtual Network**: With subnet and NSG
 - **Network Security Group**: Allow dvarpala traffic  
-- **Virtual Machine**: Ubuntu 22.04 with dvarpala installed
-- **Storage Account**: For configuration backups
+- **Virtual Machine**: `friggalabs-vm-{XXXXX}` Ubuntu 22.04 with dvarpala installed
+- **Storage Account**: `friggalabs-storage-{XXXXX}` for configuration backups
 
 ## Output Files
 
@@ -282,14 +398,43 @@ sudo openvpn admin.ovpn
 # Or import into your VPN client GUI
 ```
 
-### 2. Access Web Interface
+### 2. Initial VPN Connection (Captive Portal Mode)
 
-Once connected to VPN:
-- Browse to `http://172.30.100.1:8080`
-- Login with OAuth provider
+**First Time Connection:**
+1. Import `admin.ovpn` into your VPN client
+2. Use these credentials for initial connection:
+   - **Username:** `portal`
+   - **Password:** `access`
+3. You'll get LIMITED access (captive portal only)
+4. **Browser automatically opens** to `http://172.30.100.1:8080`
+
+### 3. Complete Authentication via Web Portal
+
+After VPN connection:
+- **Browser should auto-open** to the captive portal
+- If not, manually browse to `http://172.30.100.1:8080`
+- Complete authentication via OAuth provider
+- Once authenticated, **disconnect and reconnect VPN** for full access
+
+### 4. Full VPN Access
+
+After web authentication:
+- **Disconnect and reconnect VPN** with same credentials (`portal`/`access`)
+- You'll now have full network access including:
+  - Internet browsing through VPN
+  - SSH access to the server
+  - Access to any additional services you install
 - Configure additional users and settings
 
-### 3. SSH Access (Optional)
+#### **Why Reconnection is Required:**
+
+The captive portal uses **session-based authentication**:
+1. **Initial connection**: Limited routing (only captive portal)
+2. **Web authentication**: Sets authentication flag for your user
+3. **Reconnection**: OpenVPN client-connect script detects authentication and grants full routing
+4. **Session cleanup**: Authentication cleared on disconnect (security feature)
+
+### 5. SSH Access (Optional)
 
 ```bash
 # SSH to your server via VPN
@@ -370,6 +515,125 @@ curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
 **Issue**: Instance fails to start
 **Solution**: Check cloud provider quotas and permissions
+
+### Captive Portal Troubleshooting
+
+**Issue**: Can't access captive portal after VPN connection
+**Solution**: 
+- Verify VPN connected with credentials `portal`/`access`
+- Check you're accessing exactly `http://172.30.100.1:8080`
+- Ensure no proxy or DNS override in VPN client
+
+**Issue**: Can't access internet/SSH after web authentication
+**Solution**:
+- **Must disconnect and reconnect VPN** after web authentication
+- Authentication status is only checked on new connections
+- Check logs: `sudo tail -f /var/log/openvpn/client-connect.log`
+
+**Issue**: Additional services (NGINX, etc.) not accessible in captive mode
+**Expected Behavior**: This is intentional security - only port 8080 allowed
+- Install services on port 8080, or
+- Wait until full VPN access after authentication
+
+**Issue**: SSH blocked even with VPN connected
+**Expected Behavior**: SSH is blocked until web authentication completed
+- Complete OAuth authentication via captive portal first
+- Disconnect and reconnect VPN for full access including SSH
+
+**Issue**: Internet access works without VPN
+**Expected Behavior**: Different access layers:
+- **Internet → VM**: Controlled by cloud security groups  
+- **VPN → VM**: Controlled by iptables firewall rules
+- VPN clients have stricter restrictions than internet access
+
+### Monitoring and Logs
+
+**Authentication Logs:**
+```bash
+# OpenVPN authentication attempts
+sudo tail -f /var/log/openvpn/auth.log
+
+# Client connection/disconnection events  
+sudo tail -f /var/log/openvpn/client-connect.log
+sudo tail -f /var/log/openvpn/client-disconnect.log
+
+# Web authentication events
+sudo tail -f /var/log/openvpn/web-auth.log
+
+# OpenVPN server logs
+sudo tail -f /var/log/openvpn/openvpn.log
+```
+
+**Authentication Status Check:**
+```bash
+# Check if a user is authenticated
+sudo /opt/dvarpala/bin/check-auth-status <username>
+
+# Mark user as authenticated (after web portal login)
+sudo /opt/dvarpala/bin/mark-user-authenticated <username>
+
+# View current authentication statuses
+ls -la /tmp/dvarpala-auth-status*
+```
+
+**Network Testing:**
+```bash
+# Test captive portal access (should work)
+curl -i http://172.30.100.1:8080
+
+# Test blocked access (should fail in captive mode)
+curl -i http://172.30.100.1:80
+ssh dvarpala@172.30.100.1
+```
+
+## 🚀 Auto-Open Captive Portal Feature
+
+Dvarpala automatically opens the captive portal in your browser when you connect to VPN:
+
+### **How It Works:**
+
+1. **Built-in Script**: `admin.ovpn` includes an `up` script that runs after VPN connection
+2. **Cross-Platform**: Works on Windows, macOS, and Linux
+3. **Smart Detection**: Tests network connectivity before opening browser
+4. **Fallback Methods**: Multiple browser detection methods for compatibility
+
+### **Files Created:**
+
+| **File** | **Purpose** | **Platform** |
+|----------|-------------|--------------|
+| `admin.ovpn` | Main config with auto-open script | All |
+| `open-captive-portal.sh` | Built-in auto-open script | Unix/Linux/macOS |
+| `scripts/open-captive-portal.bat` | Windows batch script | Windows |
+| `scripts/open-captive-portal-unix.sh` | Enhanced Unix script | macOS/Linux |
+| `AUTO-OPEN-SETUP.txt` | Setup instructions | All |
+
+### **Compatibility:**
+
+| **OpenVPN Client** | **Auto-Open Support** | **Setup Required** |
+|-------------------|----------------------|-------------------|
+| **OpenVPN CLI** | ✅ Automatic | None |
+| **Tunnelblick (macOS)** | ✅ Automatic | None |
+| **OpenVPN GUI (Windows)** | ⚠️ Manual Setup | Copy script to config folder |
+| **NetworkManager (Linux)** | ✅ Automatic | None |
+| **OpenVPN Connect** | ❌ Not Supported | Manual browser opening |
+
+### **Troubleshooting Auto-Open:**
+
+**Issue**: Browser doesn't open automatically
+**Solutions**:
+1. Check if your OpenVPN client supports the `up` directive
+2. Ensure script execution is enabled in your VPN client
+3. Check logs: `~/.dvarpala-client.log` (Unix) or `%TEMP%\dvarpala-client.log` (Windows)
+4. Use manual scripts from `scripts/` folder
+
+**Issue**: Script permission denied
+**Solution**: 
+```bash
+chmod +x /path/to/open-captive-portal.sh
+```
+
+**Issue**: Corporate firewall blocks browser opening
+**Solution**: Manually open `http://172.30.100.1:8080` after VPN connection
 
 ## 📁 File Structure
 
@@ -489,6 +753,159 @@ go run launcher.go -config=examples/config-aws.json
 # Option 4: With command line flags (via launcher)
 go run launcher.go -provider=aws -region=us-east-1 -interactive=false
 ```
+
+## 🔍 How launcher.go Works
+
+### **Modular Compilation Process**
+
+The `launcher.go` file serves as an intelligent entry point that compiles multiple Go files together:
+
+```go
+// launcher.go automatically includes all necessary components
+installerFiles := []string{
+    "run",
+    "installer/cloud-installer.go",    // Main installer logic
+    "installer/cloud_service.go",      // Service layer abstraction  
+    "installer/cloud_wrappers.go",     // Provider-specific wrappers
+}
+```
+
+### **Argument Passing Flow**
+
+```
+User Input: go run launcher.go -config=examples/config-aws.json
+     ↓
+Launcher compiles: go run installer/*.go -config=examples/config-aws.json
+     ↓
+cloud-installer.go receives and processes the configuration file
+```
+
+### **Configuration File Processing**
+
+1. **Command Line Flag Parsing**:
+   ```go
+   configFile := flag.String("config", "", "Configuration file (JSON)")
+   ```
+
+2. **File Loading Logic**:
+   ```go
+   if *configFile != "" {
+       loadConfigFromFile(*configFile, &config)
+   }
+   ```
+
+3. **Configuration Priority**:
+   - Configuration file (highest priority)
+   - Interactive mode (default)
+   - Command line flags (lowest priority)
+
+## 📁 Configuration File Examples
+
+### **Available Templates in `examples/` Directory**
+
+| **File** | **Purpose** | **Usage** |
+|----------|-------------|-----------|
+| `config-aws.json` | AWS deployment configuration | `go run launcher.go -config=examples/config-aws.json` |
+| `config-gcp.json` | Google Cloud configuration | `go run launcher.go -config=examples/config-gcp.json` |
+| `config-azure.json` | Microsoft Azure configuration | `go run launcher.go -config=examples/config-azure.json` |
+
+### **Configuration File Structure**
+
+```json
+{
+  "cloud": {
+    "provider": "aws|gcp|azure",
+    "region": "us-east-1",
+    "credentials": {
+      "access_key": "AKIA...",
+      "secret_key": "..."
+    }
+  },
+  "admin": {
+    "email": "admin@company.com",
+    "full_name": "Administrator"
+  },
+  "vm_config": {
+    "instance_type": "t3.medium",
+    "disk_size_gb": 50,
+    "tags": {
+      "Project": "dvarpala",
+      "Environment": "production"
+    }
+  },
+  "network_config": {
+    "vpc_cidr": "172.30.0.0/26",           // Frigga brand IP
+    "public_subnet_cidr": "172.30.0.0/27",
+    "private_subnet_cidr": "172.30.0.32/27"
+  },
+  "backup_enabled": true,
+  "output_directory": "./dvarpala-deployment"
+}
+```
+
+### **🏷️ Automatic Resource Naming**
+
+**Important:** All cloud resource names (VPC, VM, storage buckets, key pairs) are **automatically generated** using the Frigga naming convention. You **cannot manually specify** resource names in the configuration file.
+
+**Generated Names Example:**
+```
+🏷️ Generated resource names:
+   VPC: friggalabs-vpc-k2m9x
+   VM: friggalabs-vm-p3q8n  
+   Storage: friggalabs-storage-7r4t2    // Auto-generated, not user-defined
+   KeyPair: friggalabs-keypair-5h6w1
+```
+
+**Why Automatic Naming:**
+- ✅ **Prevents conflicts**: Unique names across all deployments
+- ✅ **Consistent branding**: All resources easily identifiable as Frigga
+- ✅ **No user errors**: No invalid names or naming conflicts
+- ✅ **Easy management**: Standard pattern for finding resources
+
+### **Configuration File Usage Scenarios**
+
+#### **1. Automated Deployment**
+```bash
+# Prepare configuration
+cp examples/config-aws.json my-deployment.json
+# Edit credentials and settings
+vim my-deployment.json
+
+# Deploy automatically (no interaction required)
+go run launcher.go -config=my-deployment.json -interactive=false
+```
+
+#### **2. Development Testing**
+```bash
+# Test different cloud providers quickly
+go run launcher.go -config=examples/config-aws.json
+go run launcher.go -config=examples/config-gcp.json
+go run launcher.go -config=examples/config-azure.json
+```
+
+#### **3. CI/CD Integration**
+```bash
+# Environment-specific deployments
+go run launcher.go -config=configs/production-aws.json
+go run launcher.go -config=configs/staging-gcp.json
+go run launcher.go -config=configs/development-azure.json
+```
+
+### **Configuration File Validation**
+
+The installer validates configuration files for:
+- ✅ **Required fields**: cloud provider, region, admin email
+- ✅ **Valid values**: provider types, instance types, network CIDRs
+- ✅ **Credential formats**: access keys, service account paths
+- ✅ **Network configurations**: valid CIDR notation, IP ranges
+
+### **Configuration File Security**
+
+⚠️ **Important Security Notes**:
+- **Never commit** configuration files with real credentials to version control
+- Use **environment variables** or **secure vaults** for production credentials
+- **Example files** contain placeholder values only
+- Consider using **IAM roles** instead of access keys where possible
 
 ### **One-Click Methods** (For End Users)
 ```bash

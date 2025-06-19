@@ -55,7 +55,8 @@ func NewCloudService(config InstallationConfig) (*CloudService, error) {
 
 // SetupVPC creates or gets VPC
 func (cs *CloudService) SetupVPC() (string, error) {
-	return cs.provider.SetupVPC("frigga-labs")
+	// Use Frigga naming convention for VPC
+	return cs.provider.SetupVPC(cs.config.ResourceNames.VPCName)
 }
 
 // CreateVM creates a virtual machine
