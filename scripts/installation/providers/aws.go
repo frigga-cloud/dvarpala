@@ -490,7 +490,7 @@ func (aws *AWSProvider) waitForSSHAccess(vmIP, keyPath string) error {
 	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
 		// Test SSH connectivity with key
-		sshCmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", 
+		sshCmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 			fmt.Sprintf("ubuntu@%s", vmIP), "echo 'SSH Ready'")
 		if sshCmd.Run() == nil {
 			return nil
@@ -504,7 +504,7 @@ func (aws *AWSProvider) waitForSSHAccess(vmIP, keyPath string) error {
 }
 
 func (aws *AWSProvider) executeSSHCommand(vmIP, command, keyPath string) error {
-	cmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+	cmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 		fmt.Sprintf("ubuntu@%s", vmIP), command)
 	
 	output, err := cmd.CombinedOutput()
@@ -517,30 +517,30 @@ func (aws *AWSProvider) executeSSHCommand(vmIP, command, keyPath string) error {
 }
 
 func (aws *AWSProvider) configureNginxMonitoring(vmIP, keyPath string) error {
-	// Create the nginx configuration file with proper sudo handling
+	// Create the nginx configuration file with proper sudo handling and escaped quotes
 	nginxConfig := `server {
     listen 8080;
     server_name _;
     root /var/www/html;
     
     location /health {
-        return 200 '{"status":"healthy","timestamp":"$(date -Iseconds)"}';
+        return 200 "{\"status\":\"healthy\",\"service\":\"dvarpala\"}";
         add_header Content-Type application/json;
     }
     
     location /installation-progress {
-        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
+        return 200 "{\"current_step\":\"Installation completed\",\"completed_steps\":9,\"total_steps\":9}";
         add_header Content-Type application/json;
     }
     
     location /installation-status {
-        return 200 'Installation completed successfully';
+        return 200 "Installation completed successfully";
         add_header Content-Type text/plain;
     }
 }`
 	
-	// Use tee with sudo to write the file
-	command := fmt.Sprintf("echo '%s' | sudo tee /etc/nginx/sites-available/dvarpala-monitoring > /dev/null", nginxConfig)
+	// Use printf to handle special characters properly, then pipe to sudo tee
+	command := fmt.Sprintf("printf '%s' | sudo tee /etc/nginx/sites-available/dvarpala-monitoring > /dev/null", nginxConfig)
 	return aws.executeSSHCommand(vmIP, command, keyPath)
 }
 
