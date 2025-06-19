@@ -196,6 +196,15 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 	imageFamily := "ubuntu-2204-lts"
 	imageProject := "ubuntu-os-cloud"
 
+	// Test gcloud authentication and project setup
+	fmt.Printf("🔍 Testing gcloud configuration...\n")
+	testCmd := exec.Command("gcloud", "config", "get-value", "project")
+	if projectOutput, err := testCmd.Output(); err != nil {
+		return nil, fmt.Errorf("gcloud configuration error: %v", err)
+	} else {
+		fmt.Printf("✅ GCP project: %s\n", strings.TrimSpace(string(projectOutput)))
+	}
+
 	// Generate minimal startup script - just basic system prep
 	startupScript := gcp.generateMinimalStartupScript(config)
 
@@ -214,10 +223,23 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 		"--tags", "dvarpala-server",
 		"--labels", "project=dvarpala,managed-by=frigga-labs",
 		"--scopes", "https://www.googleapis.com/auth/cloud-platform")
+	
+	fmt.Printf("🔍 Creating GCP instance with command:\n")
+	fmt.Printf("   gcloud compute instances create %s \\\n", instanceName)
+	fmt.Printf("     --zone %s \\\n", gcp.Zone)
+	fmt.Printf("     --machine-type %s \\\n", config.InstanceType)
+	fmt.Printf("     --network-interface subnet=%s,address= \\\n", vpcInfo.SubnetName)
+	fmt.Printf("     --image-family %s \\\n", imageFamily)
+	fmt.Printf("     --image-project %s \\\n", imageProject)
+	fmt.Printf("     --boot-disk-size %dGB\n", config.DiskSizeGB)
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to create instance: %v", err)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("❌ GCP instance creation failed. Command output:\n%s\n", string(output))
+		return nil, fmt.Errorf("failed to create instance: %v\nOutput: %s", err, string(output))
 	}
+	
+	fmt.Printf("✅ GCP instance creation command completed successfully\n")
 
 	// Wait for instance to be running
 	fmt.Printf("⏳ Waiting for instance %s to be running...\n", instanceName)
