@@ -208,7 +208,8 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 	// Generate minimal startup script - just basic system prep
 	startupScript := gcp.generateMinimalStartupScript(config)
 
-	// Create instance with SSH key
+	// Create instance with SSH key - combine metadata into single flag
+	metadata := fmt.Sprintf("startup-script=%s,ssh-keys=ubuntu:%s", startupScript, pubKey)
 	cmd := exec.Command("gcloud", "compute", "instances", "create", instanceName,
 		"--zone", gcp.Zone,
 		"--machine-type", config.InstanceType,
@@ -218,8 +219,7 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 		"--boot-disk-size", fmt.Sprintf("%dGB", config.DiskSizeGB),
 		"--boot-disk-type", "pd-standard",
 		"--boot-disk-device-name", instanceName,
-		"--metadata", fmt.Sprintf("startup-script=%s", startupScript),
-		"--metadata", fmt.Sprintf("ssh-keys=ubuntu:%s", pubKey),
+		"--metadata", metadata,
 		"--tags", "dvarpala-server",
 		"--labels", "project=dvarpala,managed-by=frigga-labs",
 		"--scopes", "https://www.googleapis.com/auth/cloud-platform")
@@ -235,7 +235,6 @@ func (gcp *GCPProvider) CreateInstance(vpcInfo *GCPVPCInfo, config InstanceConfi
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("❌ GCP instance creation failed. Command output:\n%s\n", string(output))
 		return nil, fmt.Errorf("failed to create instance: %v\nOutput: %s", err, string(output))
 	}
 	
