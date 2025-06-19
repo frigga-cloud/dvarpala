@@ -13,7 +13,6 @@
     "full_name": "Administrator"
   },
   "backup_enabled": true,
-  "storage_bucket": "frigga-labs-12345",
   "vm_config": {
     "instance_type": "Standard_B2s",
     "disk_size_gb": 50,

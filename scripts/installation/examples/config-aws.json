@@ -12,7 +12,6 @@
     "full_name": "Administrator"
   },
   "backup_enabled": true,
-  "storage_bucket": "frigga-labs-12345",
   "vm_config": {
     "instance_type": "t3.medium",
     "disk_size_gb": 50,
