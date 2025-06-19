@@ -405,12 +405,31 @@ export ADMIN_NAME='%s'
 export CLOUD_PROVIDER='aws'
 
 # Download and run dvarpala installation script
-cd /tmp
+echo "Starting dvarpala installation at $(date)" | tee -a /var/log/dvarpala-user-data.log
+
+# Use /var/lib/cloud directory which is always writable and executable
+echo "Creating installation directory..." | tee -a /var/log/dvarpala-user-data.log
+mkdir -p /var/lib/cloud/dvarpala
+cd /var/lib/cloud/dvarpala
+
+echo "Downloading installation script..." | tee -a /var/log/dvarpala-user-data.log
 curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/installer/cloud-setup-server.sh -o cloud-setup-server.sh
 
-# Make script executable and run
+if [ ! -f cloud-setup-server.sh ]; then
+    echo "ERROR: Failed to download cloud-setup-server.sh" | tee -a /var/log/dvarpala-user-data.log
+    exit 1
+fi
+
+echo "Making script executable..." | tee -a /var/log/dvarpala-user-data.log
 chmod +x cloud-setup-server.sh
-./cloud-setup-server.sh
+
+if [ ! -x cloud-setup-server.sh ]; then
+    echo "ERROR: Failed to make script executable" | tee -a /var/log/dvarpala-user-data.log
+    exit 1
+fi
+
+echo "Starting dvarpala installation script..." | tee -a /var/log/dvarpala-user-data.log
+./cloud-setup-server.sh 2>&1 | tee -a /var/log/dvarpala-user-data.log
 
 # Create admin OpenVPN configuration
 if [ -f /etc/openvpn/server/ca.crt ] && [ -f /opt/dvarpala/certs/admin.crt ]; then

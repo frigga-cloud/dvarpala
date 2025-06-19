@@ -845,12 +845,20 @@ func waitForInstallationComplete(vmIP string) error {
 			// Debug: Check what's actually happening
 			fmt.Printf("🔍 DEBUG: Checking VM %s\n", vmIP)
 			
-			// Test basic connectivity
+			// Test basic connectivity (Note: Many cloud VMs disable ICMP/ping)
 			pingCmd := exec.Command("ping", "-c", "1", "-W", "3", vmIP)
 			if pingErr := pingCmd.Run(); pingErr != nil {
-				fmt.Printf("❌ VM not reachable via ping: %v\n", pingErr)
+				fmt.Printf("⚠️ VM not reachable via ping (normal for cloud VMs): %v\n", pingErr)
 			} else {
 				fmt.Printf("✅ VM is reachable via ping\n")
+			}
+			
+			// Test SSH connectivity (more reliable than ping)
+			sshCmd := exec.Command("nc", "-z", "-v", "-w", "3", vmIP, "22")
+			if sshErr := sshCmd.Run(); sshErr != nil {
+				fmt.Printf("❌ SSH port 22 not accessible: %v\n", sshErr)
+			} else {
+				fmt.Printf("✅ SSH port 22 is accessible\n")
 			}
 			
 			// Test port 8080 specifically
