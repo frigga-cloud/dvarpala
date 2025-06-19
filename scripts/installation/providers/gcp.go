@@ -368,8 +368,12 @@ func (gcp *GCPProvider) CreateStorageBucket(bucketName string) error {
 }
 
 func (gcp *GCPProvider) UploadConfiguration(bucketName string, configData []byte, filename string) error {
-	// Write config to temp file
-	tempFile := fmt.Sprintf("/tmp/%s", filename)
+	// Write config to user home directory to avoid permission issues
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "/home/" + os.Getenv("USER")
+	}
+	tempFile := fmt.Sprintf("%s/%s", homeDir, filename)
 	if err := os.WriteFile(tempFile, configData, 0644); err != nil {
 		return err
 	}

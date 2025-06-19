@@ -47,6 +47,24 @@ echo -e "${BLUE}🚀 Dvarpala VPN Server Cloud Setup${NC}"
 echo "=================================================================="
 echo
 
+# 🔍 DEBUG: System and user information for troubleshooting
+echo -e "${YELLOW}🔍 DEBUG: Installation environment information:${NC}"
+echo "  Current user: $(whoami)"
+echo "  User ID: $(id)"
+echo "  Home directory: $HOME"
+echo "  Working directory: $(pwd)"
+echo "  Date/Time: $(date)"
+echo "  System: $(uname -a)"
+echo "  Process tree: $$ (parent: $PPID)"
+echo "  Environment variables:"
+env | grep -E "(USER|HOME|PATH|SUDO|ADMIN)" | head -10 | sed 's/^/    /'
+echo "  Mount information for key directories:"
+mount | grep -E "(tmp|home|var)" | head -5 | sed 's/^/    /'
+echo "  Available disk space:"
+df -h | grep -E "(tmp|home|var|root)" | head -5 | sed 's/^/    /'
+echo "================================================================="
+echo
+
 # Enhanced logging function with structured progress tracking
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
@@ -109,7 +127,8 @@ setup_progress_monitoring() {
     update_progress_files
     
     # Create enhanced monitoring script
-    cat > /tmp/setup-monitoring.sh << 'MONITOR_EOF'
+    mkdir -p /var/lib/dvarpala/scripts
+    cat > /var/lib/dvarpala/scripts/setup-monitoring.sh << 'MONITOR_EOF'
 #!/bin/bash
 # Enhanced HTTP server for installation progress monitoring
 
@@ -172,10 +191,10 @@ while true; do
 done
 MONITOR_EOF
 
-    chmod +x /tmp/setup-monitoring.sh
+    chmod +x /var/lib/dvarpala/scripts/setup-monitoring.sh
     
     # Start monitoring in background
-    nohup /tmp/setup-monitoring.sh > /dev/null 2>&1 &
+    nohup /var/lib/dvarpala/scripts/setup-monitoring.sh > /dev/null 2>&1 &
     
     # Start simple HTTP server for monitoring (nginx will replace this later)
     if command -v python3 &> /dev/null; then
@@ -209,9 +228,12 @@ create_directories() {
     mkdir -p "$CONFIG_DIR"
     mkdir -p /etc/openvpn/{server,client-configs}
     mkdir -p /var/log/dvarpala
+    mkdir -p /var/lib/dvarpala/auth  # For authentication status files
+    mkdir -p /var/lib/cloud/{scripts,downloads,builds}  # For installation temp files
     
     chown -R "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR"
     chown -R "$DVARPALA_USER:$DVARPALA_USER" /var/log/dvarpala
+    chown -R "$DVARPALA_USER:$DVARPALA_USER" /var/lib/dvarpala
     complete_step "Creating directory structure"
 }
 
@@ -286,7 +308,9 @@ install_go() {
         fi
     fi
     
-    cd /tmp
+    # Use /var/lib/cloud/downloads for Go installation
+    mkdir -p /var/lib/cloud/downloads
+    cd /var/lib/cloud/downloads
     wget -q "https://golang.org/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
     rm -rf /usr/local/go
     tar -C /usr/local -xzf "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
@@ -306,7 +330,9 @@ install_go() {
 build_dvarpala() {
     start_step "Downloading dvarpala source code from GitHub"
     
-    cd /tmp
+    # Use /var/lib/cloud/builds for source code
+    mkdir -p /var/lib/cloud/builds
+    cd /var/lib/cloud/builds
     if [[ ! -d "dvarpala" ]]; then
         git clone https://github.com/frigga-cloud/dvarpala.git
     fi
@@ -500,7 +526,7 @@ EOF
 # $ifconfig_pool_remote_ip - Assigned VPN IP
 
 LOG_FILE="/var/log/openvpn/client-connect.log"
-AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+AUTH_STATUS_FILE="/var/lib/dvarpala/auth/dvarpala-auth-status"
 
 # Log connection attempt
 echo "$(date): Client connect - CN: $common_name, VPN IP: $ifconfig_pool_remote_ip, Real IP: $trusted_ip" >> $LOG_FILE
@@ -543,7 +569,7 @@ EOF
 # Cleans up authentication status to force re-authentication
 
 LOG_FILE="/var/log/openvpn/client-disconnect.log"
-AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+AUTH_STATUS_FILE="/var/lib/dvarpala/auth/dvarpala-auth-status"
 
 # Log disconnection
 echo "$(date): Client disconnect - CN: $common_name, VPN IP: $ifconfig_pool_remote_ip, Duration: $time_duration seconds" >> $LOG_FILE
@@ -791,7 +817,7 @@ if [ $# -ne 1 ]; then
 fi
 
 USERNAME="$1"
-AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+AUTH_STATUS_FILE="/var/lib/dvarpala/auth/dvarpala-auth-status"
 LOG_FILE="/var/log/openvpn/web-auth.log"
 
 # Mark user as authenticated
@@ -820,7 +846,7 @@ if [ $# -ne 1 ]; then
 fi
 
 USERNAME="$1"
-AUTH_STATUS_FILE="/tmp/dvarpala-auth-status"
+AUTH_STATUS_FILE="/var/lib/dvarpala/auth/dvarpala-auth-status"
 
 if [ -f "$AUTH_STATUS_FILE-$USERNAME" ]; then
     cat "$AUTH_STATUS_FILE-$USERNAME"
@@ -969,7 +995,7 @@ generate_admin_cert() {
 # This script runs after OpenVPN connection is established
 
 CAPTIVE_URL="http://172.30.100.1:8080"
-LOG_FILE="/tmp/dvarpala-client.log"
+LOG_FILE="$HOME/.dvarpala-client.log"
 
 echo "$(date): VPN connected, attempting to open captive portal..." >> $LOG_FILE
 
