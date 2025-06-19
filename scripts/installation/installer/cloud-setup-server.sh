@@ -126,6 +126,15 @@ setup_progress_monitoring() {
     CURRENT_STEP="Installation starting..."
     update_progress_files
     
+    # Create initial endpoint files to ensure they exist
+    echo "Installation starting..." > /var/www/html/installation-status
+    echo '{"status": "installing", "timestamp": "'$(date -Iseconds)'"}' > /var/www/html/health
+    echo '[]' > /var/www/html/completed-steps
+    echo "Installation log starting..." > /var/www/html/installation-log
+    
+    log "Created initial monitoring endpoint files in /var/www/html"
+    ls -la /var/www/html/ | sed 's/^/  /'
+    
     # Create enhanced monitoring script
     mkdir -p /var/lib/dvarpala/scripts
     cat > /var/lib/dvarpala/scripts/setup-monitoring.sh << 'MONITOR_EOF'
@@ -196,10 +205,121 @@ MONITOR_EOF
     # Start monitoring in background
     nohup /var/lib/dvarpala/scripts/setup-monitoring.sh > /dev/null 2>&1 &
     
-    # Start simple HTTP server for monitoring (nginx will replace this later)
-    if command -v python3 &> /dev/null; then
-        cd /var/www/html
-        nohup python3 -m http.server 8080 > /dev/null 2>&1 &
+    # Configure nginx for port 8080 monitoring endpoints
+    configure_nginx_monitoring
+}
+
+# Configure nginx for installation monitoring endpoints
+configure_nginx_monitoring() {
+    log "Configuring nginx for installation monitoring..."
+    
+    # Create nginx configuration for port 8080
+    cat > /etc/nginx/sites-available/dvarpala-monitoring << 'NGINX_EOF'
+server {
+    listen 8080;
+    server_name _;
+    
+    # Root directory for monitoring files
+    root /var/www/html;
+    index index.html;
+    
+    # Enable directory browsing for debugging
+    autoindex on;
+    
+    # Health check endpoint
+    location /health {
+        try_files $uri $uri/ =404;
+        add_header Content-Type application/json;
+        add_header Access-Control-Allow-Origin *;
+    }
+    
+    # Installation progress endpoint
+    location /installation-progress {
+        try_files $uri $uri/ =404;
+        add_header Content-Type application/json;
+        add_header Access-Control-Allow-Origin *;
+    }
+    
+    # Installation status endpoint
+    location /installation-status {
+        try_files $uri $uri/ =404;
+        add_header Content-Type text/plain;
+        add_header Access-Control-Allow-Origin *;
+    }
+    
+    # Completed steps endpoint
+    location /completed-steps {
+        try_files $uri $uri/ =404;
+        add_header Content-Type application/json;
+        add_header Access-Control-Allow-Origin *;
+    }
+    
+    # Installation log endpoint
+    location /installation-log {
+        try_files $uri $uri/ =404;
+        add_header Content-Type text/plain;
+        add_header Access-Control-Allow-Origin *;
+    }
+    
+    # Admin OVPN download endpoint
+    location /admin.ovpn {
+        try_files $uri $uri/ =404;
+        add_header Content-Type application/x-openvpn-profile;
+        add_header Content-Disposition "attachment; filename=admin.ovpn";
+    }
+    
+    # Basic logging
+    access_log /var/log/nginx/dvarpala-monitoring.access.log;
+    error_log /var/log/nginx/dvarpala-monitoring.error.log;
+}
+NGINX_EOF
+
+    # Enable the site
+    ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/
+    
+    # Test nginx configuration
+    if nginx -t; then
+        # Start nginx service
+        systemctl enable nginx
+        systemctl restart nginx
+        log "Nginx configured and started for monitoring on port 8080"
+        
+        # Verify nginx is running on port 8080
+        sleep 2
+        if netstat -tlnp | grep :8080 > /dev/null; then
+            log "✅ Confirmed: Nginx is listening on port 8080"
+            
+            # Test the monitoring endpoints
+            log "Testing monitoring endpoints:"
+            for endpoint in "health" "installation-status" "installation-progress" "completed-steps"; do
+                if curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/$endpoint" | grep -q "200\|404"; then
+                    log "  ✅ /$endpoint - Nginx serving endpoint"
+                else
+                    log "  ❌ /$endpoint - Endpoint not accessible"
+                fi
+            done
+        else
+            log "⚠️ WARNING: Nginx not listening on port 8080, checking status..."
+            systemctl status nginx | head -10
+        fi
+    else
+        log "ERROR: Nginx configuration test failed"
+        nginx -t 2>&1 | head -5  # Show specific error
+        
+        # Fallback to Python HTTP server
+        if command -v python3 &> /dev/null; then
+            cd /var/www/html
+            nohup python3 -m http.server 8080 > /dev/null 2>&1 &
+            log "Fallback: Started Python HTTP server on port 8080"
+            
+            # Verify Python server is running
+            sleep 2
+            if netstat -tlnp | grep :8080 > /dev/null; then
+                log "✅ Confirmed: Python HTTP server is listening on port 8080"
+            else
+                log "❌ ERROR: Neither nginx nor Python server is running on port 8080"
+            fi
+        fi
     fi
 }
 
