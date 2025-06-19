@@ -1,0 +1,110 @@
+{
+  "oauth_providers": {
+    "microsoft": {
+      "name": "Microsoft 365 / Azure AD",
+      "domains": [
+        "login.microsoftonline.com",
+        "login.microsoft.com",
+        "login.live.com",
+        "login.windows.net",
+        "graph.microsoft.com",
+        "account.microsoft.com",
+        "aadcdn.msauth.net",
+        "aadcdn.msftauth.net",
+        "msauth.net",
+        "msftauth.net",
+        "office.com",
+        "office365.com"
+      ],
+      "ip_ranges": [
+        "20.190.128.0/18",
+        "40.126.0.0/18",
+        "13.107.6.0/24",
+        "13.107.9.0/24",
+        "52.96.0.0/14"
+      ]
+    },
+    "google": {
+      "name": "Google / GSuite",
+      "domains": [
+        "accounts.google.com",
+        "oauth2.googleapis.com",
+        "www.googleapis.com",
+        "ssl.gstatic.com",
+        "apis.google.com",
+        "myaccount.google.com",
+        "accounts.youtube.com",
+        "accounts.google.co.in",
+        "accounts.google.co.uk",
+        "ajax.googleapis.com",
+        "fonts.googleapis.com",
+        "fonts.gstatic.com"
+      ],
+      "ip_ranges": [
+        "172.217.0.0/16",
+        "172.253.0.0/16",
+        "142.250.0.0/15",
+        "74.125.0.0/16",
+        "216.58.192.0/19"
+      ]
+    },
+    "github": {
+      "name": "GitHub",
+      "domains": [
+        "github.com",
+        "api.github.com",
+        "gist.github.com",
+        "github.githubassets.com",
+        "avatars.githubusercontent.com",
+        "camo.githubusercontent.com",
+        "raw.githubusercontent.com",
+        "user-images.githubusercontent.com"
+      ],
+      "ip_ranges": [
+        "140.82.112.0/20",
+        "192.30.252.0/22",
+        "185.199.108.0/22",
+        "143.55.64.0/20"
+      ]
+    },
+    "gitlab": {
+      "name": "GitLab",
+      "domains": [
+        "gitlab.com",
+        "about.gitlab.com",
+        "gitlab-static.net",
+        "gitlab.io"
+      ],
+      "ip_ranges": [
+        "35.231.145.151/32",
+        "34.74.90.64/28",
+        "34.74.226.0/24"
+      ],
+      "self_hosted_note": "For self-hosted GitLab instances, add your instance domain and IP"
+    }
+  },
+  "support_services": {
+    "certificate_validation": {
+      "domains": [
+        "ocsp.pki.goog",
+        "ocsp.digicert.com",
+        "ocsp.msocsp.com",
+        "crl.microsoft.com",
+        "ocsp.comodoca.com"
+      ]
+    },
+    "captive_portal": {
+      "domains": [
+        "captive.apple.com",
+        "connectivitycheck.gstatic.com",
+        "www.msftconnecttest.com",
+        "detectportal.firefox.com"
+      ]
+    }
+  },
+  "notes": {
+    "ip_ranges": "IP ranges may change. Consider using domain-based filtering with DNS resolution for better reliability.",
+    "self_hosted": "For self-hosted GitLab or GitHub Enterprise, add your specific domains and IPs.",
+    "updates": "OAuth providers may add new domains. Monitor authentication flows and update as needed."
+  }
+}
