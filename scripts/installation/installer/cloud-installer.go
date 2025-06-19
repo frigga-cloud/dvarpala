@@ -42,6 +42,14 @@ type InstallationConfig struct {
 	VMConfig        VMConfig      `json:"vm_config"`
 	NetworkConfig   NetworkConfig `json:"network_config"`
 	OutputDirectory string        `json:"output_directory"`
+	ResourceNames   ResourceNames `json:"resource_names"`
+}
+
+type ResourceNames struct {
+	VPCName      string `json:"vpc_name"`
+	VMName       string `json:"vm_name"`
+	BucketName   string `json:"bucket_name"`
+	KeyPairName  string `json:"keypair_name"`
 }
 
 type VMConfig struct {
@@ -83,6 +91,9 @@ func cloudInstaller() {
 	} else {
 		config = createConfigFromFlags(*provider, *region, *outputDir)
 	}
+
+	// Generate Frigga resource names
+	generateResourceNames(&config)
 
 	// Validate configuration
 	if err := validateConfig(config); err != nil {
@@ -199,8 +210,7 @@ func runInteractiveSetup() InstallationConfig {
 		config.Admin.FullName = parts[0]
 	}
 
-	// Object storage bucket name
-	config.StorageBucket = fmt.Sprintf("frigga-labs-%s", generateRandomSuffix())
+	// Object storage bucket name will be generated later with resource names
 
 	// Output directory
 	fmt.Printf("\nOutput directory [%s]: ", config.OutputDirectory)
@@ -463,7 +473,6 @@ func createConfigFromFlags(provider, region, outputDir string) InstallationConfi
 		},
 		OutputDirectory: outputDir,
 		BackupEnabled:   true,
-		StorageBucket:   fmt.Sprintf("frigga-labs-%s", generateRandomSuffix()),
 		VMConfig: VMConfig{
 			InstanceType: getDefaultInstanceType(CloudProvider(provider)),
 			DiskSize:     50,
@@ -652,6 +661,12 @@ func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
 	connectionInfo := fmt.Sprintf(`Dvarpala Installation Complete
 ================================
 
+Frigga Resource Names:
+- VPC: %s
+- VM: %s  
+- Storage: %s
+- KeyPair: %s
+
 Server Details:
 - Instance ID: %s  
 - Public IP: %s
@@ -667,15 +682,18 @@ Object Storage:
 
 Next Steps:
 1. Download admin.ovpn from the output directory
-2. Connect to VPN using the admin certificate  
-3. Access dashboard at http://192.168.100.1:8080
-4. Configure OAuth providers and generate user certificates
+2. Connect to VPN using credentials: portal/access
+3. Browser auto-opens to http://172.30.100.1:8080
+4. Complete authentication via web portal for full access
+5. Configure OAuth providers and generate user certificates
 
 Files Generated:
 - installation-config.json: Full installation configuration
-- admin.ovpn: Admin VPN configuration
+- admin.ovpn: Admin VPN configuration with auto-open
 - connection-info.txt: This file
-`, vmInfo.InstanceID, vmInfo.PublicIP, vmInfo.PrivateIP,
+`, config.ResourceNames.VPCName, config.ResourceNames.VMName, 
+		config.ResourceNames.BucketName, config.ResourceNames.KeyPairName,
+		vmInfo.InstanceID, vmInfo.PublicIP, vmInfo.PrivateIP,
 		config.Admin.Email, config.OutputDirectory,
 		config.StorageBucket, config.StorageBucket)
 
@@ -720,6 +738,34 @@ func readPassword() string {
 
 func generateRandomSuffix() string {
 	return fmt.Sprintf("%d", time.Now().Unix()%100000)
+}
+
+func generateFriggaResourceName(resourceType string) string {
+	// Generate 5-character alphanumeric string
+	chars := "abcdefghijklmnopqrstuvwxyz0123456789"
+	suffix := make([]byte, 5)
+	for i := range suffix {
+		suffix[i] = chars[time.Now().UnixNano()%int64(len(chars))]
+		time.Sleep(1000) // Small delay to ensure different nano timestamps
+	}
+	return fmt.Sprintf("friggalabs-%s-%s", resourceType, string(suffix))
+}
+
+func generateResourceNames(config *InstallationConfig) {
+	// Generate consistent resource names with Frigga naming convention
+	config.ResourceNames.VPCName = generateFriggaResourceName("vpc")
+	config.ResourceNames.VMName = generateFriggaResourceName("vm")
+	config.ResourceNames.BucketName = generateFriggaResourceName("storage")
+	config.ResourceNames.KeyPairName = generateFriggaResourceName("keypair")
+	
+	// Update storage bucket name to use new naming convention
+	config.StorageBucket = config.ResourceNames.BucketName
+	
+	fmt.Printf("🏷️ Generated resource names:\n")
+	fmt.Printf("   VPC: %s\n", config.ResourceNames.VPCName)
+	fmt.Printf("   VM: %s\n", config.ResourceNames.VMName)
+	fmt.Printf("   Storage: %s\n", config.ResourceNames.BucketName)
+	fmt.Printf("   KeyPair: %s\n", config.ResourceNames.KeyPairName)
 }
 
 func getDefaultInstanceType(provider CloudProvider) string {

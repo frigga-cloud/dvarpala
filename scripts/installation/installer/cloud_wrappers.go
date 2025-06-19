@@ -27,7 +27,9 @@ func NewAWSWrapper(config InstallationConfig) (*AWSWrapper, error) {
 }
 
 func (aw *AWSWrapper) SetupVPC(name string) (string, error) {
-	vpcInfo, err := aw.provider.CreateOrGetVPC(name, providers.NetworkConfig{
+	// Use Frigga naming convention for VPC
+	vpcName := aw.config.ResourceNames.VPCName
+	vpcInfo, err := aw.provider.CreateOrGetVPC(vpcName, providers.NetworkConfig{
 		VPCCidr:           aw.config.NetworkConfig.VPCCidr,
 		PublicSubnetCidr:  aw.config.NetworkConfig.PublicSubnetCidr,
 		PrivateSubnetCidr: aw.config.NetworkConfig.PrivateSubnetCidr,
@@ -40,7 +42,9 @@ func (aw *AWSWrapper) SetupVPC(name string) (string, error) {
 }
 
 func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VMInfo, error) {
-	vpcInfo, err := aw.provider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
+	// Use existing VPC (already created by SetupVPC)
+	vpcName := aw.config.ResourceNames.VPCName
+	vpcInfo, err := aw.provider.CreateOrGetVPC(vpcName, providers.NetworkConfig{
 		VPCCidr:           aw.config.NetworkConfig.VPCCidr,
 		PublicSubnetCidr:  aw.config.NetworkConfig.PublicSubnetCidr,
 		PrivateSubnetCidr: aw.config.NetworkConfig.PrivateSubnetCidr,
@@ -50,6 +54,8 @@ func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		return nil, err
 	}
 
+	// Use Frigga naming convention for VM instance
+	// Note: InstanceName and KeyPairName will be handled by the provider internally
 	instanceInfo, err := aw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
 		InstanceType: instanceConfig.InstanceType,
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
@@ -69,11 +75,13 @@ func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 }
 
 func (aw *AWSWrapper) SetupStorage(bucketName string) error {
-	return aw.provider.CreateS3Bucket(bucketName)
+	// Use Frigga naming convention for S3 bucket
+	return aw.provider.CreateS3Bucket(aw.config.ResourceNames.BucketName)
 }
 
 func (aw *AWSWrapper) UploadConfig(bucketName string, data []byte, filename string) error {
-	return aw.provider.UploadConfiguration(bucketName, data, filename)
+	// Use Frigga naming convention for bucket operations
+	return aw.provider.UploadConfiguration(aw.config.ResourceNames.BucketName, data, filename)
 }
 
 // GCP Wrapper
@@ -98,7 +106,9 @@ func NewGCPWrapper(config InstallationConfig) (*GCPWrapper, error) {
 }
 
 func (gw *GCPWrapper) SetupVPC(name string) (string, error) {
-	vpcInfo, err := gw.provider.CreateOrGetVPC(name, providers.NetworkConfig{
+	// Use Frigga naming convention for VPC
+	vpcName := gw.config.ResourceNames.VPCName
+	vpcInfo, err := gw.provider.CreateOrGetVPC(vpcName, providers.NetworkConfig{
 		VPCCidr:           gw.config.NetworkConfig.VPCCidr,
 		PublicSubnetCidr:  gw.config.NetworkConfig.PublicSubnetCidr,
 		PrivateSubnetCidr: gw.config.NetworkConfig.PrivateSubnetCidr,
@@ -111,7 +121,9 @@ func (gw *GCPWrapper) SetupVPC(name string) (string, error) {
 }
 
 func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VMInfo, error) {
-	vpcInfo, err := gw.provider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
+	// Use existing VPC (already created by SetupVPC)
+	vpcName := gw.config.ResourceNames.VPCName
+	vpcInfo, err := gw.provider.CreateOrGetVPC(vpcName, providers.NetworkConfig{
 		VPCCidr:           gw.config.NetworkConfig.VPCCidr,
 		PublicSubnetCidr:  gw.config.NetworkConfig.PublicSubnetCidr,
 		PrivateSubnetCidr: gw.config.NetworkConfig.PrivateSubnetCidr,
@@ -121,6 +133,8 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		return nil, err
 	}
 
+	// Use Frigga naming convention for VM instance
+	// Note: InstanceName will be handled by the provider internally
 	instanceInfo, err := gw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
 		InstanceType: instanceConfig.InstanceType,
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
@@ -139,11 +153,13 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 }
 
 func (gw *GCPWrapper) SetupStorage(bucketName string) error {
-	return gw.provider.CreateStorageBucket(bucketName)
+	// Use Frigga naming convention for Cloud Storage bucket
+	return gw.provider.CreateStorageBucket(gw.config.ResourceNames.BucketName)
 }
 
 func (gw *GCPWrapper) UploadConfig(bucketName string, data []byte, filename string) error {
-	return gw.provider.UploadConfiguration(bucketName, data, filename)
+	// Use Frigga naming convention for bucket operations
+	return gw.provider.UploadConfiguration(gw.config.ResourceNames.BucketName, data, filename)
 }
 
 // Azure Wrapper
@@ -170,7 +186,9 @@ func NewAzureWrapper(config InstallationConfig) (*AzureWrapper, error) {
 }
 
 func (azw *AzureWrapper) SetupVPC(name string) (string, error) {
-	vpcInfo, err := azw.provider.CreateOrGetVPC(name, providers.NetworkConfig{
+	// Use Frigga naming convention for VNet
+	vpcName := azw.config.ResourceNames.VPCName
+	vpcInfo, err := azw.provider.CreateOrGetVPC(vpcName, providers.NetworkConfig{
 		VPCCidr:           azw.config.NetworkConfig.VPCCidr,
 		PublicSubnetCidr:  azw.config.NetworkConfig.PublicSubnetCidr,
 		PrivateSubnetCidr: azw.config.NetworkConfig.PrivateSubnetCidr,
@@ -183,7 +201,9 @@ func (azw *AzureWrapper) SetupVPC(name string) (string, error) {
 }
 
 func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VMInfo, error) {
-	vpcInfo, err := azw.provider.CreateOrGetVPC("frigga-labs", providers.NetworkConfig{
+	// Use existing VNet (already created by SetupVPC)
+	vpcName := azw.config.ResourceNames.VPCName
+	vpcInfo, err := azw.provider.CreateOrGetVPC(vpcName, providers.NetworkConfig{
 		VPCCidr:           azw.config.NetworkConfig.VPCCidr,
 		PublicSubnetCidr:  azw.config.NetworkConfig.PublicSubnetCidr,
 		PrivateSubnetCidr: azw.config.NetworkConfig.PrivateSubnetCidr,
@@ -193,6 +213,8 @@ func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (
 		return nil, err
 	}
 
+	// Use Frigga naming convention for VM instance
+	// Note: InstanceName will be handled by the provider internally
 	instanceInfo, err := azw.provider.CreateInstance(vpcInfo, providers.InstanceConfig{
 		InstanceType: instanceConfig.InstanceType,
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
@@ -212,9 +234,11 @@ func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (
 }
 
 func (azw *AzureWrapper) SetupStorage(bucketName string) error {
-	return azw.provider.CreateStorageAccount(bucketName)
+	// Use Frigga naming convention for Storage Account
+	return azw.provider.CreateStorageAccount(azw.config.ResourceNames.BucketName)
 }
 
 func (azw *AzureWrapper) UploadConfig(bucketName string, data []byte, filename string) error {
-	return azw.provider.UploadConfiguration(bucketName, data, filename)
+	// Use Frigga naming convention for storage operations
+	return azw.provider.UploadConfiguration(azw.config.ResourceNames.BucketName, data, filename)
 }

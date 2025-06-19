@@ -69,6 +69,38 @@ Authentication Flow:
 
 This creates a **consistent brand identity** where any `172.30.x.x` IP immediately identifies Frigga Cloud Labs infrastructure.
 
+### **🏷️ Frigga Resource Naming Convention**
+
+All cloud resources follow the pattern: `friggalabs-{resourceName}-{XXXXX}`
+
+- **Pattern**: Consistent naming across all cloud providers
+- **Prefix**: `friggalabs` for brand identification  
+- **Suffix**: 5-character alphanumeric string for uniqueness
+- **Benefits**: Easy searching, no conflicts, clear ownership
+
+**Example Resource Names:**
+```
+friggalabs-vpc-3k9m2        # Virtual Private Cloud
+friggalabs-vm-7x4n8         # Virtual Machine  
+friggalabs-storage-9p1q5    # Storage Bucket
+friggalabs-keypair-2m8r4    # SSH Key Pair
+```
+
+**Resource Management:**
+```bash
+# AWS: Find all Frigga resources
+aws ec2 describe-instances --filters "Name=tag:Name,Values=friggalabs-*"
+aws s3 ls | grep friggalabs
+
+# GCP: Find all Frigga resources  
+gcloud compute instances list --filter="name~friggalabs-"
+gcloud storage buckets list --filter="name~friggalabs-"
+
+# Azure: Find all Frigga resources
+az vm list --query "[?contains(name,'friggalabs')]"
+az storage account list --query "[?contains(name,'friggalabs')]"
+```
+
 ### **🚀 Quick Reference: Captive Portal Configuration**
 
 | **Component** | **Value** | **Purpose** |
@@ -308,27 +340,38 @@ go run cloud-installer.go \
 
 ## What Gets Created
 
+During installation, the system automatically generates unique resource names:
+
+```
+🏷️ Generated resource names:
+   VPC: friggalabs-vpc-k2m9x
+   VM: friggalabs-vm-p3q8n  
+   Storage: friggalabs-storage-7r4t2
+   KeyPair: friggalabs-keypair-5h6w1
+```
+
 ### AWS Infrastructure
-- **VPC**: `frigga-labs` with DNS hostnames enabled
+- **VPC**: `friggalabs-vpc-{XXXXX}` with DNS hostnames enabled
 - **Subnets**: Public subnet for dvarpala server  
 - **Internet Gateway**: For internet access
 - **Security Group**: Ports 22, 1194, 8080, 443 open
-- **EC2 Instance**: Ubuntu 22.04 with dvarpala installed
-- **S3 Bucket**: For configuration backups
+- **EC2 Instance**: `friggalabs-vm-{XXXXX}` Ubuntu 22.04 with dvarpala installed
+- **S3 Bucket**: `friggalabs-storage-{XXXXX}` for configuration backups
+- **Key Pair**: `friggalabs-keypair-{XXXXX}` for SSH access
 
 ### GCP Infrastructure  
-- **VPC Network**: `frigga-labs` in custom mode
+- **VPC Network**: `friggalabs-vpc-{XXXXX}` in custom mode
 - **Subnet**: Regional subnet for instances
 - **Firewall Rules**: Allow dvarpala traffic
-- **Compute Instance**: Ubuntu 22.04 with dvarpala installed
-- **Cloud Storage**: Bucket for configuration backups
+- **Compute Instance**: `friggalabs-vm-{XXXXX}` Ubuntu 22.04 with dvarpala installed
+- **Cloud Storage**: `friggalabs-storage-{XXXXX}` bucket for configuration backups
 
 ### Azure Infrastructure
-- **Resource Group**: `frigga-labs-rg`
+- **Resource Group**: `friggalabs-vpc-{XXXXX}` (used as resource group name)
 - **Virtual Network**: With subnet and NSG
 - **Network Security Group**: Allow dvarpala traffic  
-- **Virtual Machine**: Ubuntu 22.04 with dvarpala installed
-- **Storage Account**: For configuration backups
+- **Virtual Machine**: `friggalabs-vm-{XXXXX}` Ubuntu 22.04 with dvarpala installed
+- **Storage Account**: `friggalabs-storage-{XXXXX}` for configuration backups
 
 ## Output Files
 
