@@ -450,7 +450,7 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 		{"Setting up directories", "mkdir -p /home/$(whoami)/dvarpala /home/$(whoami)/dvarpala/certs && sudo mkdir -p /var/lib/dvarpala"},
 		{"Starting basic services", "sudo systemctl start postgresql redis-server"},
 		{"Setting up Easy-RSA", "make-cadir /home/$(whoami)/dvarpala/easy-rsa"},
-		{"Configuring Easy-RSA vars", aws.getEasyRSAVarsCommand()},
+		{"Configuring Easy-RSA vars", aws.getEasyRSAVarsCommand(config)},
 		{"Building Certificate Authority", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa init-pki && ./easyrsa --batch build-ca nopass"},
 		{"Generating server certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-server-full server nopass"},
 		{"Generating admin client certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-client-full admin nopass"},
@@ -576,19 +576,19 @@ EOF`
 	return aws.executeSSHCommand(vmIP, command, keyPath)
 }
 
-func (aws *AWSProvider) getEasyRSAVarsCommand() string {
-	return `tee /home/$(whoami)/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
+func (aws *AWSProvider) getEasyRSAVarsCommand(config InstanceConfig) string {
+	return fmt.Sprintf(`tee /home/$(whoami)/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
 set_var EASYRSA_REQ_COUNTRY    "US"
 set_var EASYRSA_REQ_PROVINCE   "CA"
 set_var EASYRSA_REQ_CITY       "San Francisco"
 set_var EASYRSA_REQ_ORG        "Frigga Labs"
-set_var EASYRSA_REQ_EMAIL      "admin@friggalabs.com"
+set_var EASYRSA_REQ_EMAIL      "%s"
 set_var EASYRSA_REQ_OU         "Dvarpala VPN"
 set_var EASYRSA_KEY_SIZE       2048
 set_var EASYRSA_ALGO           rsa
 set_var EASYRSA_CA_EXPIRE      3650
 set_var EASYRSA_CERT_EXPIRE    365
-EOF`
+EOF`, config.AdminEmail)
 }
 
 func (aws *AWSProvider) getOpenVPNServerConfigCommand() string {

@@ -20,6 +20,7 @@ func main() {
 	installerFiles := []string{
 		"run",
 		filepath.Join("installer", "installer.go"),
+		filepath.Join("installer", "installer_lib.go"),
 		filepath.Join("installer", "cloud_service.go"),
 		filepath.Join("installer", "cloud_wrappers.go"),
 	}
