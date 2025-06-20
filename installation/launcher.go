@@ -8,29 +8,29 @@ import (
 )
 
 func main() {
-	// Check if cloud-installer.go exists in the installer directory
-	installerPath := filepath.Join("installer", "cloud-installer.go")
+	// Check if installer.go exists in the installer directory
+	installerPath := filepath.Join("installer", "installer.go")
 	if _, err := os.Stat(installerPath); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "Error: %s not found\n", installerPath)
-		fmt.Fprintf(os.Stderr, "Make sure you're running this from the scripts/installation directory\n")
+		fmt.Fprintf(os.Stderr, "Make sure you're running this from the installation directory\n")
 		os.Exit(1)
 	}
-	
+
 	// Prepare command arguments - include all necessary Go files
 	installerFiles := []string{
 		"run",
-		filepath.Join("installer", "cloud-installer.go"),
+		filepath.Join("installer", "installer.go"),
 		filepath.Join("installer", "cloud_service.go"),
 		filepath.Join("installer", "cloud_wrappers.go"),
 	}
 	args := append(installerFiles, os.Args[1:]...)
-	
+
 	// Execute the cloud installer
 	cmd := exec.Command("go", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	if err := cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			os.Exit(exitError.ExitCode())

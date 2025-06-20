@@ -76,11 +76,7 @@ type NetworkConfig struct {
 
 func cloudInstaller() {
 	var (
-		configFile  = flag.String("config", "", "Configuration file (JSON) with cloud and admin settings")
-		interactive = flag.Bool("interactive", true, "Run in interactive mode")
-		provider    = flag.String("provider", "", "Cloud provider: aws, gcp, azure")
-		region      = flag.String("region", "", "Cloud region")
-		outputDir   = flag.String("output", "./dvarpala-deployment", "Output directory for configuration files")
+		configFile = flag.String("config", "", "Configuration file (JSON) with cloud and admin settings (REQUIRED)")
 	)
 	flag.Parse()
 
@@ -88,21 +84,25 @@ func cloudInstaller() {
 	fmt.Println("==========================================")
 	fmt.Println()
 
-	var config InstallationConfig
-
-	if *configFile != "" {
-		if err := loadConfigFromFile(*configFile, &config); err != nil {
-			log.Fatalf("❌ Failed to load config file: %v", err)
-		}
-		fmt.Printf("✅ Configuration loaded from: %s\n", *configFile)
-	} else if *interactive {
-		fmt.Printf("✅ Running in interactive mode\n")
-		config = runInteractiveSetup()
-	} else {
-		fmt.Printf("✅ Creating configuration from flags\n")
-		config = createConfigFromFlags(*provider, *region, *outputDir)
-		fmt.Printf("💬 Config: %+v\n", config)
+	// Require config file - no interactive or flag-based installation
+	if *configFile == "" {
+		fmt.Println("❌ Configuration file is required!")
+		fmt.Println()
+		fmt.Println("Usage:")
+		fmt.Println("  go run installer/installer.go installer/cloud_service.go installer/cloud_wrappers.go --config=config.json")
+		fmt.Println()
+		fmt.Println("📋 Create a config.json file with your cloud provider settings.")
+		fmt.Println("📖 See examples/ directory for sample configuration files.")
+		fmt.Println()
+		flag.Usage()
+		os.Exit(1)
 	}
+
+	var config InstallationConfig
+	if err := loadConfigFromFile(*configFile, &config); err != nil {
+		log.Fatalf("❌ Failed to load config file: %v", err)
+	}
+	fmt.Printf("✅ Configuration loaded from: %s\n", *configFile)
 
 	// Generate Frigga resource names
 	generateResourceNames(&config)
@@ -186,6 +186,20 @@ func cloudInstaller() {
 
 	// Print SSH connection details for manual access
 	printSSHConnectionInfo(vmInfo)
+}
+
+// Validating the configuration for installation.
+func validateConfig(config InstallationConfig) error {
+	if config.Cloud.Provider == "" {
+		return fmt.Errorf("cloud provider not specified")
+	}
+	if config.Cloud.Region == "" {
+		return fmt.Errorf("cloud region not specified")
+	}
+	if config.Admin.Email == "" {
+		return fmt.Errorf("administrator email not specified")
+	}
+	return nil
 }
 
 func runInteractiveSetup() InstallationConfig {
@@ -525,19 +539,6 @@ func createConfigFromFlags(provider, region, outputDir string) InstallationConfi
 	}
 }
 
-func validateConfig(config InstallationConfig) error {
-	if config.Cloud.Provider == "" {
-		return fmt.Errorf("cloud provider not specified")
-	}
-	if config.Cloud.Region == "" {
-		return fmt.Errorf("cloud region not specified")
-	}
-	if config.Admin.Email == "" {
-		return fmt.Errorf("administrator email not specified")
-	}
-	return nil
-}
-
 func installCloudTools(provider CloudProvider) error {
 	switch provider {
 	case AWS:
@@ -799,7 +800,6 @@ func readPassword() string {
 	return password
 }
 
-
 func generateFriggaResourceName(resourceType string) string {
 	// Generate 5-character alphanumeric string
 	chars := "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -863,7 +863,6 @@ func verifyInstallation(vmIP string) error {
 	fmt.Printf("✅ Health check response: %s\n", strings.TrimSpace(string(output)))
 	return nil
 }
-
 
 // downloadAdminOVPN downloads the admin.ovpn file from the VM
 func downloadAdminOVPN(config InstallationConfig, vmInfo *VMInfo) error {

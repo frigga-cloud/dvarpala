@@ -1,0 +1,32 @@
+{
+  "cloud": {
+    "provider": "aws",
+    "region": "us-east-1",
+    "credentials": {
+      "access_key": "YOUR_AWS_ACCESS_KEY_ID",
+      "secret_key": "YOUR_AWS_SECRET_ACCESS_KEY"
+    }
+  },
+  "admin": {
+    "email": "admin@yourdomain.com",
+    "full_name": "Admin User"
+  },
+  "backup_enabled": true,
+  "storage_bucket": "friggalabs",
+  "vm_config": {
+    "instance_type": "t3.medium",
+    "disk_size_gb": 50,
+    "tags": {
+      "Project": "dvarpala",
+      "Environment": "production",
+      "ManagedBy": "frigga-labs-installer"
+    }
+  },
+  "network_config": {
+    "vpc_cidr": "172.30.0.0/26",
+    "public_subnet_cidr": "172.30.0.0/27",
+    "private_subnet_cidr": "172.30.0.32/27",
+    "allowed_ips": []
+  },
+  "output_directory": "./dvarpala-deployment"
+}

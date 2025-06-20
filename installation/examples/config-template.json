@@ -1,0 +1,32 @@
+{
+  "cloud": {
+    "provider": "gcp",
+    "region": "us-central1",
+    "project_id": "your-gcp-project-id",
+    "credentials": {
+      "service_account_key": "/path/to/service-account-key.json"
+    }
+  },
+  "admin": {
+    "email": "admin@yourdomain.com",
+    "full_name": "Admin User"
+  },
+  "backup_enabled": true,
+  "storage_bucket": "friggalabs",
+  "vm_config": {
+    "instance_type": "e2-medium",
+    "disk_size_gb": 50,
+    "tags": {
+      "Project": "dvarpala",
+      "Environment": "production",
+      "ManagedBy": "frigga-labs-installer"
+    }
+  },
+  "network_config": {
+    "vpc_cidr": "172.30.0.0/26",
+    "public_subnet_cidr": "172.30.0.0/27",
+    "private_subnet_cidr": "172.30.0.32/27",
+    "allowed_ips": []
+  },
+  "output_directory": "./dvarpala-deployment"
+}

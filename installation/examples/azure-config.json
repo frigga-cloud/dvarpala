@@ -1,0 +1,33 @@
+{
+  "cloud": {
+    "provider": "azure",
+    "region": "East US",
+    "credentials": {
+      "client_id": "YOUR_AZURE_CLIENT_ID",
+      "client_secret": "YOUR_AZURE_CLIENT_SECRET",
+      "tenant_id": "YOUR_AZURE_TENANT_ID"
+    }
+  },
+  "admin": {
+    "email": "admin@yourdomain.com",
+    "full_name": "Admin User"
+  },
+  "backup_enabled": true,
+  "storage_bucket": "friggalabs",
+  "vm_config": {
+    "instance_type": "Standard_B2s",
+    "disk_size_gb": 50,
+    "tags": {
+      "Project": "dvarpala",
+      "Environment": "production",
+      "ManagedBy": "frigga-labs-installer"
+    }
+  },
+  "network_config": {
+    "vpc_cidr": "172.30.0.0/26",
+    "public_subnet_cidr": "172.30.0.0/27",
+    "private_subnet_cidr": "172.30.0.32/27",
+    "allowed_ips": []
+  },
+  "output_directory": "./dvarpala-deployment"
+}
