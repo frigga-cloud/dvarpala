@@ -10,6 +10,7 @@ import (
 )
 
 type AzureProvider struct {
+	BaseCloudProvider
 	SubscriptionID string
 	Region         string
 	Credentials    AzureCredentials
@@ -35,6 +36,23 @@ type AzureInstanceInfo struct {
 	PublicIP      string
 	PrivateIP     string
 	SSHKeyPath    string
+}
+
+// Implement InstanceInfo interface
+func (i *AzureInstanceInfo) GetPublicIP() string {
+	return i.PublicIP
+}
+
+func (i *AzureInstanceInfo) GetPrivateIP() string {
+	return i.PrivateIP
+}
+
+func (i *AzureInstanceInfo) GetInstanceID() string {
+	return i.VMName
+}
+
+func (i *AzureInstanceInfo) GetSSHKeyPath() string {
+	return i.SSHKeyPath
 }
 
 func NewAzureProvider(subscriptionID, region string, creds AzureCredentials) *AzureProvider {

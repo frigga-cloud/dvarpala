@@ -10,6 +10,7 @@ import (
 )
 
 type AWSProvider struct {
+	BaseCloudProvider
 	Region      string
 	Credentials AWSCredentials
 }
@@ -35,6 +36,24 @@ type AWSInstanceInfo struct {
 	PrivateIP       string
 	KeyPairName     string
 	SecurityGroupID string
+}
+
+// Implement InstanceInfo interface
+func (i *AWSInstanceInfo) GetPublicIP() string {
+	return i.PublicIP
+}
+
+func (i *AWSInstanceInfo) GetPrivateIP() string {
+	return i.PrivateIP
+}
+
+func (i *AWSInstanceInfo) GetInstanceID() string {
+	return i.InstanceID
+}
+
+func (i *AWSInstanceInfo) GetSSHKeyPath() string {
+	// AWS stores the key pair name, need to construct path
+	return fmt.Sprintf("./dvarpala-deployment/%s.pem", i.KeyPairName)
 }
 
 func NewAWSProvider(region string, creds AWSCredentials) *AWSProvider {

@@ -22,7 +22,7 @@ func cloudInstaller() {
 		fmt.Println("❌ Configuration file is required!")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  go run installer/installer.go installer/installer_lib.go installer/cloud_service.go installer/cloud_wrappers.go --config=config.json")
+		fmt.Println("  go run installer/installer.go installer/installer_lib.go installer/cloud_provider.go --config=config.json")
 		fmt.Println()
 		fmt.Println("📋 Create a config.json file with your cloud provider settings.")
 		fmt.Println("📖 See examples/ directory for sample configuration files.")
@@ -66,52 +66,67 @@ func cloudInstaller() {
 	}
 	fmt.Printf("✅ Cloud authentication successful\n")
 
-	// Create or use existing VPC
-	fmt.Println("\n🌐 Setting up VPC infrastructure...")
+	// STEP 3: Create VPC, VM and bucket
+	fmt.Println("\n🌐 Step 3: Setting up cloud infrastructure...")
+	
+	// Create VPC
 	vpcID, err := setupVPC(config)
 	if err != nil {
 		log.Fatalf("❌ VPC setup failed: %v", err)
 	}
 	fmt.Printf("✅ VPC ready: %s\n", vpcID)
 
-	// Create VM and install dvarpala directly
-	fmt.Println("\n💻 Creating VM and installing dvarpala...")
+	// Create storage bucket (if enabled) 
+	if config.BackupEnabled {
+		fmt.Println("☁️ Creating object storage bucket...")
+		if err := setupObjectStorage(config, nil); err != nil {
+			log.Printf("⚠️ Object storage setup failed: %v", err)
+		} else {
+			fmt.Println("✅ Object storage bucket created")
+		}
+	}
+
+	// Create VM and run installation (Steps 4-11)
+	fmt.Println("\n💻 Creating VM and running installation...")
 	vmInfo, err := CreateVM(config, vpcID)
 	if err != nil {
 		log.Fatalf("❌ VM creation and installation failed: %v", err)
 	}
-	fmt.Printf("✅ VM created and dvarpala installed: %s (IP: %s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
+	fmt.Printf("✅ VM created and installation completed: %s (IP: %s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
 
-	// Verify installation is working
-	fmt.Println("\n🔍 Verifying installation...")
-	if err := verifyInstallation(vmInfo.PublicIP); err != nil {
-		log.Printf("⚠️ Installation verification failed: %v", err)
-	} else {
-		fmt.Println("✅ Installation verification successful")
-	}
-
-	// Download admin.ovpn file
-	fmt.Println("\n📄 Downloading admin OpenVPN configuration...")
+	// STEP 12: Download admin.ovpn file to local
+	fmt.Println("\n📄 Step 12: Downloading admin.ovpn to local...")
 	if err := downloadAdminOVPN(config, vmInfo); err != nil {
 		log.Printf("⚠️ Failed to download admin.ovpn: %v", err)
 	} else {
 		fmt.Println("✅ Admin OpenVPN configuration downloaded")
 	}
 
-	// Generate output files
-	fmt.Println("\n📁 Generating configuration files...")
-	if err := generateOutputFiles(config, vmInfo); err != nil {
-		log.Fatalf("❌ Failed to generate output files: %v", err)
+	// STEP 13: Check installation and exit
+	fmt.Println("\n🔍 Step 13: Verifying installation...")
+	if err := verifyInstallation(vmInfo.PublicIP); err != nil {
+		log.Printf("⚠️ Installation verification failed: %v", err)
+	} else {
+		fmt.Println("✅ Installation verification successful")
 	}
 
-	// Setup object storage backup
-	if config.BackupEnabled {
-		fmt.Println("\n☁️ Setting up object storage backup...")
-		if err := setupObjectStorage(config, vmInfo); err != nil {
-			log.Printf("⚠️ Object storage setup failed: %v", err)
+	// STEP 14: Configure 2-step VPN access (AFTER download is complete)
+	fmt.Println("\n🔒 Applying 2-step VPN configuration...")
+	cloudProvider, err := NewCloudProvider(config)
+	if err != nil {
+		log.Printf("⚠️ Failed to initialize cloud provider for 2-step config: %v", err)
+	} else {
+		if err := cloudProvider.Configure2StepVPNAccess(vmInfo); err != nil {
+			log.Printf("⚠️ Failed to configure 2-step VPN access: %v", err)
 		} else {
-			fmt.Println("✅ Object storage configured")
+			fmt.Println("✅ 2-step VPN access configured")
 		}
+	}
+
+	// Generate output files
+	fmt.Println("\n📁 Generating output files...")
+	if err := generateOutputFiles(config, vmInfo); err != nil {
+		log.Fatalf("❌ Failed to generate output files: %v", err)
 	}
 
 	// Final summary
