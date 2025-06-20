@@ -84,7 +84,7 @@ func cloudInstaller() {
 	fmt.Println("==========================================")
 	fmt.Println()
 
-	// Require config file - no interactive or flag-based installation
+	// Config File is required.
 	if *configFile == "" {
 		fmt.Println("❌ Configuration file is required!")
 		fmt.Println()
