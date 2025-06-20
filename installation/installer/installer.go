@@ -15,7 +15,6 @@ import (
 
 type CloudProvider string
 
-
 const (
 	AWS   CloudProvider = "aws"
 	GCP   CloudProvider = "gcp"
@@ -23,10 +22,10 @@ const (
 )
 
 type CloudConfig struct {
-	Provider    CloudProvider          `json:"provider"`
-	Region      string                 `json:"region"`
+	Provider    CloudProvider  `json:"provider"`
+	Region      string         `json:"region"`
 	Credentials map[string]any `json:"credentials"`
-	ProjectID   string                 `json:"project_id,omitempty"`
+	ProjectID   string         `json:"project_id,omitempty"`
 }
 
 type AdminConfig struct {
@@ -193,10 +192,6 @@ func validateConfig(config InstallationConfig) error {
 	return nil
 }
 
-
-
-
-
 func loadConfigFromFile(filename string, config *InstallationConfig) error {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -211,7 +206,6 @@ func loadConfigFromFile(filename string, config *InstallationConfig) error {
 
 	return json.Unmarshal(data, config)
 }
-
 
 func installCloudTools(provider CloudProvider) error {
 	switch provider {
@@ -464,7 +458,6 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-
 func generateFriggaResourceName(resourceType string) string {
 	// Generate 5-character alphanumeric string
 	chars := "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -493,7 +486,6 @@ func generateResourceNames(config *InstallationConfig) {
 	fmt.Printf("   Storage: %s (shared Frigga bucket)\n", config.ResourceNames.BucketName)
 	fmt.Printf("   KeyPair: %s\n", config.ResourceNames.KeyPairName)
 }
-
 
 func getStringFromCredentials(credentials map[string]any, key string) string {
 	if val, ok := credentials[key]; ok {
