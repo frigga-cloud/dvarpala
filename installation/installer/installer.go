@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,14 +15,6 @@ import (
 
 type CloudProvider string
 
-// InstallationProgress represents the current state of installation
-type InstallationProgress struct {
-	CurrentStep    string   `json:"current_step"`
-	CompletedSteps []string `json:"completed_steps"`
-	TotalSteps     int      `json:"total_steps"`
-	FailedSteps    []string `json:"failed_steps"`
-	InstallationID string   `json:"installation_id"`
-}
 
 const (
 	AWS   CloudProvider = "aws"
@@ -34,7 +25,7 @@ const (
 type CloudConfig struct {
 	Provider    CloudProvider          `json:"provider"`
 	Region      string                 `json:"region"`
-	Credentials map[string]interface{} `json:"credentials"`
+	Credentials map[string]any `json:"credentials"`
 	ProjectID   string                 `json:"project_id,omitempty"`
 }
 
@@ -202,295 +193,9 @@ func validateConfig(config InstallationConfig) error {
 	return nil
 }
 
-func runInteractiveSetup() InstallationConfig {
-	scanner := bufio.NewScanner(os.Stdin)
-	config := InstallationConfig{
-		BackupEnabled:   true,
-		OutputDirectory: "./dvarpala-deployment",
-		VMConfig: VMConfig{
-			DiskSize: 50,
-			Tags: map[string]string{
-				"Project":     "dvarpala",
-				"Environment": "production",
-				"ManagedBy":   "frigga-labs-installer",
-			},
-		},
-		NetworkConfig: NetworkConfig{
-			VPCCidr:           "172.30.0.0/26",
-			PublicSubnetCidr:  "172.30.0.0/27",
-			PrivateSubnetCidr: "172.30.0.32/27",
-		},
-	}
 
-	// Cloud provider selection
-	fmt.Println("☁️ Select Cloud Provider:")
-	fmt.Println("1. Amazon Web Services (AWS)")
-	fmt.Println("2. Google Cloud Platform (GCP)")
-	fmt.Println("3. Microsoft Azure")
-	fmt.Print("Enter choice (1-3): ")
-	scanner.Scan()
-	choice := strings.TrimSpace(scanner.Text())
 
-	switch choice {
-	case "1":
-		config.Cloud.Provider = AWS
-		config = setupAWSConfig(config, scanner)
-	case "2":
-		config.Cloud.Provider = GCP
-		config = setupGCPConfig(config, scanner)
-	case "3":
-		config.Cloud.Provider = Azure
-		config = setupAzureConfig(config, scanner)
-	default:
-		log.Fatal("❌ Invalid choice")
-	}
 
-	// Admin configuration
-	fmt.Println("\n👤 Administrator Configuration:")
-	fmt.Print("Administrator email: ")
-	scanner.Scan()
-	config.Admin.Email = strings.TrimSpace(scanner.Text())
-
-	fmt.Print("Administrator full name (optional): ")
-	scanner.Scan()
-	config.Admin.FullName = strings.TrimSpace(scanner.Text())
-	if config.Admin.FullName == "" {
-		parts := strings.Split(config.Admin.Email, "@")
-		config.Admin.FullName = parts[0]
-	}
-
-	// Object storage bucket name will be generated later with resource names
-
-	// Output directory
-	fmt.Printf("\nOutput directory [%s]: ", config.OutputDirectory)
-	scanner.Scan()
-	if input := strings.TrimSpace(scanner.Text()); input != "" {
-		config.OutputDirectory = input
-	}
-
-	return config
-}
-
-func setupAWSConfig(config InstallationConfig, scanner *bufio.Scanner) InstallationConfig {
-	fmt.Println("\n🔧 AWS Configuration:")
-
-	// Check for AWS CLI
-	if !commandExists("aws") {
-		fmt.Println("⚠️ AWS CLI not found. Install it first: https://aws.amazon.com/cli/")
-		fmt.Print("Continue after installation? (y/N): ")
-		scanner.Scan()
-		if !strings.EqualFold(scanner.Text(), "y") {
-			os.Exit(1)
-		}
-	}
-
-	fmt.Print("AWS Region [us-east-1]: ")
-	scanner.Scan()
-	region := strings.TrimSpace(scanner.Text())
-	if region == "" {
-		region = "us-east-1"
-	}
-	config.Cloud.Region = region
-
-	// Instance type selection
-	fmt.Println("\nSelect instance type:")
-	fmt.Println("1. t3.small (2 vCPU, 2GB RAM) - Basic")
-	fmt.Println("2. t3.medium (2 vCPU, 4GB RAM) - Recommended")
-	fmt.Println("3. t3.large (2 vCPU, 8GB RAM) - High traffic")
-	fmt.Print("Enter choice (1-3) [2]: ")
-	scanner.Scan()
-	instanceChoice := strings.TrimSpace(scanner.Text())
-	if instanceChoice == "" {
-		instanceChoice = "2"
-	}
-
-	instanceTypes := map[string]string{
-		"1": "t3.small",
-		"2": "t3.medium",
-		"3": "t3.large",
-	}
-	config.VMConfig.InstanceType = instanceTypes[instanceChoice]
-
-	// Authentication method
-	fmt.Println("\nAWS Authentication:")
-	fmt.Println("1. Use existing AWS CLI profile")
-	fmt.Println("2. Enter Access Key and Secret Key")
-	fmt.Println("3. Use IAM role (for EC2/Lambda execution)")
-	fmt.Print("Enter choice (1-3): ")
-	scanner.Scan()
-	authChoice := strings.TrimSpace(scanner.Text())
-
-	switch authChoice {
-	case "1":
-		// Check for existing AWS configuration
-		if !fileExists(filepath.Join(os.Getenv("HOME"), ".aws", "credentials")) {
-			fmt.Println("⚠️ No AWS credentials found. Run 'aws configure' first.")
-			os.Exit(1)
-		}
-		fmt.Println("✅ Using existing AWS CLI profile")
-	case "2":
-		fmt.Print("AWS Access Key ID: ")
-		scanner.Scan()
-		accessKey := strings.TrimSpace(scanner.Text())
-
-		fmt.Print("AWS Secret Access Key: ")
-		secretKey := readPassword()
-
-		config.Cloud.Credentials = map[string]interface{}{
-			"access_key": accessKey,
-			"secret_key": secretKey,
-		}
-	case "3":
-		fmt.Println("✅ Using IAM role authentication")
-	default:
-		log.Fatal("❌ Invalid choice")
-	}
-
-	return config
-}
-
-func setupGCPConfig(config InstallationConfig, scanner *bufio.Scanner) InstallationConfig {
-	fmt.Println("\n🔧 Google Cloud Configuration:")
-
-	if !commandExists("gcloud") {
-		fmt.Println("⚠️ gcloud CLI not found. Install it first: https://cloud.google.com/sdk/docs/install")
-		fmt.Print("Continue after installation? (y/N): ")
-		scanner.Scan()
-		if !strings.EqualFold(scanner.Text(), "y") {
-			os.Exit(1)
-		}
-	}
-
-	fmt.Print("GCP Project ID: ")
-	scanner.Scan()
-	config.Cloud.ProjectID = strings.TrimSpace(scanner.Text())
-
-	fmt.Print("GCP Region [us-central1]: ")
-	scanner.Scan()
-	region := strings.TrimSpace(scanner.Text())
-	if region == "" {
-		region = "us-central1"
-	}
-	config.Cloud.Region = region
-
-	// Machine type selection
-	fmt.Println("\nSelect machine type:")
-	fmt.Println("1. e2-small (2 vCPU, 2GB RAM) - Basic")
-	fmt.Println("2. e2-medium (1 vCPU, 4GB RAM) - Recommended")
-	fmt.Println("3. e2-standard-2 (2 vCPU, 8GB RAM) - High traffic")
-	fmt.Print("Enter choice (1-3) [2]: ")
-	scanner.Scan()
-	machineChoice := strings.TrimSpace(scanner.Text())
-	if machineChoice == "" {
-		machineChoice = "2"
-	}
-
-	machineTypes := map[string]string{
-		"1": "e2-small",
-		"2": "e2-medium",
-		"3": "e2-standard-2",
-	}
-	config.VMConfig.InstanceType = machineTypes[machineChoice]
-
-	fmt.Println("\nAuthentication:")
-	fmt.Println("1. Use existing gcloud authentication")
-	fmt.Println("2. Use service account key file")
-	fmt.Print("Enter choice (1-2): ")
-	scanner.Scan()
-	authChoice := strings.TrimSpace(scanner.Text())
-
-	switch authChoice {
-	case "1":
-		fmt.Println("✅ Using existing gcloud authentication")
-	case "2":
-		fmt.Print("Service account key file path: ")
-		scanner.Scan()
-		keyPath := strings.TrimSpace(scanner.Text())
-		if !fileExists(keyPath) {
-			log.Fatal("❌ Service account key file not found")
-		}
-		config.Cloud.Credentials = map[string]interface{}{
-			"service_account_key": keyPath,
-		}
-	default:
-		log.Fatal("❌ Invalid choice")
-	}
-
-	return config
-}
-
-func setupAzureConfig(config InstallationConfig, scanner *bufio.Scanner) InstallationConfig {
-	fmt.Println("\n🔧 Azure Configuration:")
-
-	if !commandExists("az") {
-		fmt.Println("⚠️ Azure CLI not found. Install it first: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli")
-		fmt.Print("Continue after installation? (y/N): ")
-		scanner.Scan()
-		if !strings.EqualFold(scanner.Text(), "y") {
-			os.Exit(1)
-		}
-	}
-
-	fmt.Print("Azure Region [East US]: ")
-	scanner.Scan()
-	region := strings.TrimSpace(scanner.Text())
-	if region == "" {
-		region = "East US"
-	}
-	config.Cloud.Region = region
-
-	// VM size selection
-	fmt.Println("\nSelect VM size:")
-	fmt.Println("1. Standard_B1ms (1 vCPU, 2GB RAM) - Basic")
-	fmt.Println("2. Standard_B2s (2 vCPU, 4GB RAM) - Recommended")
-	fmt.Println("3. Standard_B2ms (2 vCPU, 8GB RAM) - High traffic")
-	fmt.Print("Enter choice (1-3) [2]: ")
-	scanner.Scan()
-	vmChoice := strings.TrimSpace(scanner.Text())
-	if vmChoice == "" {
-		vmChoice = "2"
-	}
-
-	vmSizes := map[string]string{
-		"1": "Standard_B1ms",
-		"2": "Standard_B2s",
-		"3": "Standard_B2ms",
-	}
-	config.VMConfig.InstanceType = vmSizes[vmChoice]
-
-	fmt.Println("\nAuthentication:")
-	fmt.Println("1. Use existing Azure CLI login")
-	fmt.Println("2. Use service principal")
-	fmt.Print("Enter choice (1-2): ")
-	scanner.Scan()
-	authChoice := strings.TrimSpace(scanner.Text())
-
-	switch authChoice {
-	case "1":
-		fmt.Println("✅ Using existing Azure CLI authentication")
-	case "2":
-		fmt.Print("Client ID: ")
-		scanner.Scan()
-		clientID := strings.TrimSpace(scanner.Text())
-
-		fmt.Print("Client Secret: ")
-		clientSecret := readPassword()
-
-		fmt.Print("Tenant ID: ")
-		scanner.Scan()
-		tenantID := strings.TrimSpace(scanner.Text())
-
-		config.Cloud.Credentials = map[string]interface{}{
-			"client_id":     clientID,
-			"client_secret": clientSecret,
-			"tenant_id":     tenantID,
-		}
-	default:
-		log.Fatal("❌ Invalid choice")
-	}
-
-	return config
-}
 
 func loadConfigFromFile(filename string, config *InstallationConfig) error {
 	file, err := os.Open(filename)
@@ -507,37 +212,6 @@ func loadConfigFromFile(filename string, config *InstallationConfig) error {
 	return json.Unmarshal(data, config)
 }
 
-func createConfigFromFlags(provider, region, outputDir string) InstallationConfig {
-	if provider == "" {
-		log.Fatal("❌ Provider must be specified when not in interactive mode")
-	}
-	if region == "" {
-		log.Fatal("❌ Region must be specified when not in interactive mode")
-	}
-
-	return InstallationConfig{
-		Cloud: CloudConfig{
-			Provider: CloudProvider(provider),
-			Region:   region,
-		},
-		OutputDirectory: outputDir,
-		BackupEnabled:   true,
-		VMConfig: VMConfig{
-			InstanceType: getDefaultInstanceType(CloudProvider(provider)),
-			DiskSize:     50,
-			Tags: map[string]string{
-				"Project":     "dvarpala",
-				"Environment": "production",
-				"ManagedBy":   "frigga-labs-installer",
-			},
-		},
-		NetworkConfig: NetworkConfig{
-			VPCCidr:           "172.30.0.0/26",
-			PublicSubnetCidr:  "172.30.0.0/27",
-			PrivateSubnetCidr: "172.30.0.32/27",
-		},
-	}
-}
 
 func installCloudTools(provider CloudProvider) error {
 	switch provider {
@@ -674,7 +348,7 @@ func CreateVM(config InstallationConfig, vpcID string) (*VMInfo, error) {
 	return cloudService.CreateVM(vpcID)
 }
 
-func setupObjectStorage(config InstallationConfig, vmInfo *VMInfo) error {
+func setupObjectStorage(config InstallationConfig, _ *VMInfo) error {
 	cloudService, err := NewCloudService(config)
 	if err != nil {
 		return err
@@ -790,15 +464,6 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func readPassword() string {
-	fmt.Print("Password: ")
-	var password string
-	_, err := fmt.Scanln(&password)
-	if err != nil {
-		log.Fatal("Failed to read password")
-	}
-	return password
-}
 
 func generateFriggaResourceName(resourceType string) string {
 	// Generate 5-character alphanumeric string
@@ -829,16 +494,8 @@ func generateResourceNames(config *InstallationConfig) {
 	fmt.Printf("   KeyPair: %s\n", config.ResourceNames.KeyPairName)
 }
 
-func getDefaultInstanceType(provider CloudProvider) string {
-	defaults := map[CloudProvider]string{
-		AWS:   "t3.medium",
-		GCP:   "e2-medium",
-		Azure: "Standard_B2s",
-	}
-	return defaults[provider]
-}
 
-func getStringFromCredentials(credentials map[string]interface{}, key string) string {
+func getStringFromCredentials(credentials map[string]any, key string) string {
 	if val, ok := credentials[key]; ok {
 		if str, ok := val.(string); ok {
 			return str
