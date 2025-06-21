@@ -1,9 +1,7 @@
-package main
+package lib
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,97 +9,39 @@ import (
 	"time"
 )
 
-type CloudProviderType string
+// CloudProvider interface defines the interface for all cloud providers
+type CloudProvider interface {
+	// Provider-specific methods that must be implemented
+	SetupVPC() (string, error)
+	CreateVM(vpcID string) (*VMResult, error)
+	SetupObjectStorage() error
+	UploadConfiguration() error
 
-const (
-	AWS   CloudProviderType = "aws"
-	GCP   CloudProviderType = "gcp"
-	Azure CloudProviderType = "azure"
-)
-
-type CloudConfig struct {
-	Provider    CloudProviderType  `json:"provider"`
-	Region      string         `json:"region"`
-	Credentials map[string]any `json:"credentials"`
-	ProjectID   string         `json:"project_id,omitempty"`
+	// Common methods with base implementation
+	InstallDvarpala(vmInfo *VMResult) error
+	Configure2StepVPNAccess(vmInfo *VMResult) error
 }
 
-type AdminConfig struct {
-	Email    string `json:"email"`
-	FullName string `json:"full_name"`
+// NewCloudProviderFunc is a function type for creating cloud providers
+type NewCloudProviderFunc func(config InstallationConfig) (CloudProvider, error)
+
+// cloudProviderFactory holds the function to create cloud providers
+var cloudProviderFactory NewCloudProviderFunc
+
+// SetCloudProviderFactory sets the factory function for creating cloud providers
+func SetCloudProviderFactory(factory NewCloudProviderFunc) {
+	cloudProviderFactory = factory
 }
 
-type InstallationConfig struct {
-	Cloud           CloudConfig   `json:"cloud"`
-	Admin           AdminConfig   `json:"admin"`
-	BackupEnabled   bool          `json:"backup_enabled"`
-	StorageBucket   string        `json:"storage_bucket"`
-	VMConfig        VMConfig      `json:"vm_config"`
-	NetworkConfig   NetworkConfig `json:"network_config"`
-	OutputDirectory string        `json:"output_directory"`
-	ResourceNames   ResourceNames `json:"resource_names"`
-}
-
-type ResourceNames struct {
-	VPCName     string `json:"vpc_name"`
-	VMName      string `json:"vm_name"`
-	BucketName  string `json:"bucket_name"`
-	KeyPairName string `json:"keypair_name"`
-}
-
-type VMConfig struct {
-	InstanceType string            `json:"instance_type"`
-	DiskSize     int               `json:"disk_size_gb"`
-	Tags         map[string]string `json:"tags"`
-}
-
-type NetworkConfig struct {
-	VPCCidr           string   `json:"vpc_cidr"`
-	PublicSubnetCidr  string   `json:"public_subnet_cidr"`
-	PrivateSubnetCidr string   `json:"private_subnet_cidr"`
-	AllowedIPs        []string `json:"allowed_ips"`
-}
-
-type VMResult struct {
-	InstanceID  string
-	PublicIP    string
-	PrivateIP   string
-	SSHKeyPath  string
-	VPNConfig   string
-	AdminConfig string
-}
-
-// Configuration functions
-func validateConfig(config InstallationConfig) error {
-	if config.Cloud.Provider == "" {
-		return fmt.Errorf("cloud provider not specified")
+// NewCloudProvider creates a cloud provider using the registered factory
+func NewCloudProvider(config InstallationConfig) (CloudProvider, error) {
+	if cloudProviderFactory == nil {
+		return nil, fmt.Errorf("cloud provider factory not registered")
 	}
-	if config.Cloud.Region == "" {
-		return fmt.Errorf("cloud region not specified")
-	}
-	if config.Admin.Email == "" {
-		return fmt.Errorf("administrator email not specified")
-	}
-	return nil
+	return cloudProviderFactory(config)
 }
 
-func loadConfigFromFile(filename string, config *InstallationConfig) error {
-	file, err := os.Open(filename)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return err
-	}
-
-	return json.Unmarshal(data, config)
-}
-
-// Cloud provider tool installation
-func installCloudTools(provider CloudProviderType) error {
+func InstallCloudTools(provider CloudProviderType) error {
 	switch provider {
 	case AWS:
 		return installAWSCLI()
@@ -141,8 +81,7 @@ func installAzureCLI() error {
 	return installAzureCLIForPlatform()
 }
 
-// Cloud provider authentication
-func authenticateCloudProvider(config InstallationConfig) error {
+func AuthenticateCloudProvider(config InstallationConfig) error {
 	switch config.Cloud.Provider {
 	case AWS:
 		return authenticateAWS(config)
@@ -157,13 +96,11 @@ func authenticateCloudProvider(config InstallationConfig) error {
 
 func authenticateAWS(config InstallationConfig) error {
 	if creds, ok := config.Cloud.Credentials["access_key"]; ok {
-		// Set environment variables for AWS authentication
 		os.Setenv("AWS_ACCESS_KEY_ID", creds.(string))
 		os.Setenv("AWS_SECRET_ACCESS_KEY", config.Cloud.Credentials["secret_key"].(string))
 		os.Setenv("AWS_DEFAULT_REGION", config.Cloud.Region)
 	}
 
-	// Test authentication
 	cmd := exec.Command("aws", "sts", "get-caller-identity")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("aws authentication failed: %v", err)
@@ -183,7 +120,6 @@ func authenticateGCP(config InstallationConfig) error {
 		}
 	}
 
-	// Test authentication
 	cmd := exec.Command("gcloud", "auth", "list", "--filter=status:ACTIVE")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("gcp authentication failed: %v", err)
@@ -201,7 +137,6 @@ func authenticateAzure(config InstallationConfig) error {
 			return fmt.Errorf("azure service principal login failed: %v", err)
 		}
 	} else {
-		// Test existing authentication
 		cmd := exec.Command("az", "account", "show")
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("azure authentication failed. run 'az login' first: %v", err)
@@ -210,8 +145,7 @@ func authenticateAzure(config InstallationConfig) error {
 	return nil
 }
 
-// Cloud service integration
-func setupVPC(config InstallationConfig) (string, error) {
+func SetupVPC(config InstallationConfig) (string, error) {
 	cloudProvider, err := NewCloudProvider(config)
 	if err != nil {
 		return "", err
@@ -231,7 +165,6 @@ func CreateVM(config InstallationConfig, vpcID string) (*VMResult, error) {
 		return nil, err
 	}
 
-	// Convert VMInfo interface to VMResult struct
 	return &VMResult{
 		InstanceID: vmInfo.InstanceID,
 		PublicIP:   vmInfo.PublicIP,
@@ -240,7 +173,7 @@ func CreateVM(config InstallationConfig, vpcID string) (*VMResult, error) {
 	}, nil
 }
 
-func setupObjectStorage(config InstallationConfig, _ *VMResult) error {
+func SetupObjectStorage(config InstallationConfig, _ *VMResult) error {
 	cloudProvider, err := NewCloudProvider(config)
 	if err != nil {
 		return err
@@ -253,103 +186,9 @@ func setupObjectStorage(config InstallationConfig, _ *VMResult) error {
 	return cloudProvider.UploadConfiguration()
 }
 
-// Output and verification functions
-func generateOutputFiles(config InstallationConfig, vmInfo *VMResult) error {
-	// Save configuration
-	configData, _ := json.MarshalIndent(config, "", "  ")
-	configPath := filepath.Join(config.OutputDirectory, "installation-config.json")
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
-		return err
-	}
-
-	// Generate connection info
-	connectionInfo := fmt.Sprintf(`Dvarpala Installation Complete
-================================
-
-Frigga Resource Names:
-- VPC: %s
-- VM: %s  
-- Storage: %s
-- KeyPair: %s
-
-Server Details:
-- Instance ID: %s  
-- Public IP: %s
-- Private IP: %s
-
-Admin Access:
-- Email: %s
-- VPN Config: See %s/admin.ovpn
-
-Object Storage:
-- Bucket: %s
-- Backup Location: %s/dvarpala/
-
-Next Steps:
-1. Download admin.ovpn from the output directory
-2. Connect to VPN using credentials: portal/access
-3. Browser auto-opens to http://172.30.100.1:8080
-4. Complete authentication via web portal for full access
-5. Configure OAuth providers and generate user certificates
-
-Files Generated:
-- installation-config.json: Full installation configuration
-- admin.ovpn: Admin VPN configuration with auto-open
-- connection-info.txt: This file
-`, config.ResourceNames.VPCName, config.ResourceNames.VMName,
-		config.ResourceNames.BucketName, config.ResourceNames.KeyPairName,
-		vmInfo.InstanceID, vmInfo.PublicIP, vmInfo.PrivateIP,
-		config.Admin.Email, config.OutputDirectory,
-		config.StorageBucket, config.StorageBucket)
-
-	connectionPath := filepath.Join(config.OutputDirectory, "connection-info.txt")
-	return os.WriteFile(connectionPath, []byte(connectionInfo), 0644)
-}
-
-func printInstallationSummary(config InstallationConfig, vmInfo *VMResult) {
-	fmt.Println("\n🎉 Dvarpala Cloud Installation Complete!")
-	fmt.Println("=========================================")
-	fmt.Printf("☁️ Provider: %s (%s)\n", config.Cloud.Provider, config.Cloud.Region)
-	fmt.Printf("💻 Instance: %s (%s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
-	fmt.Printf("👤 Admin: %s\n", config.Admin.Email)
-	fmt.Printf("📁 Files: %s\n", config.OutputDirectory)
-	if config.BackupEnabled {
-		fmt.Printf("☁️ Backup: %s\n", config.StorageBucket)
-	}
-	fmt.Println("\n✨ Your Dvarpala VPN server is ready to use!")
-	fmt.Printf("📖 See %s/connection-info.txt for next steps\n", config.OutputDirectory)
-}
-
-func printSSHConnectionInfo(vmInfo *VMResult) {
-	fmt.Println("\n🔗 SSH Connection Information")
-	fmt.Println("=============================")
-	fmt.Printf("🌐 Server IP: %s\n", vmInfo.PublicIP)
-	if vmInfo.SSHKeyPath != "" {
-		fmt.Printf("🔑 SSH Key: %s\n", vmInfo.SSHKeyPath)
-
-		// Determine the correct SSH user based on the key path or instance info
-		var sshUser string
-		if strings.Contains(vmInfo.SSHKeyPath, "aws") || strings.Contains(vmInfo.InstanceID, "i-") {
-			sshUser = "ubuntu"
-		} else if strings.Contains(vmInfo.SSHKeyPath, "gcp") || strings.Contains(vmInfo.InstanceID, "friggalabs-vm") {
-			sshUser = "ubuntu"
-		} else if strings.Contains(vmInfo.SSHKeyPath, "azure") {
-			sshUser = "azureuser"
-		} else {
-			sshUser = "ubuntu" // default
-		}
-
-		fmt.Printf("\n📋 To connect manually:\n")
-		fmt.Printf("   ssh -i %s %s@%s\n", vmInfo.SSHKeyPath, sshUser, vmInfo.PublicIP)
-		fmt.Printf("\n🌐 Access Dvarpala web interface:\n")
-		fmt.Printf("   http://%s:8080/health\n", vmInfo.PublicIP)
-	}
-}
-
-func verifyInstallation(vmIP string) error {
+func VerifyInstallation(vmIP string) error {
 	fmt.Printf("🔍 Checking health endpoint at http://%s:8080/health...\n", vmIP)
 
-	// Quick check that nginx is responding on port 8080
 	cmd := exec.Command("curl", "-s", "--connect-timeout", "10", "--max-time", "15",
 		fmt.Sprintf("http://%s:8080/health", vmIP))
 
@@ -362,8 +201,7 @@ func verifyInstallation(vmIP string) error {
 	return nil
 }
 
-func downloadAdminOVPN(config InstallationConfig, vmInfo *VMResult) error {
-	// Download admin.ovpn file from VM
+func DownloadAdminOVPN(config InstallationConfig, vmInfo *VMResult) error {
 	adminOVPNURL := fmt.Sprintf("http://%s:8080/admin.ovpn", vmInfo.PublicIP)
 
 	maxAttempts := 10
@@ -373,7 +211,6 @@ func downloadAdminOVPN(config InstallationConfig, vmInfo *VMResult) error {
 			adminOVPNURL)
 
 		if err := cmd.Run(); err == nil {
-			// Verify the file was downloaded and is not empty
 			if fileExists(filepath.Join(config.OutputDirectory, "admin.ovpn")) {
 				return nil
 			}
@@ -383,7 +220,6 @@ func downloadAdminOVPN(config InstallationConfig, vmInfo *VMResult) error {
 		time.Sleep(30 * time.Second)
 	}
 
-	// If download fails, try to generate a basic template
 	return generateBasicOVPNTemplate(config, vmInfo)
 }
 
@@ -441,7 +277,6 @@ up "echo 'Opening captive portal...' && (open http://172.30.100.1:8080 2>/dev/nu
 	return os.WriteFile(ovpnPath, []byte(ovpnTemplate), 0644)
 }
 
-// Utility functions
 func commandExists(cmd string) bool {
 	_, err := exec.LookPath(cmd)
 	return err == nil
@@ -452,45 +287,6 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func generateFriggaResourceName(resourceType string) string {
-	// Generate 5-character alphanumeric string
-	chars := "abcdefghijklmnopqrstuvwxyz0123456789"
-	suffix := make([]byte, 5)
-	for i := range suffix {
-		suffix[i] = chars[time.Now().UnixNano()%int64(len(chars))]
-		time.Sleep(1000) // Small delay to ensure different nano timestamps
-	}
-	return fmt.Sprintf("friggalabs-%s-%s", resourceType, string(suffix))
-}
-
-func generateResourceNames(config *InstallationConfig) {
-	// Generate consistent resource names with Frigga naming convention
-	config.ResourceNames.VPCName = generateFriggaResourceName("vpc")
-	config.ResourceNames.VMName = generateFriggaResourceName("vm")
-
-	// Use shared bucket for all Frigga tools
-	config.ResourceNames.BucketName = "friggalabs"
-	config.StorageBucket = config.ResourceNames.BucketName
-
-	config.ResourceNames.KeyPairName = generateFriggaResourceName("keypair")
-
-	fmt.Printf("🏷️ Generated resource names:\n")
-	fmt.Printf("   VPC: %s\n", config.ResourceNames.VPCName)
-	fmt.Printf("   VM: %s\n", config.ResourceNames.VMName)
-	fmt.Printf("   Storage: %s (shared Frigga bucket)\n", config.ResourceNames.BucketName)
-	fmt.Printf("   KeyPair: %s\n", config.ResourceNames.KeyPairName)
-}
-
-func getStringFromCredentials(credentials map[string]any, key string) string {
-	if val, ok := credentials[key]; ok {
-		if str, ok := val.(string); ok {
-			return str
-		}
-	}
-	return ""
-}
-
-// Platform-specific CLI installation functions
 func installAWSCLIForPlatform() error {
 	switch getOperatingSystem() {
 	case "darwin":
@@ -530,7 +326,6 @@ func installAzureCLIForPlatform() error {
 	}
 }
 
-// macOS installations using Homebrew
 func installAWSCLIMacOS() error {
 	if !commandExists("brew") {
 		return fmt.Errorf("homebrew not found. install Homebrew first or install AWS CLI manually")
@@ -558,11 +353,9 @@ func installAzureCLIMacOS() error {
 	return cmd.Run()
 }
 
-// Linux installations
 func installAWSCLILinux() error {
 	fmt.Println("📦 Installing AWS CLI for Linux...")
 
-	// Download and install AWS CLI v2
 	commands := [][]string{
 		{"curl", "-fsSL", "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip", "-o", "/tmp/awscliv2.zip"},
 		{"unzip", "-q", "/tmp/awscliv2.zip", "-d", "/tmp"},
@@ -618,16 +411,13 @@ func installAzureCLILinux() error {
 	return nil
 }
 
-// Windows installations
 func installAWSCLIWindows() error {
 	fmt.Println("📦 Installing AWS CLI for Windows...")
 
 	if commandExists("winget") {
-		// Use winget if available
 		cmd := exec.Command("winget", "install", "Amazon.AWSCLI")
 		return cmd.Run()
 	} else if commandExists("choco") {
-		// Use chocolatey if available
 		cmd := exec.Command("choco", "install", "awscli", "-y")
 		return cmd.Run()
 	}
@@ -677,7 +467,6 @@ func getOperatingSystem() string {
 		}
 	}
 
-	// Fallback for Windows
 	if commandExists("powershell") || commandExists("cmd") {
 		return "windows"
 	}

@@ -12,7 +12,8 @@
       "Bash(grep:*)",
       "Bash(go run:*)",
       "Bash(go mod download:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }
