@@ -516,3 +516,51 @@ func (gcp *GCPProvider) Configure2StepVPNAccess(vmInfo *lib.VMResult) error {
 		AdminName:  gcp.Config.Admin.FullName,
 	})
 }
+
+// generateSSHKeyPair generates an SSH key pair for GCP instances
+func (gcp *GCPProvider) generateSSHKeyPair(keyPath string) error {
+	// Generate SSH key pair using ssh-keygen
+	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-f", keyPath, "-N", "")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to generate SSH key pair: %v", err)
+	}
+	
+	fmt.Printf("🔑 SSH key pair generated: %s\n", keyPath)
+	return nil
+}
+
+// generateMinimalStartupScript creates a minimal startup script for GCP instances
+func (gcp *GCPProvider) generateMinimalStartupScript(config InstanceConfig, cloudProvider string) string {
+	return fmt.Sprintf(`#!/bin/bash
+# Minimal GCP Instance Setup Script - Just basic system prep
+set -euo pipefail
+
+# Logging
+exec > >(tee /var/log/dvarpala-startup.log)
+exec 2>&1
+
+echo "Starting minimal system setup at $(date)"
+
+# Update system packages
+apt-get update -y
+
+# Install essential dependencies only
+apt-get install -y curl wget openssh-server
+
+# Ensure SSH is running for installer to connect
+systemctl enable ssh
+systemctl start ssh
+
+# Set environment variables for later use
+export ADMIN_EMAIL='%s'
+export ADMIN_NAME='%s'
+export CLOUD_PROVIDER='%s'
+
+# Create marker that basic setup is complete
+mkdir -p /var/log/dvarpala
+touch /var/log/dvarpala/startup-complete
+echo "VM startup preparation completed at $(date)" > /var/log/dvarpala/startup-status.txt
+
+echo "Minimal setup completed. Ready for installer connection."
+`, config.AdminEmail, config.AdminName, cloudProvider)
+}

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"dvarpala-cloud-installer/lib"
+	"dvarpala-cloud-installer/installer/lib"
 	"flag"
 	"fmt"
 	"log"
@@ -23,7 +23,7 @@ func cloudInstaller() {
 		fmt.Println("❌ Configuration file is required!")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  go run installer/installer.go installer/installer_lib.go installer/cloud_provider.go --config=config.json")
+		fmt.Println("  go run main.go --config=config.json")
 		fmt.Println()
 		fmt.Println("📋 Create a config.json file with your cloud provider settings.")
 		fmt.Println("📖 See examples/ directory for sample configuration files.")
