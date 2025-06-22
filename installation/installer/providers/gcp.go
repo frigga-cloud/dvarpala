@@ -118,22 +118,30 @@ func (gcp *GCPProvider) SetupEnvironment() error {
 }
 
 func (gcp *GCPProvider) ValidateAuthentication() error {
+	fmt.Printf("🔍 Validating GCP authentication for project: %s\n", gcp.ProjectID)
+	
 	cmd := exec.Command("gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=json")
 	output, err := cmd.Output()
 	if err != nil {
+		fmt.Printf("❌ GCP auth command failed: %v\n", err)
 		return fmt.Errorf("gcp authentication failed: %v", err)
 	}
 
+	fmt.Printf("🔍 Parsing GCP authentication response...\n")
 	var accounts []map[string]any
 	if err := json.Unmarshal(output, &accounts); err != nil {
+		fmt.Printf("❌ Failed to parse GCP auth JSON: %v\n", err)
+		fmt.Printf("📋 Raw response: %s\n", string(output))
 		return fmt.Errorf("failed to parse GCP auth response: %v", err)
 	}
 
 	if len(accounts) == 0 {
+		fmt.Printf("❌ No active GCP authentication found\n")
 		return fmt.Errorf("no active GCP authentication found")
 	}
 
 	fmt.Printf("✅ Authenticated as: %s\n", accounts[0]["account"])
+	fmt.Printf("🆔 Project ID: %s, Region: %s, Zone: %s\n", gcp.ProjectID, gcp.Region, gcp.Zone)
 	return nil
 }
 
@@ -154,19 +162,26 @@ func (gcp *GCPProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (VP
 }
 
 func (gcp *GCPProvider) findVPCByName(vpcName string) (*GCPVPCInfo, error) {
+	fmt.Printf("🔍 Searching for existing GCP VPC network: %s\n", vpcName)
+	
 	cmd := exec.Command("gcloud", "compute", "networks", "describe", vpcName,
 		"--format=json")
 
 	output, err := cmd.Output()
 	if err != nil {
+		fmt.Printf("📋 No existing VPC found with name: %s\n", vpcName)
 		// VPC doesn't exist
 		return nil, nil
 	}
 
+	fmt.Printf("🔍 Parsing VPC network details...\n")
 	var network map[string]any
 	if err := json.Unmarshal(output, &network); err != nil {
+		fmt.Printf("❌ Failed to parse VPC network JSON: %v\n", err)
 		return nil, err
 	}
+	
+	fmt.Printf("✅ Found existing VPC network: %s\n", vpcName)
 
 	// Get subnet details
 	subnetName := vpcName + "-subnet"
@@ -375,32 +390,40 @@ func (gcp *GCPProvider) getInstanceDetails(instanceName, sshKeyPath string) (*GC
 }
 
 func (gcp *GCPProvider) CreateStorage(bucketName string) error {
+	// Use friggalabs as the standard bucket name
+	friggaBucketName := "friggalabs"
+	
 	// Check if bucket exists
-	cmd := exec.Command("gsutil", "ls", fmt.Sprintf("gs://%s", bucketName))
+	cmd := exec.Command("gsutil", "ls", fmt.Sprintf("gs://%s", friggaBucketName))
 	if cmd.Run() == nil {
-		fmt.Printf("✅ Using existing GCS bucket: %s\n", bucketName)
+		fmt.Printf("✅ Using existing GCS bucket: %s\n", friggaBucketName)
+		// Ensure dvarpala folder exists
+		exec.Command("gsutil", "cp", "/dev/null", fmt.Sprintf("gs://%s/dvarpala/.gitkeep", friggaBucketName)).Run()
 		return nil
 	}
 
 	// Create bucket
-	cmd = exec.Command("gsutil", "mb", "-l", gcp.Region, fmt.Sprintf("gs://%s", bucketName))
+	cmd = exec.Command("gsutil", "mb", "-l", gcp.Region, fmt.Sprintf("gs://%s", friggaBucketName))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create GCS bucket: %v", err)
 	}
 
 	// Enable versioning
-	cmd = exec.Command("gsutil", "versioning", "set", "on", fmt.Sprintf("gs://%s", bucketName))
+	cmd = exec.Command("gsutil", "versioning", "set", "on", fmt.Sprintf("gs://%s", friggaBucketName))
 	cmd.Run()
 
 	// Create dvarpala folder
-	cmd = exec.Command("gsutil", "cp", "/dev/null", fmt.Sprintf("gs://%s/dvarpala/.gitkeep", bucketName))
+	cmd = exec.Command("gsutil", "cp", "/dev/null", fmt.Sprintf("gs://%s/dvarpala/.gitkeep", friggaBucketName))
 	cmd.Run()
 
-	fmt.Printf("✅ GCS bucket created: %s\n", bucketName)
+	fmt.Printf("✅ GCS bucket created: %s\n", friggaBucketName)
 	return nil
 }
 
 func (gcp *GCPProvider) UploadConfigurationToBucket(bucketName string, configData []byte, filename string) error {
+	// Use friggalabs as the standard bucket name
+	friggaBucketName := "friggalabs"
+	
 	// Write config to user home directory to avoid permission issues
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -412,8 +435,8 @@ func (gcp *GCPProvider) UploadConfigurationToBucket(bucketName string, configDat
 	}
 	defer os.Remove(tempFile)
 
-	// Upload to GCS
-	cmd := exec.Command("gsutil", "cp", tempFile, fmt.Sprintf("gs://%s/dvarpala/%s", bucketName, filename))
+	// Upload to GCS in friggalabs bucket, dvarpala directory
+	cmd := exec.Command("gsutil", "cp", tempFile, fmt.Sprintf("gs://%s/dvarpala/%s", friggaBucketName, filename))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to upload configuration to GCS: %v", err)
 	}

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 )
 
 type AWSProvider struct {
@@ -30,6 +29,19 @@ type AWSVPCInfo struct {
 	InternetGateway string
 	SecurityGroupID string
 	RouteTableID    string
+}
+
+// Implement VPCInfo interface
+func (v *AWSVPCInfo) GetID() string {
+	return v.VPCID
+}
+
+func (v *AWSVPCInfo) GetSubnetID() string {
+	return v.PublicSubnetID
+}
+
+func (v *AWSVPCInfo) GetSecurityGroupID() string {
+	return v.SecurityGroupID
 }
 
 type AWSInstanceInfo struct {
@@ -99,22 +111,30 @@ func (aws *AWSProvider) SetupEnvironment() error {
 }
 
 func (aws *AWSProvider) ValidateAuthentication() error {
+	fmt.Printf("🔍 Validating AWS authentication in region %s...\n", aws.Region)
+	
 	cmd := exec.Command("aws", "sts", "get-caller-identity")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		fmt.Printf("❌ AWS CLI command failed: %v\n", err)
+		fmt.Printf("📋 Raw output: %s\n", string(output))
 		return fmt.Errorf("AWS authentication failed: %v\nOutput: %s", err, output)
 	}
 
+	fmt.Printf("🔍 AWS STS response received, parsing identity...\n")
 	var identity map[string]interface{}
 	if err := json.Unmarshal(output, &identity); err != nil {
+		fmt.Printf("❌ Failed to parse AWS identity JSON: %v\n", err)
+		fmt.Printf("📋 Raw response: %s\n", string(output))
 		return fmt.Errorf("failed to parse AWS identity response: %v", err)
 	}
 
 	fmt.Printf("✅ Authenticated as: %s\n", identity["Arn"])
+	fmt.Printf("🆔 Account ID: %s\n", identity["Account"])
 	return nil
 }
 
-func (aws *AWSProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*AWSVPCInfo, error) {
+func (aws *AWSProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (VPCInfo, error) {
 	// Check if VPC already exists
 	existingVPC, err := aws.findVPCByName(vpcName)
 	if err != nil {
@@ -131,6 +151,8 @@ func (aws *AWSProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*A
 }
 
 func (aws *AWSProvider) findVPCByName(vpcName string) (*AWSVPCInfo, error) {
+	fmt.Printf("🔍 Searching for existing VPC with name: %s\n", vpcName)
+	
 	cmd := exec.Command("aws", "ec2", "describe-vpcs",
 		"--filters", fmt.Sprintf("Name=tag:Name,Values=%s", vpcName),
 		"--query", "Vpcs[0].VpcId",
@@ -138,14 +160,19 @@ func (aws *AWSProvider) findVPCByName(vpcName string) (*AWSVPCInfo, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
+		fmt.Printf("❌ Failed to search for VPC: %v\n", err)
 		return nil, err
 	}
 
 	vpcID := strings.TrimSpace(string(output))
+	fmt.Printf("🔍 VPC search result: %s\n", vpcID)
+	
 	if vpcID == "None" || vpcID == "" {
+		fmt.Printf("📋 No existing VPC found with name: %s\n", vpcName)
 		return nil, nil
 	}
 
+	fmt.Printf("✅ Found existing VPC: %s\n", vpcID)
 	// Get VPC details
 	return aws.getVPCDetails(vpcID)
 }
@@ -335,9 +362,13 @@ func (aws *AWSProvider) addSecurityGroupRules(sgID string, allowedIPs []string) 
 		"--cidr", "0.0.0.0/0").Run()
 }
 
-func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfig, vmName string) (*AWSInstanceInfo, error) {
+func (aws *AWSProvider) CreateInstance(vpcInfo VPCInfo, config InstanceConfig, vmName string) (InstanceInfo, error) {
+	fmt.Printf("🚀 Starting AWS instance creation for VM: %s\n", vmName)
+	fmt.Printf("📋 Instance type: %s, Disk size: %dGB\n", config.InstanceType, config.DiskSizeGB)
+	
 	// Use Frigga Labs naming convention for key pair
 	keyPairName := vmName + "-keypair"
+	fmt.Printf("🔑 Creating SSH key pair: %s\n", keyPairName)
 
 	// Create key pair
 	cmd := exec.Command("aws", "ec2", "create-key-pair",
@@ -347,8 +378,11 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 
 	keyMaterial, err := cmd.Output()
 	if err != nil {
+		fmt.Printf("❌ Failed to create AWS key pair: %v\n", err)
 		return nil, fmt.Errorf("failed to create key pair: %v", err)
 	}
+	
+	fmt.Printf("✅ SSH key pair created successfully\n")
 
 	// Create deployment directory if it doesn't exist
 	deploymentDir := "./dvarpala-deployment"
@@ -365,22 +399,30 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 	fmt.Printf("🔑 SSH private key saved to: %s\n", keyPath)
 
 	// Get latest Ubuntu AMI
+	fmt.Printf("🔍 Finding latest Ubuntu 22.04 AMI...\n")
 	amiID, err := aws.getLatestUbuntuAMI()
 	if err != nil {
+		fmt.Printf("❌ Failed to find Ubuntu AMI: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("✅ Using Ubuntu AMI: %s\n", amiID)
 
 	// Create minimal user data script - just basic system prep
+	fmt.Printf("📝 Generating minimal startup script...\n")
 	userData := aws.generateMinimalUserData(config)
 
 	// Launch instance
+	fmt.Printf("🚀 Launching EC2 instance...\n")
+	fmt.Printf("📋 VPC: %s, Subnet: %s, Security Group: %s\n", 
+		vpcInfo.GetID(), vpcInfo.GetSubnetID(), vpcInfo.GetSecurityGroupID())
+	
 	cmd = exec.Command("aws", "ec2", "run-instances",
 		"--image-id", amiID,
 		"--count", "1",
 		"--instance-type", config.InstanceType,
 		"--key-name", keyPairName,
-		"--security-group-ids", vpcInfo.SecurityGroupID,
-		"--subnet-id", vpcInfo.PublicSubnetID,
+		"--security-group-ids", vpcInfo.GetSecurityGroupID(),
+		"--subnet-id", vpcInfo.GetSubnetID(),
 		"--user-data", userData,
 		"--block-device-mappings", fmt.Sprintf(`[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":%d,"VolumeType":"gp3","DeleteOnTermination":true}}]`, config.DiskSizeGB),
 		"--tag-specifications", fmt.Sprintf(`ResourceType=instance,Tags=[{Key=Name,Value=dvarpala-server},{Key=Project,Value=dvarpala},{Key=ManagedBy,Value=frigga-labs}]`),
@@ -389,28 +431,35 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 
 	output, err := cmd.Output()
 	if err != nil {
+		fmt.Printf("❌ Failed to launch EC2 instance: %v\n", err)
 		return nil, fmt.Errorf("failed to launch instance: %v", err)
 	}
 
 	instanceID := strings.TrimSpace(string(output))
+	fmt.Printf("✅ EC2 instance launched with ID: %s\n", instanceID)
 
 	// Wait for instance to be running
 	fmt.Printf("⏳ Waiting for instance %s to be running...\n", instanceID)
 	cmd = exec.Command("aws", "ec2", "wait", "instance-running", "--instance-ids", instanceID)
 	if err := cmd.Run(); err != nil {
+		fmt.Printf("❌ Timeout waiting for instance to be running: %v\n", err)
 		return nil, fmt.Errorf("timeout waiting for instance to be running: %v", err)
 	}
+	fmt.Printf("✅ Instance is now running\n")
 
 	// Get instance details
+	fmt.Printf("🔍 Retrieving instance network details...\n")
 	instanceInfo, err := aws.getInstanceDetails(instanceID)
 	if err != nil {
+		fmt.Printf("❌ Failed to get instance details: %v\n", err)
 		return nil, err
 	}
 
 	instanceInfo.KeyPairName = keyPairName
-	instanceInfo.SecurityGroupID = vpcInfo.SecurityGroupID
+	instanceInfo.SecurityGroupID = vpcInfo.GetSecurityGroupID()
 
-	fmt.Printf("✅ Instance launched: %s (IP: %s)\n", instanceID, instanceInfo.PublicIP)
+	fmt.Printf("✅ Instance launched: %s (Public IP: %s, Private IP: %s)\n", 
+		instanceID, instanceInfo.PublicIP, instanceInfo.PrivateIP)
 	return instanceInfo, nil
 }
 
@@ -466,265 +515,7 @@ echo "Minimal setup completed. Ready for installer connection."
 `, config.AdminEmail, config.AdminName)
 }
 
-// InstallDvarpalaDirectly performs the installation directly via SSH from the installer
-func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, config InstanceConfig, keyPath string) error {
-	fmt.Println("🔗 Connecting to AWS VM for direct installation...")
-	fmt.Printf("🔑 Using SSH key: %s\n", keyPath)
 
-	// Wait for VM to be SSH accessible
-	if err := aws.waitForSSHAccess(instanceInfo.PublicIP, keyPath); err != nil {
-		return fmt.Errorf("failed to establish SSH connection: %v", err)
-	}
-
-	fmt.Println("✅ SSH connection established")
-
-	// Install components step by step with real-time tracking
-	steps := []struct {
-		name string
-		cmd  string
-	}{
-		{"Installing nginx", "sudo apt-get install -y nginx"},
-		{"Configuring nginx", "sudo systemctl enable nginx && sudo systemctl start nginx"},
-		{"Installing PostgreSQL", "sudo apt-get install -y postgresql postgresql-contrib"},
-		{"Installing Redis", "sudo apt-get install -y redis-server"},
-		{"Installing OpenVPN", "sudo apt-get install -y openvpn easy-rsa"},
-		{"Installing Go", "curl -fsSL https://go.dev/dl/go1.21.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -"},
-		{"Setting up directories", "mkdir -p /home/$(whoami)/dvarpala /home/$(whoami)/dvarpala/certs && sudo mkdir -p /var/lib/dvarpala"},
-		{"Starting basic services", "sudo systemctl start postgresql redis-server"},
-		{"Setting up Easy-RSA", "make-cadir /home/$(whoami)/dvarpala/easy-rsa"},
-		{"Configuring Easy-RSA vars", aws.getEasyRSAVarsCommand(config)},
-		{"Building Certificate Authority", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa init-pki && ./easyrsa --batch build-ca nopass"},
-		{"Generating server certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-server-full server nopass"},
-		{"Generating admin client certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-client-full admin nopass"},
-		{"Generating TLS authentication key", "cd /home/$(whoami)/dvarpala/easy-rsa && openvpn --genkey --secret pki/ta.key"},
-		{"Copying certificates to OpenVPN directory", "sudo cp /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt /home/$(whoami)/dvarpala/easy-rsa/pki/issued/server.crt /home/$(whoami)/dvarpala/easy-rsa/pki/private/server.key /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/"},
-		{"Creating OpenVPN server configuration", aws.getOpenVPNServerConfigCommand()},
-		{"Starting OpenVPN server", "sudo systemctl enable openvpn-server@server && sudo systemctl start openvpn-server@server"},
-		{"Configuring OAuth firewall rules", "sudo bash -c 'curl -fsSL https://raw.githubusercontent.com/friggalabs/dvarpala/main/scripts/installation/configure-oauth-firewall.sh | bash'"},
-	}
-
-	for i, step := range steps {
-		fmt.Printf("📦 Step %d/%d: %s\n", i+1, len(steps), step.name)
-
-		if err := aws.executeSSHCommand(instanceInfo.PublicIP, step.cmd, keyPath); err != nil {
-			return fmt.Errorf("failed at step '%s': %v", step.name, err)
-		}
-
-		fmt.Printf("✅ Completed: %s\n", step.name)
-	}
-
-	// Configure nginx monitoring as separate steps with proper sudo handling
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+1, len(steps)+5, "Creating nginx monitoring config")
-	if err := aws.configureNginxMonitoring(instanceInfo.PublicIP, keyPath); err != nil {
-		return fmt.Errorf("failed to configure nginx monitoring: %v", err)
-	}
-	fmt.Printf("✅ Completed: Creating nginx monitoring config\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+2, len(steps)+5, "Enabling nginx monitoring site")
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/", keyPath); err != nil {
-		return fmt.Errorf("failed to enable nginx site: %v", err)
-	}
-	fmt.Printf("✅ Completed: Enabling nginx monitoring site\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+3, len(steps)+5, "Reloading nginx configuration")
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo nginx -t && sudo systemctl reload nginx", keyPath); err != nil {
-		return fmt.Errorf("failed to reload nginx: %v", err)
-	}
-	fmt.Printf("✅ Completed: Reloading nginx configuration\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+4, len(steps)+5, "Generating admin OpenVPN configuration")
-	if err := aws.generateAdminOVPN(instanceInfo.PublicIP, keyPath); err != nil {
-		return fmt.Errorf("failed to generate admin OVPN: %v", err)
-	}
-	fmt.Printf("✅ Completed: Generating admin OpenVPN configuration\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+6, "Making admin.ovpn temporarily available for download")
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo cp /home/$(whoami)/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn", keyPath); err != nil {
-		return fmt.Errorf("failed to make admin.ovpn downloadable: %v", err)
-	}
-	fmt.Printf("✅ Completed: Making admin.ovpn temporarily available for download\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+6, len(steps)+6, "Cleaning up public admin.ovpn file")
-	// Give the installer 2 minutes to download the file, then remove it from public access
-	cleanupCommand := "sleep 120 && sudo rm -f /var/www/html/admin.ovpn && echo '🔒 SECURITY: admin.ovpn removed from public web directory for security'"
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, fmt.Sprintf("nohup bash -c '%s' > /dev/null 2>&1 &", cleanupCommand), keyPath); err != nil {
-		return fmt.Errorf("failed to schedule admin.ovpn cleanup: %v", err)
-	}
-	fmt.Printf("✅ Completed: Scheduled cleanup of public admin.ovpn file in 2 minutes\n")
-
-	fmt.Println("🎉 Dvarpala installation completed successfully!")
-	fmt.Println("🔒 SECURITY NOTE: admin.ovpn will be automatically removed from public access in 2 minutes")
-	fmt.Println("📋 The installer will download the file immediately - please wait for download completion")
-	return nil
-}
-
-func (aws *AWSProvider) waitForSSHAccess(vmIP, keyPath string) error {
-	fmt.Printf("⏳ Waiting for SSH access to %s...\n", vmIP)
-
-	maxAttempts := 30
-	for i := 0; i < maxAttempts; i++ {
-		// Test SSH connectivity with key
-		sshCmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			fmt.Sprintf("ubuntu@%s", vmIP), "echo 'SSH Ready'")
-		if sshCmd.Run() == nil {
-			return nil
-		}
-
-		fmt.Printf("⏳ SSH not ready yet... attempt %d/%d\n", i+1, maxAttempts)
-		time.Sleep(10 * time.Second)
-	}
-
-	return fmt.Errorf("SSH access not available after %d attempts", maxAttempts)
-}
-
-func (aws *AWSProvider) executeSSHCommand(vmIP, command, keyPath string) error {
-	cmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-		fmt.Sprintf("ubuntu@%s", vmIP), command)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		fmt.Printf("❌ Command failed: %s\nOutput: %s\n", command, string(output))
-		return err
-	}
-
-	return nil
-}
-
-func (aws *AWSProvider) configureNginxMonitoring(vmIP, keyPath string) error {
-	// Create the nginx configuration file using a heredoc to avoid quoting issues
-	command := `sudo tee /etc/nginx/sites-available/dvarpala-monitoring > /dev/null << 'EOF'
-server {
-    listen 8080;
-    server_name _;
-    root /var/www/html;
-    
-    location /health {
-        return 200 '{"status":"healthy","service":"dvarpala"}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-progress {
-        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-status {
-        return 200 'Installation completed successfully';
-        add_header Content-Type text/plain;
-    }
-}
-EOF`
-
-	return aws.executeSSHCommand(vmIP, command, keyPath)
-}
-
-func (aws *AWSProvider) getEasyRSAVarsCommand(config InstanceConfig) string {
-	return fmt.Sprintf(`tee /home/$(whoami)/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
-set_var EASYRSA_REQ_COUNTRY    "US"
-set_var EASYRSA_REQ_PROVINCE   "CA"
-set_var EASYRSA_REQ_CITY       "San Francisco"
-set_var EASYRSA_REQ_ORG        "Frigga Labs"
-set_var EASYRSA_REQ_EMAIL      "%s"
-set_var EASYRSA_REQ_OU         "Dvarpala VPN"
-set_var EASYRSA_KEY_SIZE       2048
-set_var EASYRSA_ALGO           rsa
-set_var EASYRSA_CA_EXPIRE      3650
-set_var EASYRSA_CERT_EXPIRE    365
-EOF`, config.AdminEmail)
-}
-
-func (aws *AWSProvider) getOpenVPNServerConfigCommand() string {
-	return `sudo tee /etc/openvpn/server/server.conf > /dev/null << 'EOF'
-port 1194
-proto udp
-dev tun
-ca ca.crt
-cert server.crt
-key server.key
-dh none
-ecdh-curve prime256v1
-server 172.30.100.0 255.255.255.0
-ifconfig-pool-persist /var/log/openvpn/ipp.txt
-push "redirect-gateway def1 bypass-dhcp"
-push "dhcp-option DNS 8.8.8.8"
-push "dhcp-option DNS 8.8.4.4"
-keepalive 10 120
-tls-auth ta.key 0
-cipher AES-256-GCM
-user nobody
-group nogroup
-persist-key
-persist-tun
-status /var/log/openvpn/openvpn-status.log
-log-append /var/log/openvpn/openvpn.log
-verb 3
-explicit-exit-notify 1
-EOF`
-}
-
-func (aws *AWSProvider) generateAdminOVPN(vmIP, keyPath string) error {
-	// Create the admin.ovpn file with real certificates
-	command := `
-# Get the external IP address
-EXTERNAL_IP=$(curl -s http://checkip.amazonaws.com)
-
-# Create admin.ovpn with embedded certificates
-tee /home/$(whoami)/dvarpala/certs/admin.ovpn > /dev/null << EOF
-# Dvarpala VPN - Captive Portal Mode
-# Browser will auto-open to: http://172.30.100.1:8080
-# Complete authentication via web portal for full VPN access
-
-client
-dev tun
-proto udp
-remote $EXTERNAL_IP 1194
-resolv-retry infinite
-nobind
-persist-key
-persist-tun
-remote-cert-tls server
-cipher AES-256-GCM
-verb 3
-
-# Auto-open captive portal after connection
-script-security 2
-up "echo 'Opening captive portal...' && (open http://172.30.100.1:8080 2>/dev/null || xdg-open http://172.30.100.1:8080 2>/dev/null || start http://172.30.100.1:8080 2>/dev/null || echo 'Please open http://172.30.100.1:8080 manually')"
-
-# Initial captive portal access credentials
-# Username: portal, Password: access (for initial connection only)
-auth-user-pass
-
-<ca>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt)
-</ca>
-
-<cert>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/issued/admin.crt)
-</cert>
-
-<key>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/private/admin.key)
-</key>
-
-<tls-auth>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key)
-</tls-auth>
-key-direction 1
-EOF
-
-# Create credentials file
-tee /home/$(whoami)/dvarpala/certs/admin-credentials.txt > /dev/null << EOF
-portal
-access
-EOF
-
-# Set proper permissions
-chmod 600 /home/$(whoami)/dvarpala/certs/admin.ovpn
-chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
-`
-
-	return aws.executeSSHCommand(vmIP, command, keyPath)
-}
 
 func (aws *AWSProvider) getInstanceDetails(instanceID string) (*AWSInstanceInfo, error) {
 	cmd := exec.Command("aws", "ec2", "describe-instances",
@@ -750,15 +541,20 @@ func (aws *AWSProvider) getInstanceDetails(instanceID string) (*AWSInstanceInfo,
 }
 
 func (aws *AWSProvider) CreateS3Bucket(bucketName string) error {
+	// Use friggalabs as the standard bucket name
+	friggaBucketName := "friggalabs"
+	
 	// Check if bucket exists
-	cmd := exec.Command("aws", "s3api", "head-bucket", "--bucket", bucketName)
+	cmd := exec.Command("aws", "s3api", "head-bucket", "--bucket", friggaBucketName)
 	if cmd.Run() == nil {
-		fmt.Printf("✅ Using existing S3 bucket: %s\n", bucketName)
+		fmt.Printf("✅ Using existing S3 bucket: %s\n", friggaBucketName)
+		// Ensure dvarpala folder exists
+		exec.Command("aws", "s3api", "put-object", "--bucket", friggaBucketName, "--key", "dvarpala/").Run()
 		return nil
 	}
 
 	// Create bucket
-	cmd = exec.Command("aws", "s3api", "create-bucket", "--bucket", bucketName)
+	cmd = exec.Command("aws", "s3api", "create-bucket", "--bucket", friggaBucketName)
 	if aws.Region != "us-east-1" {
 		cmd.Args = append(cmd.Args, "--create-bucket-configuration", fmt.Sprintf("LocationConstraint=%s", aws.Region))
 	}
@@ -769,16 +565,16 @@ func (aws *AWSProvider) CreateS3Bucket(bucketName string) error {
 
 	// Enable versioning
 	exec.Command("aws", "s3api", "put-bucket-versioning",
-		"--bucket", bucketName,
+		"--bucket", friggaBucketName,
 		"--versioning-configuration", "Status=Enabled").Run()
 
 	// Create dvarpala folder
 	cmd = exec.Command("aws", "s3api", "put-object",
-		"--bucket", bucketName,
+		"--bucket", friggaBucketName,
 		"--key", "dvarpala/")
 	cmd.Run()
 
-	fmt.Printf("✅ S3 bucket created: %s\n", bucketName)
+	fmt.Printf("✅ S3 bucket created: %s\n", friggaBucketName)
 	return nil
 }
 
@@ -794,8 +590,8 @@ func (aws *AWSProvider) UploadConfigurationToBucket(bucketName string, configDat
 	}
 	defer os.Remove(tempFile)
 
-	// Upload to S3
-	cmd := exec.Command("aws", "s3", "cp", tempFile, fmt.Sprintf("s3://%s/dvarpala/%s", bucketName, filename))
+	// Upload to S3 in friggalabs bucket, dvarpala directory
+	cmd := exec.Command("aws", "s3", "cp", tempFile, fmt.Sprintf("s3://friggalabs/dvarpala/%s", filename))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to upload configuration to S3: %v", err)
 	}
@@ -838,7 +634,7 @@ func (aws *AWSProvider) SetupVPC() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return vpcInfo.VPCID, nil
+	return vpcInfo.GetID(), nil
 }
 
 func (aws *AWSProvider) CreateVM(vpcID string) (*lib.VMResult, error) {
@@ -863,21 +659,21 @@ func (aws *AWSProvider) CreateVM(vpcID string) (*lib.VMResult, error) {
 		return nil, err
 	}
 
-	// Perform direct installation
-	if err := aws.InstallDvarpalaDirectly(instanceInfo, InstanceConfig{
+	// Perform direct installation using the base provider's InstallDvarpalaDirectly
+	if err := aws.BaseCloudProvider.InstallDvarpalaDirectly(instanceInfo, InstanceConfig{
 		InstanceType: aws.Config.VMConfig.InstanceType,
 		DiskSizeGB:   aws.Config.VMConfig.DiskSize,
 		AdminEmail:   aws.Config.Admin.Email,
 		AdminName:    aws.Config.Admin.FullName,
-	}, instanceInfo.GetSSHKeyPath()); err != nil {
+	}, "aws"); err != nil {
 		return nil, fmt.Errorf("direct installation failed: %v", err)
 	}
 
 	return &lib.VMResult{
-		InstanceID: instanceInfo.InstanceID,
-		PublicIP:   instanceInfo.PublicIP,
-		PrivateIP:  instanceInfo.PrivateIP,
-		SSHKeyPath: instanceInfo.KeyPairName, // AWS uses key pair name
+		InstanceID: instanceInfo.GetInstanceID(),
+		PublicIP:   instanceInfo.GetPublicIP(),
+		PrivateIP:  instanceInfo.GetPrivateIP(),
+		SSHKeyPath: instanceInfo.GetSSHKeyPath(),
 	}, nil
 }
 
