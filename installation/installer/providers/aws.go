@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"dvarpala-cloud-installer/providers/lib"
+	"dvarpala-cloud-installer/installer/lib"
 	"encoding/json"
 	"fmt"
 	"os"
