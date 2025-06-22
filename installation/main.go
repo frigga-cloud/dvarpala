@@ -2,6 +2,7 @@ package main
 
 import (
 	"dvarpala-cloud-installer/installer/lib"
+	_ "dvarpala-cloud-installer/installer/providers"
 	"flag"
 	"fmt"
 	"log"
