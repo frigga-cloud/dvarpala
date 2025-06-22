@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"dvarpala-cloud-installer/lib"
+	"dvarpala-cloud-installer/providers/lib"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -37,7 +37,6 @@ type GCPInstanceInfo struct {
 	InternalIP   string
 	SSHKeyPath   string
 }
-
 
 // Implement VPCInfo interface
 func (v *GCPVPCInfo) GetID() string {
@@ -524,7 +523,7 @@ func (gcp *GCPProvider) generateSSHKeyPair(keyPath string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to generate SSH key pair: %v", err)
 	}
-	
+
 	fmt.Printf("🔑 SSH key pair generated: %s\n", keyPath)
 	return nil
 }

@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"dvarpala-cloud-installer/schema"
+	"dvarpala-cloud-installer/installer/schema"
 	"fmt"
 	"os"
 	"os/exec"
@@ -283,24 +283,24 @@ func (base *BaseCloudProvider) setupPostgreSQLDatabase(vmIP, keyPath string, con
 
 	// Generate database installation script using DatabaseInstaller
 	fmt.Println("📝 Generating database installation script...")
-	
+
 	// Get the schema path relative to the installer
 	schemaPath := filepath.Join(".", "schema")
 	dbInstaller := schema.NewDatabaseInstaller(schemaPath, config.AdminEmail, config.AdminName)
-	
+
 	// Generate the complete SQL script
 	sqlScript, err := dbInstaller.GenerateInstallationScript()
 	if err != nil {
 		return fmt.Errorf("failed to generate database installation script: %v", err)
 	}
-	
+
 	// Write script to a temporary file
 	tempFile := "/tmp/dvarpala_db_install.sql"
 	if err := os.WriteFile(tempFile, []byte(sqlScript), 0644); err != nil {
 		return fmt.Errorf("failed to write installation script: %v", err)
 	}
 	defer os.Remove(tempFile)
-	
+
 	// Upload the SQL script to the VM
 	fmt.Println("📤 Uploading database installation script to VM...")
 	uploadCmd := fmt.Sprintf("scp -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null %s %s@%s:/tmp/dvarpala_db_install.sql",
@@ -311,15 +311,15 @@ func (base *BaseCloudProvider) setupPostgreSQLDatabase(vmIP, keyPath string, con
 
 	// Create database and run the installation script
 	fmt.Println("🗄️ Creating database and running installation script...")
-	
+
 	// Database setup commands
 	setupDBCommands := []string{
 		// Create the database if it doesn't exist
 		`sudo -u postgres psql -c "CREATE DATABASE dvarpala" 2>/dev/null || echo "Database already exists"`,
-		
+
 		// Run the installation script
 		`sudo -u postgres psql -d dvarpala -f /tmp/dvarpala_db_install.sql`,
-		
+
 		// Clean up the uploaded script
 		"rm -f /tmp/dvarpala_db_install.sql",
 	}
@@ -539,13 +539,13 @@ chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
 
 func (base *BaseCloudProvider) Configure2StepVPNAccess(instanceInfo InstanceInfo, config InstanceConfig) error {
 	fmt.Println("🔐 Configuring 2-step VPN access...")
-	
+
 	vmIP := instanceInfo.GetPublicIP()
 	keyPath := instanceInfo.GetSSHKeyPath()
-	
+
 	// Step 1: Create OAuth-based authentication configuration
 	fmt.Println("📝 Setting up OAuth authentication...")
-	
+
 	// Create OAuth configuration
 	oauthConfig := fmt.Sprintf(`{
 		"providers": {
@@ -565,16 +565,16 @@ func (base *BaseCloudProvider) Configure2StepVPNAccess(instanceInfo InstanceInfo
 		"allowed_domains": ["*"],
 		"admin_email": "%s"
 	}`, vmIP, vmIP, config.AdminEmail)
-	
+
 	// Write OAuth config to VM
 	writeOAuthConfig := fmt.Sprintf("cat > /home/$(whoami)/dvarpala/oauth-config.json << 'EOF'\n%s\nEOF", oauthConfig)
 	if err := base.executeSSHCommand(vmIP, writeOAuthConfig, keyPath); err != nil {
 		return fmt.Errorf("failed to write OAuth config: %v", err)
 	}
-	
+
 	// Step 2: Create 2-factor authentication setup
 	fmt.Println("🔐 Enabling 2-factor authentication...")
-	
+
 	// Create 2FA configuration script
 	twoFAScript := `#!/bin/bash
 # 2FA Setup for Dvarpala VPN
@@ -597,20 +597,20 @@ sudo systemctl restart openvpn-server@server
 
 echo "✅ 2FA configuration completed"
 `
-	
+
 	// Write and execute 2FA setup script
 	write2FAScript := fmt.Sprintf("cat > /home/$(whoami)/dvarpala/setup-2fa.sh << 'EOF'\n%s\nEOF", twoFAScript)
 	if err := base.executeSSHCommand(vmIP, write2FAScript, keyPath); err != nil {
 		return fmt.Errorf("failed to write 2FA script: %v", err)
 	}
-	
+
 	if err := base.executeSSHCommand(vmIP, "chmod +x /home/$(whoami)/dvarpala/setup-2fa.sh && /home/$(whoami)/dvarpala/setup-2fa.sh", keyPath); err != nil {
 		fmt.Printf("⚠️ Warning: 2FA setup encountered issues: %v\n", err)
 	}
-	
+
 	// Step 3: Create admin 2FA setup instructions
 	fmt.Println("📄 Creating 2FA setup instructions...")
-	
+
 	setupInstructions := fmt.Sprintf(`
 # Dvarpala VPN 2-Step Access Setup Instructions
 # =============================================
@@ -641,21 +641,21 @@ Complete OAuth authentication to gain full network access.
 
 Generated on: %s
 `, config.AdminEmail, keyPath, base.SSHUser, vmIP, config.AdminEmail, time.Now().Format(time.RFC3339))
-	
+
 	// Write instructions to VM
 	writeInstructions := fmt.Sprintf("cat > /home/$(whoami)/dvarpala/2FA-SETUP-INSTRUCTIONS.txt << 'EOF'\n%s\nEOF", setupInstructions)
 	if err := base.executeSSHCommand(vmIP, writeInstructions, keyPath); err != nil {
 		return fmt.Errorf("failed to write setup instructions: %v", err)
 	}
-	
+
 	// Copy instructions to web directory for download
 	if err := base.executeSSHCommand(vmIP, "sudo cp /home/$(whoami)/dvarpala/2FA-SETUP-INSTRUCTIONS.txt /var/www/html/", keyPath); err != nil {
 		fmt.Printf("⚠️ Warning: Could not copy instructions to web directory: %v\n", err)
 	}
-	
+
 	fmt.Println("✅ 2-step VPN access configuration completed!")
 	fmt.Printf("📋 Setup instructions available at: http://%s:8080/2FA-SETUP-INSTRUCTIONS.txt\n", vmIP)
-	
+
 	return nil
 }
 
