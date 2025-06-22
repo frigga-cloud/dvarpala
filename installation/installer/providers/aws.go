@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"dvarpala-cloud-installer/lib"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ type AWSProvider struct {
 	BaseCloudProvider
 	Region      string
 	Credentials AWSCredentials
+	Config      lib.InstallationConfig
 }
 
 type AWSCredentials struct {
@@ -61,6 +63,27 @@ func NewAWSProvider(region string, creds AWSCredentials) *AWSProvider {
 		Region:      region,
 		Credentials: creds,
 	}
+}
+
+func NewAWSProviderFromConfig(config lib.InstallationConfig) (*AWSProvider, error) {
+	provider := &AWSProvider{
+		Region: config.Cloud.Region,
+		Credentials: AWSCredentials{
+			AccessKeyID:     lib.GetStringFromCredentials(config.Cloud.Credentials, "access_key"),
+			SecretAccessKey: lib.GetStringFromCredentials(config.Cloud.Credentials, "secret_key"),
+		},
+		Config: config,
+	}
+
+	if err := provider.SetupEnvironment(); err != nil {
+		return nil, err
+	}
+
+	if err := provider.ValidateAuthentication(); err != nil {
+		return nil, err
+	}
+
+	return provider, nil
 }
 
 func (aws *AWSProvider) SetupEnvironment() error {
@@ -760,7 +783,7 @@ func (aws *AWSProvider) CreateS3Bucket(bucketName string) error {
 	return nil
 }
 
-func (aws *AWSProvider) UploadConfiguration(bucketName string, configData []byte, filename string) error {
+func (aws *AWSProvider) UploadConfigurationToBucket(bucketName string, configData []byte, filename string) error {
 	// Write config to user home directory to avoid permission issues
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -803,4 +826,99 @@ type InstanceConfig struct {
 	DiskSizeGB   int
 	AdminEmail   string
 	AdminName    string
+}
+
+// Wrapper methods to implement lib.CloudProvider interface
+func (aws *AWSProvider) SetupVPC() (string, error) {
+	vpcInfo, err := aws.CreateOrGetVPC(aws.Config.ResourceNames.VPCName, NetworkConfig{
+		VPCCidr:           aws.Config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  aws.Config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: aws.Config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        aws.Config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return "", err
+	}
+	return vpcInfo.VPCID, nil
+}
+
+func (aws *AWSProvider) CreateVM(vpcID string) (*lib.VMResult, error) {
+	// Get VPC info again for VM creation
+	vpcInfo, err := aws.CreateOrGetVPC(aws.Config.ResourceNames.VPCName, NetworkConfig{
+		VPCCidr:           aws.Config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  aws.Config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: aws.Config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        aws.Config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	instanceInfo, err := aws.CreateInstance(vpcInfo, InstanceConfig{
+		InstanceType: aws.Config.VMConfig.InstanceType,
+		DiskSizeGB:   aws.Config.VMConfig.DiskSize,
+		AdminEmail:   aws.Config.Admin.Email,
+		AdminName:    aws.Config.Admin.FullName,
+	}, aws.Config.ResourceNames.VMName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Perform direct installation
+	if err := aws.InstallDvarpalaDirectly(instanceInfo, InstanceConfig{
+		InstanceType: aws.Config.VMConfig.InstanceType,
+		DiskSizeGB:   aws.Config.VMConfig.DiskSize,
+		AdminEmail:   aws.Config.Admin.Email,
+		AdminName:    aws.Config.Admin.FullName,
+	}, instanceInfo.GetSSHKeyPath()); err != nil {
+		return nil, fmt.Errorf("direct installation failed: %v", err)
+	}
+
+	return &lib.VMResult{
+		InstanceID: instanceInfo.InstanceID,
+		PublicIP:   instanceInfo.PublicIP,
+		PrivateIP:  instanceInfo.PrivateIP,
+		SSHKeyPath: instanceInfo.KeyPairName, // AWS uses key pair name
+	}, nil
+}
+
+func (aws *AWSProvider) SetupObjectStorage() error {
+	return aws.CreateS3Bucket(aws.Config.ResourceNames.BucketName)
+}
+
+func (aws *AWSProvider) UploadConfiguration() error {
+	configData, err := json.MarshalIndent(aws.Config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return aws.UploadConfigurationToBucket(aws.Config.ResourceNames.BucketName, configData, "installation-config.json")
+}
+
+func (aws *AWSProvider) InstallDvarpala(vmInfo *lib.VMResult) error {
+	fmt.Println("🚀 Starting Dvarpala installation...")
+	fmt.Printf("📍 Target VM: %s (IP: %s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
+	fmt.Printf("🔑 SSH Key: %s\n", vmInfo.SSHKeyPath)
+
+	// This is where the common installation logic would go
+	// In the current implementation, this is handled by the provider's InstallDvarpalaDirectly method
+	// but in a unified structure, this could be common code
+
+	fmt.Println("✅ Dvarpala installation completed successfully!")
+	return nil
+}
+
+func (aws *AWSProvider) Configure2StepVPNAccess(vmInfo *lib.VMResult) error {
+	// Convert VMResult to InstanceInfo for the provider
+	instanceInfo := &AWSInstanceInfo{
+		InstanceID:      vmInfo.InstanceID,
+		PublicIP:        vmInfo.PublicIP,
+		PrivateIP:       vmInfo.PrivateIP,
+		KeyPairName:     vmInfo.SSHKeyPath,
+		SecurityGroupID: "", // Not needed for this operation
+	}
+
+	return aws.BaseCloudProvider.Configure2StepVPNAccess(instanceInfo, InstanceConfig{
+		AdminEmail: aws.Config.Admin.Email,
+		AdminName:  aws.Config.Admin.FullName,
+	})
 }

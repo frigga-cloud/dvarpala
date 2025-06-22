@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"dvarpala-cloud-installer/lib"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ type AzureProvider struct {
 	SubscriptionID string
 	Region         string
 	Credentials    AzureCredentials
+	Config         lib.InstallationConfig
 }
 
 type AzureCredentials struct {
@@ -61,6 +63,29 @@ func NewAzureProvider(subscriptionID, region string, creds AzureCredentials) *Az
 		Region:         region,
 		Credentials:    creds,
 	}
+}
+
+func NewAzureProviderFromConfig(config lib.InstallationConfig) (*AzureProvider, error) {
+	provider := &AzureProvider{
+		SubscriptionID: "", // Will be set from auth or defaults
+		Region:         config.Cloud.Region,
+		Credentials: AzureCredentials{
+			ClientID:     lib.GetStringFromCredentials(config.Cloud.Credentials, "client_id"),
+			ClientSecret: lib.GetStringFromCredentials(config.Cloud.Credentials, "client_secret"),
+			TenantID:     lib.GetStringFromCredentials(config.Cloud.Credentials, "tenant_id"),
+		},
+		Config: config,
+	}
+
+	if err := provider.SetupEnvironment(); err != nil {
+		return nil, err
+	}
+
+	if err := provider.ValidateAuthentication(); err != nil {
+		return nil, err
+	}
+
+	return provider, nil
 }
 
 func (az *AzureProvider) SetupEnvironment() error {
@@ -706,7 +731,7 @@ func (az *AzureProvider) CreateStorageAccount(accountName string) error {
 	return nil
 }
 
-func (az *AzureProvider) UploadConfiguration(accountName string, configData []byte, filename string) error {
+func (az *AzureProvider) UploadConfigurationToBucket(accountName string, configData []byte, filename string) error {
 	// Write config to user home directory to avoid permission issues
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -730,4 +755,99 @@ func (az *AzureProvider) UploadConfiguration(accountName string, configData []by
 	}
 	
 	return nil
+}
+
+// Wrapper methods to implement lib.CloudProvider interface
+func (azure *AzureProvider) SetupVPC() (string, error) {
+	vpcInfo, err := azure.CreateOrGetVPC(azure.Config.ResourceNames.VPCName, NetworkConfig{
+		VPCCidr:           azure.Config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  azure.Config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: azure.Config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        azure.Config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return "", err
+	}
+	return vpcInfo.ResourceGroup, nil
+}
+
+func (azure *AzureProvider) CreateVM(vpcID string) (*lib.VMResult, error) {
+	// Get resource group info again for VM creation
+	resourceGroupInfo, err := azure.CreateOrGetVPC(azure.Config.ResourceNames.VPCName, NetworkConfig{
+		VPCCidr:           azure.Config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  azure.Config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: azure.Config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        azure.Config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	instanceInfo, err := azure.CreateInstance(resourceGroupInfo, InstanceConfig{
+		InstanceType: azure.Config.VMConfig.InstanceType,
+		DiskSizeGB:   azure.Config.VMConfig.DiskSize,
+		AdminEmail:   azure.Config.Admin.Email,
+		AdminName:    azure.Config.Admin.FullName,
+	}, azure.Config.ResourceNames.VMName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Perform direct installation
+	if err := azure.InstallDvarpalaDirectly(instanceInfo, InstanceConfig{
+		InstanceType: azure.Config.VMConfig.InstanceType,
+		DiskSizeGB:   azure.Config.VMConfig.DiskSize,
+		AdminEmail:   azure.Config.Admin.Email,
+		AdminName:    azure.Config.Admin.FullName,
+	}, "azure"); err != nil {
+		return nil, fmt.Errorf("direct installation failed: %v", err)
+	}
+
+	return &lib.VMResult{
+		InstanceID: instanceInfo.VMName,
+		PublicIP:   instanceInfo.PublicIP,
+		PrivateIP:  instanceInfo.PrivateIP,
+		SSHKeyPath: instanceInfo.SSHKeyPath,
+	}, nil
+}
+
+func (azure *AzureProvider) SetupObjectStorage() error {
+	return azure.CreateStorageAccount(azure.Config.ResourceNames.BucketName)
+}
+
+func (azure *AzureProvider) UploadConfiguration() error {
+	configData, err := json.MarshalIndent(azure.Config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return azure.UploadConfigurationToBucket(azure.Config.ResourceNames.BucketName, configData, "installation-config.json")
+}
+
+func (azure *AzureProvider) InstallDvarpala(vmInfo *lib.VMResult) error {
+	fmt.Println("🚀 Starting Dvarpala installation...")
+	fmt.Printf("📍 Target VM: %s (IP: %s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
+	fmt.Printf("🔑 SSH Key: %s\n", vmInfo.SSHKeyPath)
+
+	// This is where the common installation logic would go
+	// In the current implementation, this is handled by the provider's InstallDvarpalaDirectly method
+	// but in a unified structure, this could be common code
+
+	fmt.Println("✅ Dvarpala installation completed successfully!")
+	return nil
+}
+
+func (azure *AzureProvider) Configure2StepVPNAccess(vmInfo *lib.VMResult) error {
+	// Convert VMResult to InstanceInfo for the provider
+	instanceInfo := &AzureInstanceInfo{
+		VMName:        vmInfo.InstanceID,
+		PublicIP:      vmInfo.PublicIP,
+		PrivateIP:     vmInfo.PrivateIP,
+		SSHKeyPath:    vmInfo.SSHKeyPath,
+		ResourceGroup: azure.Config.ResourceNames.VPCName, // Using VPC name as resource group
+	}
+
+	return azure.BaseCloudProvider.Configure2StepVPNAccess(instanceInfo, InstanceConfig{
+		AdminEmail: azure.Config.Admin.Email,
+		AdminName:  azure.Config.Admin.FullName,
+	})
 }

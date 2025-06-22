@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"dvarpala-cloud-installer/lib"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ type GCPProvider struct {
 	Region      string
 	Zone        string
 	Credentials GCPCredentials
+	Config      lib.InstallationConfig
 }
 
 type GCPCredentials struct {
@@ -76,6 +78,30 @@ func NewGCPProvider(projectID, region string, creds GCPCredentials) *GCPProvider
 		Zone:              zone,
 		Credentials:       creds,
 	}
+}
+
+func NewGCPProviderFromConfig(config lib.InstallationConfig) (*GCPProvider, error) {
+	zone := config.Cloud.Region + "-a" // Default to zone 'a'
+	provider := &GCPProvider{
+		BaseCloudProvider: BaseCloudProvider{SSHUser: "ubuntu"},
+		ProjectID:         config.Cloud.ProjectID,
+		Region:            config.Cloud.Region,
+		Zone:              zone,
+		Credentials: GCPCredentials{
+			ServiceAccountKey: lib.GetStringFromCredentials(config.Cloud.Credentials, "service_account_key"),
+		},
+		Config: config,
+	}
+
+	if err := provider.SetupEnvironment(); err != nil {
+		return nil, err
+	}
+
+	if err := provider.ValidateAuthentication(); err != nil {
+		return nil, err
+	}
+
+	return provider, nil
 }
 
 func (gcp *GCPProvider) SetupEnvironment() error {
@@ -375,7 +401,7 @@ func (gcp *GCPProvider) CreateStorage(bucketName string) error {
 	return nil
 }
 
-func (gcp *GCPProvider) UploadConfiguration(bucketName string, configData []byte, filename string) error {
+func (gcp *GCPProvider) UploadConfigurationToBucket(bucketName string, configData []byte, filename string) error {
 	// Write config to user home directory to avoid permission issues
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -394,4 +420,99 @@ func (gcp *GCPProvider) UploadConfiguration(bucketName string, configData []byte
 	}
 
 	return nil
+}
+
+// Wrapper methods to implement lib.CloudProvider interface
+func (gcp *GCPProvider) SetupVPC() (string, error) {
+	vpcInfo, err := gcp.CreateOrGetVPC(gcp.Config.ResourceNames.VPCName, NetworkConfig{
+		VPCCidr:           gcp.Config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  gcp.Config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: gcp.Config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        gcp.Config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return "", err
+	}
+	return vpcInfo.GetID(), nil
+}
+
+func (gcp *GCPProvider) CreateVM(vpcID string) (*lib.VMResult, error) {
+	// Get VPC info again for VM creation
+	vpcInfo, err := gcp.CreateOrGetVPC(gcp.Config.ResourceNames.VPCName, NetworkConfig{
+		VPCCidr:           gcp.Config.NetworkConfig.VPCCidr,
+		PublicSubnetCidr:  gcp.Config.NetworkConfig.PublicSubnetCidr,
+		PrivateSubnetCidr: gcp.Config.NetworkConfig.PrivateSubnetCidr,
+		AllowedIPs:        gcp.Config.NetworkConfig.AllowedIPs,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	instanceInfo, err := gcp.CreateInstance(vpcInfo, InstanceConfig{
+		InstanceType: gcp.Config.VMConfig.InstanceType,
+		DiskSizeGB:   gcp.Config.VMConfig.DiskSize,
+		AdminEmail:   gcp.Config.Admin.Email,
+		AdminName:    gcp.Config.Admin.FullName,
+	}, gcp.Config.ResourceNames.VMName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Perform direct installation using the base provider's InstallDvarpalaDirectly
+	if err := gcp.InstallDvarpalaDirectly(instanceInfo, InstanceConfig{
+		InstanceType: gcp.Config.VMConfig.InstanceType,
+		DiskSizeGB:   gcp.Config.VMConfig.DiskSize,
+		AdminEmail:   gcp.Config.Admin.Email,
+		AdminName:    gcp.Config.Admin.FullName,
+	}, "gcp"); err != nil {
+		return nil, fmt.Errorf("direct installation failed: %v", err)
+	}
+
+	return &lib.VMResult{
+		InstanceID: instanceInfo.GetInstanceID(),
+		PublicIP:   instanceInfo.GetPublicIP(),
+		PrivateIP:  instanceInfo.GetPrivateIP(),
+		SSHKeyPath: instanceInfo.GetSSHKeyPath(),
+	}, nil
+}
+
+func (gcp *GCPProvider) SetupObjectStorage() error {
+	return gcp.CreateStorage(gcp.Config.ResourceNames.BucketName)
+}
+
+func (gcp *GCPProvider) UploadConfiguration() error {
+	configData, err := json.MarshalIndent(gcp.Config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return gcp.UploadConfigurationToBucket(gcp.Config.ResourceNames.BucketName, configData, "installation-config.json")
+}
+
+func (gcp *GCPProvider) InstallDvarpala(vmInfo *lib.VMResult) error {
+	fmt.Println("🚀 Starting Dvarpala installation...")
+	fmt.Printf("📍 Target VM: %s (IP: %s)\n", vmInfo.InstanceID, vmInfo.PublicIP)
+	fmt.Printf("🔑 SSH Key: %s\n", vmInfo.SSHKeyPath)
+
+	// This is where the common installation logic would go
+	// In the current implementation, this is handled by the provider's InstallDvarpalaDirectly method
+	// but in a unified structure, this could be common code
+
+	fmt.Println("✅ Dvarpala installation completed successfully!")
+	return nil
+}
+
+func (gcp *GCPProvider) Configure2StepVPNAccess(vmInfo *lib.VMResult) error {
+	// Convert VMResult to InstanceInfo for the provider
+	instanceInfo := &GCPInstanceInfo{
+		InstanceName: vmInfo.InstanceID,
+		ExternalIP:   vmInfo.PublicIP,
+		InternalIP:   vmInfo.PrivateIP,
+		SSHKeyPath:   vmInfo.SSHKeyPath,
+		Zone:         gcp.Zone,
+	}
+
+	return gcp.BaseCloudProvider.Configure2StepVPNAccess(instanceInfo, InstanceConfig{
+		AdminEmail: gcp.Config.Admin.Email,
+		AdminName:  gcp.Config.Admin.FullName,
+	})
 }

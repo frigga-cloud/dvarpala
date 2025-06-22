@@ -296,62 +296,216 @@ tail -10 /home/$(whoami)/dvarpala/certs/admin.ovpn
 	return base.executeSSHCommand(vmIP, command, keyPath)
 }
 
-func (base *BaseCloudProvider) getPostgreSQLSetupCommand(config InstanceConfig) string {
-	return fmt.Sprintf(`
-# Setup PostgreSQL database and create dvarpala user
-sudo -u postgres psql << 'PSQL_EOF'
-CREATE DATABASE dvarpala;
-CREATE USER dvarpala WITH PASSWORD 'dvarpala123';
-GRANT ALL PRIVILEGES ON DATABASE dvarpala TO dvarpala;
-ALTER DATABASE dvarpala OWNER TO dvarpala;
-\q
-PSQL_EOF
+func (base *BaseCloudProvider) setupPostgreSQLDatabase(vmIP, keyPath string, config InstanceConfig) error {
+	fmt.Println("🗄️ Setting up PostgreSQL database...")
 
-# Create database schema using GORM migration
-echo "Setting up database schema..."
-sudo tee /tmp/migrate.sql > /dev/null << 'SQL_EOF'
--- Users table
-CREATE TABLE IF NOT EXISTS users (
-  id SERIAL PRIMARY KEY,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  full_name VARCHAR(255) NOT NULL,
-  is_admin BOOLEAN DEFAULT false,
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+	// First, install PostgreSQL and create the dvarpala user via SSH
+	setupCommands := []string{
+		"sudo -u postgres createuser -s dvarpala 2>/dev/null || echo 'User already exists'",
+		"sudo -u postgres psql -c \"ALTER USER dvarpala WITH PASSWORD 'dvarpala123';\"",
+	}
 
--- Groups table
-CREATE TABLE IF NOT EXISTS groups (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255) UNIQUE NOT NULL,
-  description TEXT,
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+	for _, cmd := range setupCommands {
+		if err := base.executeSSHCommand(vmIP, cmd, keyPath); err != nil {
+			return fmt.Errorf("failed to setup PostgreSQL user: %v", err)
+		}
+	}
 
--- Basic tables for captive portal functionality
-CREATE TABLE IF NOT EXISTS sessions (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER REFERENCES users(id),
-  session_token VARCHAR(255) UNIQUE NOT NULL,
-  expires_at TIMESTAMP NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+	// Download schema files to VM
+	schemaCommands := []string{
+		"mkdir -p /home/$(whoami)/dvarpala/schema/migrations",
+		"mkdir -p /home/$(whoami)/dvarpala/schema/seeds",
+		"curl -fsSL https://raw.githubusercontent.com/friggalabs/dvarpala/main/installation/installer/schema/migrations/001_create_users_table.sql -o /home/$(whoami)/dvarpala/schema/migrations/001_create_users_table.sql",
+		"curl -fsSL https://raw.githubusercontent.com/friggalabs/dvarpala/main/installation/installer/schema/migrations/002_create_groups_table.sql -o /home/$(whoami)/dvarpala/schema/migrations/002_create_groups_table.sql",
+		"curl -fsSL https://raw.githubusercontent.com/friggalabs/dvarpala/main/installation/installer/schema/migrations/003_create_sessions_table.sql -o /home/$(whoami)/dvarpala/schema/migrations/003_create_sessions_table.sql",
+		"curl -fsSL https://raw.githubusercontent.com/friggalabs/dvarpala/main/installation/installer/schema/seeds/001_default_admin_user.sql -o /home/$(whoami)/dvarpala/schema/seeds/001_default_admin_user.sql",
+	}
 
--- Insert default admin user
-INSERT INTO users (email, full_name, is_admin, is_active) 
-VALUES ('%s', '%s', true, true) 
-ON CONFLICT (email) DO NOTHING;
+	for _, cmd := range schemaCommands {
+		if err := base.executeSSHCommand(vmIP, cmd, keyPath); err != nil {
+			return fmt.Errorf("failed to download schema files: %v", err)
+		}
+	}
 
-SQL_EOF
+	// Create a Go program on the VM to handle database setup
+	dbSetupProgram := fmt.Sprintf(`package main
 
-# Apply the schema
-sudo -u postgres psql -d dvarpala -f /tmp/migrate.sql
-sudo rm /tmp/migrate.sql
-echo "✅ Database schema initialized successfully"
-`[1:], config.AdminEmail, config.AdminName)
+import (
+	"database/sql"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	_ "github.com/lib/pq"
+)
+
+func main() {
+	// Connect to PostgreSQL
+	connStr := "host=localhost port=5432 user=dvarpala password=dvarpala123 dbname=postgres sslmode=disable"
+	postgresDB, err := sql.Open("postgres", connStr)
+	if err != nil {
+		fmt.Printf("Failed to connect to postgres: %%v\n", err)
+		os.Exit(1)
+	}
+	defer postgresDB.Close()
+
+	// Create dvarpala database
+	if _, err := postgresDB.Exec("CREATE DATABASE dvarpala"); err != nil {
+		if !strings.Contains(err.Error(), "already exists") {
+			fmt.Printf("Failed to create database: %%v\n", err)
+			os.Exit(1)
+		}
+	}
+	postgresDB.Close()
+
+	// Connect to dvarpala database
+	connStr = "host=localhost port=5432 user=dvarpala password=dvarpala123 dbname=dvarpala sslmode=disable"
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		fmt.Printf("Failed to connect to dvarpala database: %%v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Execute migration files
+	migrationsPath := "/home/$(whoami)/dvarpala/schema/migrations"
+	if err := runMigrations(db, migrationsPath); err != nil {
+		fmt.Printf("Migration failed: %%v\n", err)
+		os.Exit(1)
+	}
+
+	// Execute seed files
+	seedsPath := "/home/$(whoami)/dvarpala/schema/seeds"
+	if err := runSeeds(db, seedsPath); err != nil {
+		fmt.Printf("Seeds failed: %%v\n", err)
+		os.Exit(1)
+	}
+
+	// Create admin user
+	if err := createAdminUser(db, "%s", "%s"); err != nil {
+		fmt.Printf("Failed to create admin user: %%v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("✅ Database setup completed successfully")
+}
+
+func runMigrations(db *sql.DB, migrationsPath string) error {
+	files, err := getSQLFiles(migrationsPath)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if err := executeSQLFile(db, file); err != nil {
+			return fmt.Errorf("migration failed at %%s: %%v", filepath.Base(file), err)
+		}
+		fmt.Printf("✅ Executed migration: %%s\n", filepath.Base(file))
+	}
+	return nil
+}
+
+func runSeeds(db *sql.DB, seedsPath string) error {
+	files, err := getSQLFiles(seedsPath)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if err := executeSQLFile(db, file); err != nil {
+			return fmt.Errorf("seed failed at %%s: %%v", filepath.Base(file), err)
+		}
+		fmt.Printf("✅ Executed seed: %%s\n", filepath.Base(file))
+	}
+	return nil
+}
+
+func getSQLFiles(dir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".sql") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files, err
+}
+
+func executeSQLFile(db *sql.DB, filePath string) error {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	sqlContent := string(content)
+	statements := strings.Split(sqlContent, ";")
+	
+	for _, stmt := range statements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" || strings.HasPrefix(stmt, "--") {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to execute statement: %%v\nStatement: %%s", err, stmt)
+		}
+	}
+	return nil
+}
+
+func createAdminUser(db *sql.DB, email, name string) error {
+	userSQL := ` + "`" + `INSERT INTO users (email, full_name, is_admin, is_active) 
+		VALUES ($1, $2, true, true) 
+		ON CONFLICT (email) DO UPDATE SET
+			full_name = EXCLUDED.full_name,
+			is_admin = true,
+			is_active = true,
+			updated_at = CURRENT_TIMESTAMP` + "`" + `
+
+	if _, err := db.Exec(userSQL, email, name); err != nil {
+		return err
+	}
+
+	groupSQL := ` + "`" + `INSERT INTO user_groups (user_id, group_id, assigned_by)
+		SELECT u.id, g.id, u.id
+		FROM users u, groups g
+		WHERE u.email = $1 AND g.name = 'administrators'
+		ON CONFLICT (user_id, group_id) DO NOTHING` + "`" + `
+
+	if _, err := db.Exec(groupSQL, email); err != nil {
+		return err
+	}
+
+	fmt.Printf("✅ Admin user created: %%s\n", email)
+	return nil
+}`, config.AdminEmail, config.AdminName)
+
+	// Write the Go program to VM
+	writeProgram := fmt.Sprintf("cat > /home/$(whoami)/dvarpala/db_setup.go << 'EOF'\n%s\nEOF", dbSetupProgram)
+	if err := base.executeSSHCommand(vmIP, writeProgram, keyPath); err != nil {
+		return fmt.Errorf("failed to write database setup program: %v", err)
+	}
+
+	// Install Go PostgreSQL driver and run the program
+	setupDBCommands := []string{
+		"cd /home/$(whoami)/dvarpala && go mod init dvarpala-db-setup",
+		"cd /home/$(whoami)/dvarpala && go get github.com/lib/pq",
+		"cd /home/$(whoami)/dvarpala && go run db_setup.go",
+		"rm /home/$(whoami)/dvarpala/db_setup.go /home/$(whoami)/dvarpala/go.mod /home/$(whoami)/dvarpala/go.sum",
+	}
+
+	for _, cmd := range setupDBCommands {
+		if err := base.executeSSHCommand(vmIP, cmd, keyPath); err != nil {
+			return fmt.Errorf("failed to setup database: %v", err)
+		}
+	}
+
+	return nil
 }
 
 func (base *BaseCloudProvider) getDvarpalaDeploymentCommand() string {
@@ -574,14 +728,14 @@ func (base *BaseCloudProvider) InstallDvarpalaDirectly(instanceInfo InstanceInfo
 
 	// STEP 7: Initialize database with tables
 	fmt.Println("\n🗄️ Step 7: Initializing database with tables...")
-	if err := base.executeSSHCommand(vmIP, base.getPostgreSQLSetupCommand(config), keyPath); err != nil {
+	if err := base.setupPostgreSQLDatabase(vmIP, keyPath, config); err != nil {
 		return fmt.Errorf("failed to initialize database: %v", err)
 	}
 	fmt.Println("✅ Database initialized with tables")
 
-	// STEP 8: Create first admin user in database
+	// STEP 8: Create first admin user in database  
 	fmt.Println("\n👤 Step 8: Creating first admin user...")
-	// Admin user creation is handled in the PostgreSQL setup command above
+	// Admin user creation is handled in the setupPostgreSQLDatabase method above
 	fmt.Printf("✅ Admin user created: %s\n", config.AdminEmail)
 
 	// STEP 9: Host captive portal code via nginx
