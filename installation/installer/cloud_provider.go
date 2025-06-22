@@ -1,4 +1,4 @@
-package main
+package installer
 
 import (
 	"dvarpala-cloud-installer/installer/lib"

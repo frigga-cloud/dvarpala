@@ -1,5 +1,5 @@
 // Package main provides standalone database installation script for Dvarpala VPN system
-package main
+package installer
 
 import (
 	"database/sql"

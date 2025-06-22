@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "dvarpala-cloud-installer/installer"
 	"dvarpala-cloud-installer/installer/lib"
 	_ "dvarpala-cloud-installer/installer/providers"
 	"flag"

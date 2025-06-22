@@ -1,18 +1,18 @@
 {
   "cloud": {
     "provider": "gcp",
-    "region": "us-central1",
-    "project_id": "your-gcp-project-id",
+    "region": "asia-south1",
+    "project_id": "fifth-howl-437605-d4",
     "credentials": {
-      "service_account_key": "/path/to/service-account-key.json"
+      "service_account_key": "/Users/abcom/Downloads/fifth-howl-437605-d4-a990e656bd97.json"
     }
   },
   "admin": {
-    "email": "admin@yourdomain.com",
-    "full_name": "Admin User"
+    "email": "manjunaathaa.s@frigga.cloud",
+    "full_name": "manjunaathaa"
   },
   "backup_enabled": true,
-  "storage_bucket": "friggalabs",
+  "storage_bucket": "frigga-labs-12345",
   "vm_config": {
     "instance_type": "e2-medium",
     "disk_size_gb": 50,
@@ -25,8 +25,8 @@
   "network_config": {
     "vpc_cidr": "172.30.0.0/26",
     "public_subnet_cidr": "172.30.0.0/27",
-    "private_subnet_cidr": "172.30.0.32/27",
-    "allowed_ips": []
+    "private_subnet_cidr": "172.30.0.32/27", 
+    "allowed_ips": ["0.0.0.0/0"]
   },
   "output_directory": "./dvarpala-deployment"
 }
