@@ -1,8 +1,8 @@
 package main
 
 import (
-	"dvarpala-cloud-installer/lib"
-	"dvarpala-cloud-installer/providers"
+	"dvarpala-cloud-installer/installer/lib"
+	"dvarpala-cloud-installer/installer/providers"
 	"fmt"
 )
 
