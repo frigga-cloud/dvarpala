@@ -7,16 +7,18 @@ import (
 	"dvarpala/internal/database"
 	"dvarpala/internal/api/v1"
 	"dvarpala/internal/redis"
+	"dvarpala/internal/services"
 	"dvarpala/internal/web"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Dvarpala struct {
-	config *config.Config
-	db     *database.DB
-	redis  *redis.Client
-	router *gin.Engine
+	config   *config.Config
+	db       *database.DB
+	redis    *redis.Client
+	services *services.Services
+	router   *gin.Engine
 }
 
 func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
@@ -42,10 +44,11 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	router.Use(gin.Logger(), gin.Recovery())
 
 	app := &Dvarpala{
-		config: cfg,
-		db:     db,
-		redis:  redisClient,
-		router: router,
+		config:   cfg,
+		db:       db,
+		redis:    redisClient,
+		services: services.New(db.DB),
+		router:   router,
 	}
 
 	// Setup routes
@@ -61,7 +64,7 @@ func (d *Dvarpala) Router() *gin.Engine {
 func (d *Dvarpala) setupRoutes() {
 	// API routes
 	apiGroup := d.router.Group("/api/v1")
-	v1.SetupRoutes(apiGroup, d.db, d.redis, d.config)
+	v1.SetupRoutes(apiGroup, d.services, d.redis, d.config)
 
 	// Web routes
 	webGroup := d.router.Group("")
