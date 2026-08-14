@@ -362,7 +362,7 @@ func (az *AzureProvider) InstallDvarpalaDirectly(instanceInfo *AzureInstanceInfo
 		{"Copying certificates to OpenVPN directory", "sudo cp /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt /home/$(whoami)/dvarpala/easy-rsa/pki/issued/server.crt /home/$(whoami)/dvarpala/easy-rsa/pki/private/server.key /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/"},
 		{"Creating OpenVPN server configuration", az.getOpenVPNServerConfigCommand()},
 		{"Starting OpenVPN server", "sudo systemctl enable openvpn-server@server && sudo systemctl start openvpn-server@server"},
-		{"Configuring OAuth firewall rules", "sudo bash -c 'curl -fsSL https://raw.githubusercontent.com/friggalabs/dvarpala/main/scripts/installation/configure-oauth-firewall.sh | bash'"},
+		{"Configuring OAuth firewall rules", "sudo bash -c 'curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/configure-oauth-firewall.sh | bash'"},
 	}
 	
 	for i, step := range steps {

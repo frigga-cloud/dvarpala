@@ -3,7 +3,7 @@
 # Variables
 GO_VERSION = 1.21
 BINARY_DIR = bin
-CONFIG_FILE = configs/environments/development.yaml
+CONFIG_FILE = configs/environment.yaml
 
 # Build targets
 .PHONY: all build clean install dev test docker help
