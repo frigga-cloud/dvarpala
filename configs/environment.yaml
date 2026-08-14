@@ -1,65 +1,78 @@
 # Dvarpala VPN Configuration
-# This configuration file uses environment variables for all values
-# Set the corresponding environment variables in your .env file
+#
+# These are DEFAULTS for local development.
+#
+# Every value below can be overridden by an environment variable - see
+# loadEnvVars() in internal/config/config.go for the full mapping
+# (e.g. server.port <- SERVER_PORT, database.host <- DB_HOST).
+# Environment variables take priority over this file.
+#
+# NOTE: values must be literal. Viper does not expand ${VAR:default}
+# syntax - it reads it as a plain string, which then fails to parse as
+# a number or duration and prevents the server from starting.
 
 server:
-  port: ${SERVER_PORT:8080}
-  mode: ${SERVER_MODE:debug}
-  read_timeout: ${SERVER_READ_TIMEOUT:30s}
-  write_timeout: ${SERVER_WRITE_TIMEOUT:30s}
+  port: 8080
+  mode: debug
+  read_timeout: 30s
+  write_timeout: 30s
 
 database:
-  host: ${DB_HOST:localhost}
-  port: ${DB_PORT:5432}
-  name: ${DB_NAME:dvarpala_dev}
-  user: ${DB_USER:dvarpala}
-  password: ${DB_PASSWORD:dvarpala_password}
-  ssl_mode: ${DB_SSL_MODE:disable}
-  max_open_conns: ${DB_MAX_OPEN_CONNS:25}
-  max_idle_conns: ${DB_MAX_IDLE_CONNS:5}
+  host: localhost
+  port: 5432
+  name: dvarpala_dev
+  user: dvarpala
+  password: dvarpala_password
+  ssl_mode: disable
+  max_open_conns: 25
+  max_idle_conns: 5
 
 redis:
-  addr: ${REDIS_ADDR:localhost:6379}
-  password: ${REDIS_PASSWORD:}
-  db: ${REDIS_DB:0}
-  pool_size: ${REDIS_POOL_SIZE:10}
+  addr: localhost:6379
+  password: ""
+  db: 0
+  pool_size: 10
 
 auth:
-  session_duration: ${AUTH_SESSION_DURATION:28800}
-  captive_portal_timeout: ${AUTH_CAPTIVE_PORTAL_TIMEOUT:1800}
-  jwt_secret: ${AUTH_JWT_SECRET:your-super-secret-jwt-key-change-this-in-production}
+  session_duration: 28800          # 8 hours, in seconds
+  captive_portal_timeout: 1800     # 30 minutes, in seconds
+  jwt_secret: dev-only-secret-change-me
   allowed_domains:
     - "yourcompany.com"
     - "contractor.com"
 
 oauth:
   google:
-    client_id: ${OAUTH_GOOGLE_CLIENT_ID:your-google-client-id}
-    client_secret: ${OAUTH_GOOGLE_CLIENT_SECRET:your-google-client-secret}
-    redirect_url: ${OAUTH_GOOGLE_REDIRECT_URL:http://localhost:8080/auth/google/callback}
+    client_id: ""
+    client_secret: ""
+    redirect_url: http://localhost:8080/auth/google/callback
   microsoft:
-    client_id: ${OAUTH_MICROSOFT_CLIENT_ID:your-microsoft-client-id}
-    client_secret: ${OAUTH_MICROSOFT_CLIENT_SECRET:your-microsoft-client-secret}
-    redirect_url: ${OAUTH_MICROSOFT_REDIRECT_URL:http://localhost:8080/auth/microsoft/callback}
+    client_id: ""
+    client_secret: ""
+    redirect_url: http://localhost:8080/auth/microsoft/callback
   github:
-    client_id: ${OAUTH_GITHUB_CLIENT_ID:your-github-client-id}
-    client_secret: ${OAUTH_GITHUB_CLIENT_SECRET:your-github-client-secret}
-    redirect_url: ${OAUTH_GITHUB_REDIRECT_URL:http://localhost:8080/auth/github/callback}
+    client_id: ""
+    client_secret: ""
+    redirect_url: http://localhost:8080/auth/github/callback
 
 openvpn:
   management:
-    host: ${OPENVPN_MANAGEMENT_HOST:localhost}
-    port: ${OPENVPN_MANAGEMENT_PORT:7505}
+    host: localhost
+    port: 7505
+  # NOTE: these are the ranges used by the older scripts/provisioning path.
+  # The live cloud installer deploys 172.30.100.0/24 (captive) and
+  # 172.30.8.0/21 (full access). Nothing in the Go code reads these values
+  # yet; reconcile them when it does.
   networks:
-    captive_portal: ${OPENVPN_CAPTIVE_PORTAL_NETWORK:192.168.100.0/24}
-    full_access: ${OPENVPN_FULL_ACCESS_NETWORK:10.0.0.0/8}
+    captive_portal: 192.168.100.0/24
+    full_access: 10.0.0.0/8
 
 security:
-  failed_login_threshold: ${SECURITY_FAILED_LOGIN_THRESHOLD:5}
-  ip_block_duration: ${SECURITY_IP_BLOCK_DURATION:1800}
-  bcrypt_cost: ${SECURITY_BCRYPT_COST:12}
+  failed_login_threshold: 5
+  ip_block_duration: 1800          # 30 minutes, in seconds
+  bcrypt_cost: 12
 
 logging:
-  level: ${LOG_LEVEL:debug}
-  format: ${LOG_FORMAT:json}
-  output: ${LOG_OUTPUT:stdout}
+  level: debug
+  format: json
+  output: stdout
