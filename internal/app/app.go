@@ -49,9 +49,31 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 		time.Duration(cfg.Auth.SessionDuration)*time.Second)
 
 	providers := auth.NewRegistry()
+
+	// Google, when credentials are configured. Missing credentials are not
+	// fatal: the provider is simply not offered.
+	if cfg.OAuth.Google.ClientID != "" {
+		google, err := auth.NewGoogleProvider(
+			cfg.OAuth.Google.ClientID,
+			cfg.OAuth.Google.ClientSecret,
+			cfg.OAuth.Google.RedirectURL,
+			"", // hosted domain: leave to the allow-list
+		)
+		if err != nil {
+			return nil, fmt.Errorf("configuring google provider: %w", err)
+		}
+		providers.Add(google)
+		log.Println("Google login enabled")
+	}
+
+	// Development stand-in, refused outside debug mode.
 	if dev := auth.NewDevProvider(fmt.Sprintf("http://localhost:%d", cfg.Server.Port)); dev.Guard(cfg.Server.Mode) == nil {
 		providers.Add(dev)
 		log.Println("WARNING: development login provider is enabled (server.mode=debug)")
+	}
+
+	if providers.Len() == 0 {
+		log.Println("WARNING: no login providers are enabled - nobody can authenticate")
 	}
 
 	authSvc := auth.NewService(providers, sessions, svc, redisClient, cfg.Auth.AllowedDomains)

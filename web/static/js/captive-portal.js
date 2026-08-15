@@ -146,9 +146,11 @@ class CaptivePortal {
         indicator.className = 'mt-4 p-4 rounded-xl text-center transition-all';
         dot.className = 'w-3 h-3 rounded-full animate-pulse';
 
-        // Add new classes
-        indicator.classList.add(colors[type]);
-        dot.classList.add(dotColors[type]);
+        // Add new classes.
+        // classList.add() rejects tokens containing spaces, so multi-class
+        // strings must be split first.
+        indicator.classList.add(...colors[type].split(' '));
+        dot.classList.add(...dotColors[type].split(' '));
         text.textContent = message;
 
         // Show indicator

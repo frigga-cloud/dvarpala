@@ -38,8 +38,8 @@ auth:
   captive_portal_timeout: 1800     # 30 minutes, in seconds
   jwt_secret: dev-only-secret-change-me
   allowed_domains:
+    - "frigga.cloud"
     - "acme.com"
-    - "contractor.com"
 
 oauth:
   google:

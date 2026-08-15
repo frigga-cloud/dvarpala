@@ -40,6 +40,9 @@ func (h *AuthHandler) Register(r *gin.RouterGroup) {
 	r.GET("/dev/login", h.DevLoginForm)
 	r.POST("/dev/login", h.DevLoginSubmit)
 
+	// Polled by captive-portal.js so the page can notice a completed login.
+	r.GET("/api/internal/auth-status", h.Status)
+
 	// Generic provider routes.
 	r.GET("/auth/:provider", h.Begin)
 	r.GET("/auth/:provider/callback", h.Callback)
@@ -112,11 +115,34 @@ func (h *AuthHandler) Failure(c *gin.Context) {
 	})
 }
 
+// Status reports whether the caller has a session.
+//
+// The captive portal polls this so it can move on once authentication
+// completes in another tab or window.
+func (h *AuthHandler) Status(c *gin.Context) {
+	sess := h.currentSession(c)
+	if sess == nil {
+		c.JSON(http.StatusOK, gin.H{"authenticated": false, "user": "", "expires_at": ""})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"authenticated": true,
+		"user":          sess.Email,
+		"provider":      sess.Provider,
+		"groups":        sess.Groups,
+		"expires_at":    sess.Expires.Format(time.RFC3339),
+	})
+}
+
 // Logout revokes the session and clears the cookie.
 func (h *AuthHandler) Logout(c *gin.Context) {
 	if token, err := c.Cookie(sessionCookie); err == nil && token != "" {
 		_ = h.auth.Logout(c.Request.Context(), token)
 	}
+	// Also clear any session bound to this client address, so a stale VPN
+	// session cannot immediately re-authenticate the browser.
+	_ = h.auth.LogoutClientIP(c.Request.Context(), clientIP(c))
 	c.SetCookie(sessionCookie, "", -1, "/", "", h.secureCookies, true)
 	c.Redirect(http.StatusFound, "/")
 }
@@ -168,16 +194,24 @@ func (h *AuthHandler) DevLoginSubmit(c *gin.Context) {
 }
 
 // currentSession returns the caller's session, or nil.
+//
+// It looks in two places, and every handler uses this one function so they
+// cannot disagree about whether someone is signed in:
+//
+//  1. the browser cookie
+//  2. the VPN client-IP key, for a tunnel that is authenticated but whose
+//     browser has no cookie (a different browser, or cookies cleared)
 func (h *AuthHandler) currentSession(c *gin.Context) *auth.Session {
-	token, err := c.Cookie(sessionCookie)
-	if err != nil || token == "" {
-		return nil
+	if token, err := c.Cookie(sessionCookie); err == nil && token != "" {
+		if sess, err := h.auth.Session(c.Request.Context(), token); err == nil {
+			return sess
+		}
 	}
-	sess, err := h.auth.Session(c.Request.Context(), token)
-	if err != nil {
-		return nil
+
+	if sess, err := h.auth.SessionForClientIP(c.Request.Context(), clientIP(c)); err == nil {
+		return sess
 	}
-	return sess
+	return nil
 }
 
 func (h *AuthHandler) fail(c *gin.Context, provider, code, reason string) {

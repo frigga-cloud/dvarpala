@@ -238,3 +238,8 @@ func (s *Service) Session(ctx context.Context, token string) (*Session, error) {
 func (s *Service) SessionForClientIP(ctx context.Context, clientIP string) (*Session, error) {
 	return s.sessions.GetByClientIP(ctx, clientIP)
 }
+
+// LogoutClientIP revokes whatever session is bound to a client address.
+func (s *Service) LogoutClientIP(ctx context.Context, clientIP string) error {
+	return s.sessions.RevokeByClientIP(ctx, clientIP)
+}
