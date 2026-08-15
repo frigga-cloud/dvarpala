@@ -1,6 +1,14 @@
 # Go
 bin/
 vendor/
+
+# Compiled binaries at the repo root (output of `go build`).
+# The leading slash matters: without it, "dvarpala-cli" would also match the
+# cmd/dvarpala-cli/ SOURCE directory and hide the code from git.
+/dvarpala-server
+/dvarpala-cli
+/dvarpala-worker
+/openvpn-auth
 *.exe
 *.exe~
 *.dll
