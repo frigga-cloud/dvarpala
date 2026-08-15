@@ -35,8 +35,9 @@ func (d *DevProvider) Name() string { return "dev" }
 func (d *DevProvider) DisplayName() string { return "Development login (insecure)" }
 
 // AuthURL sends the browser to a local form rather than to a real provider.
+// It lives outside /auth/ so it cannot collide with the /auth/:provider routes.
 func (d *DevProvider) AuthURL(state string) string {
-	return fmt.Sprintf("%s/auth/dev/login?state=%s", d.BaseURL, url.QueryEscape(state))
+	return fmt.Sprintf("%s/dev/login?state=%s", d.BaseURL, url.QueryEscape(state))
 }
 
 // Exchange treats the code as the email address the form supplied.

@@ -227,3 +227,14 @@ func normaliseDomains(in []string) []string {
 	}
 	return out
 }
+
+// Session returns the session for a token, if it is still valid.
+func (s *Service) Session(ctx context.Context, token string) (*Session, error) {
+	return s.sessions.Get(ctx, token)
+}
+
+// SessionForClientIP returns the session for a VPN client address. This is the
+// lookup the OpenVPN connect path performs.
+func (s *Service) SessionForClientIP(ctx context.Context, clientIP string) (*Session, error) {
+	return s.sessions.GetByClientIP(ctx, clientIP)
+}

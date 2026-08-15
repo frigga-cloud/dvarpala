@@ -48,7 +48,7 @@ func TestDevProviderAuthURLCarriesState(t *testing.T) {
 	if !strings.Contains(got, "state=abc123") {
 		t.Errorf("AuthURL = %q, expected it to carry the state", got)
 	}
-	if strings.Contains(got, "//auth") {
+	if strings.Contains(got, "//dev") {
 		t.Errorf("AuthURL = %q, trailing slash in base URL was not trimmed", got)
 	}
 }
