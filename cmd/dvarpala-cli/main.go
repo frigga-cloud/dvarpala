@@ -31,6 +31,8 @@ func main() {
 
 	rootCmd.AddCommand(userCmd())
 	rootCmd.AddCommand(groupCmd())
+	rootCmd.AddCommand(resourceCmd())
+	rootCmd.AddCommand(permissionCmd())
 	rootCmd.AddCommand(vpnCmd())
 	rootCmd.AddCommand(adminCmd())
 

@@ -10,19 +10,25 @@ import "gorm.io/gorm"
 // Services is the application's composition root. Build it once at startup
 // and pass it to whichever transport needs it.
 type Services struct {
-	Audit  *AuditService
-	Users  *UserService
-	Groups *GroupService
+	Audit       *AuditService
+	Users       *UserService
+	Groups      *GroupService
+	Resources   *ResourceService
+	Permissions *PermissionService
 }
 
 // New wires up every service against a single database handle.
 func New(db *gorm.DB) *Services {
 	audit := NewAuditService(db)
 	users := NewUserService(db, audit)
+	groups := NewGroupService(db, audit, users)
+	resources := NewResourceService(db, audit)
 
 	return &Services{
-		Audit:  audit,
-		Users:  users,
-		Groups: NewGroupService(db, audit, users),
+		Audit:       audit,
+		Users:       users,
+		Groups:      groups,
+		Resources:   resources,
+		Permissions: NewPermissionService(db, audit, users, groups, resources),
 	}
 }

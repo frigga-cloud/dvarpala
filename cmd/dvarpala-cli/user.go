@@ -17,7 +17,8 @@ func userCmd() *cobra.Command {
 		Short: "User management commands",
 	}
 
-	cmd.AddCommand(userCreateCmd(), userListCmd(), userShowCmd(), userDeactivateCmd())
+	cmd.AddCommand(userCreateCmd(), userListCmd(), userShowCmd(),
+		userAccessCmd(), userDeactivateCmd())
 	return cmd
 }
 
