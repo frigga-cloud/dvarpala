@@ -7,6 +7,7 @@ import (
 
 	"dvarpala/internal/config"
 	"dvarpala/internal/database"
+	"dvarpala/internal/api/vpnapi"
 	"dvarpala/internal/api/v1"
 	"dvarpala/internal/auth"
 	"dvarpala/internal/redis"
@@ -106,6 +107,9 @@ func (d *Dvarpala) setupRoutes() {
 	// API routes
 	apiGroup := d.router.Group("/api/v1")
 	v1.SetupRoutes(apiGroup, d.services, d.redis, d.config)
+
+	// Endpoints the OpenVPN hooks call. Localhost only in a real deployment.
+	vpnapi.NewHandler(d.auth, d.services).Register(d.router.Group(""))
 
 	// Web routes
 	webGroup := d.router.Group("")

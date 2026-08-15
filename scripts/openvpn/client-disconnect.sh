@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# Dvarpala OpenVPN client-disconnect hook.
+#
+# Revokes the client's session so that reconnecting requires signing in again.
+# This is the "access is revoked on disconnect" half of the design: without it,
+# a session would outlive the connection it was granted for.
+#
+# Install with, in server.conf:
+#   client-disconnect /opt/dvarpala/scripts/client-disconnect.sh
+
+set -uo pipefail
+
+API="${DVARPALA_API:-http://127.0.0.1:8080}"
+LOG="/var/log/openvpn/dvarpala-connect.log"
+
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+
+CLIENT_IP="${ifconfig_pool_remote_ip:-}"
+CN="${common_name:-unknown}"
+
+log "disconnect: cn=$CN tunnel_ip=$CLIENT_IP duration=${time_duration:-?}s " \
+    "bytes_in=${bytes_received:-?} bytes_out=${bytes_sent:-?}"
+
+if [[ -z "$CLIENT_IP" ]]; then
+    log "  no tunnel IP; nothing to revoke"
+    exit 0
+fi
+
+if curl -sf --max-time 5 -X DELETE \
+        "$API/api/internal/vpn/session/$CLIENT_IP" > /dev/null 2>&1; then
+    log "  session revoked for $CLIENT_IP"
+else
+    # Not fatal: Redis expiry will remove the session anyway. But it means the
+    # user could reconnect without signing in until the TTL runs out, so it is
+    # worth alerting on.
+    log "  WARNING: could not revoke session for $CLIENT_IP (Dvarpala unreachable)"
+fi
+
+exit 0
