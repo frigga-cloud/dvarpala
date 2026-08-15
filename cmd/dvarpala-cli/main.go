@@ -64,13 +64,6 @@ func openServices() (*services.Services, error) {
 // The command groups below are registered so they appear in help. Their
 // subcommands are added as each phase implements them.
 
-func groupCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "group",
-		Short: "Group management commands (not yet implemented)",
-	}
-}
-
 func vpnCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "vpn",
