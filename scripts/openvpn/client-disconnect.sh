@@ -2,9 +2,9 @@
 #
 # Dvarpala OpenVPN client-disconnect hook.
 #
-# Revokes the client's session so that reconnecting requires signing in again.
-# This is the "access is revoked on disconnect" half of the design: without it,
-# a session would outlive the connection it was granted for.
+# Tells Dvarpala the client has gone. The session is shortened to a brief
+# grace window rather than deleted, so that a reconnect - which is how a newly
+# authenticated client receives its routes - can still succeed.
 #
 # Install with, in server.conf:
 #   client-disconnect /opt/dvarpala/scripts/client-disconnect.sh
@@ -30,7 +30,7 @@ fi
 
 if curl -sf --max-time 5 -X DELETE \
         "$API/api/internal/vpn/session/$CLIENT_IP" > /dev/null 2>&1; then
-    log "  session revoked for $CLIENT_IP"
+    log "  session moved to grace period for $CLIENT_IP"
 else
     # Not fatal: Redis expiry will remove the session anyway. But it means the
     # user could reconnect without signing in until the TTL runs out, so it is

@@ -243,3 +243,19 @@ func (s *Service) SessionForClientIP(ctx context.Context, clientIP string) (*Ses
 func (s *Service) LogoutClientIP(ctx context.Context, clientIP string) error {
 	return s.sessions.RevokeByClientIP(ctx, clientIP)
 }
+
+// ClientDisconnected shortens the session for a client address rather than
+// deleting it, so that a reconnect can still apply the routes the user just
+// authenticated for. See disconnectGrace.
+func (s *Service) ClientDisconnected(ctx context.Context, clientIP string) error {
+	err := s.sessions.Disconnected(ctx, clientIP)
+	if errors.Is(err, ErrNoSession) {
+		return nil
+	}
+	return err
+}
+
+// ClientReconnected restores a session's full lifetime.
+func (s *Service) ClientReconnected(ctx context.Context, clientIP string) error {
+	return s.sessions.Reconnected(ctx, clientIP)
+}

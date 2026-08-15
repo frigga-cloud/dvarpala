@@ -94,6 +94,10 @@ func (h *Handler) Access(c *gin.Context) {
 		return
 	}
 
+	// The client is back and still authorised, so restore the full session
+	// lifetime that the preceding disconnect shortened.
+	_ = h.auth.ClientReconnected(c.Request.Context(), clientIP)
+
 	grants, err := h.perms.ResourcesForUser(c.Request.Context(), sess.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, AccessResponse{
@@ -110,18 +114,23 @@ func (h *Handler) Access(c *gin.Context) {
 	})
 }
 
-// Disconnect revokes the session for a client address.
+// Disconnect ends network access for a client address.
 //
-// Called by the client-disconnect hook, so that reconnecting requires signing
-// in again - the "access is revoked on disconnect" half of the design.
+// Called by the client-disconnect hook. The session is shortened to a brief
+// grace window rather than deleted, because a reconnect - which is how a
+// newly-authenticated client receives its routes - necessarily begins with a
+// disconnect. Deleting here would make full access unreachable.
+//
+// Access itself stops immediately regardless: the tunnel is gone, so the
+// pushed routes are gone with it.
 func (h *Handler) Disconnect(c *gin.Context) {
 	clientIP := c.Param("clientip")
 
-	if err := h.auth.LogoutClientIP(c.Request.Context(), clientIP); err != nil {
+	if err := h.auth.ClientDisconnected(c.Request.Context(), clientIP); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"revoked": true, "client_ip": clientIP})
+	c.JSON(http.StatusOK, gin.H{"grace_period": true, "client_ip": clientIP})
 }
 
 // toRoutes turns access grants into pushable routes.

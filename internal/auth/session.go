@@ -170,3 +170,51 @@ func newToken() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+
+// disconnectGrace is how long a session survives after the VPN client drops.
+//
+// A reconnect is how a newly-authenticated client gets its routes, and a
+// reconnect necessarily begins with a disconnect. Deleting the session there
+// would make full access unreachable: the user signs in, reconnects to apply
+// it, and the reconnect destroys what they just did.
+//
+// So a disconnect shortens the session rather than ending it. The tunnel is
+// down for that window, so nothing is reachable anyway; only a prompt
+// reconnect benefits.
+const disconnectGrace = 2 * time.Minute
+
+// Disconnected shortens the session bound to a client address.
+//
+// Returns ErrNoSession if there was nothing to shorten.
+func (s *SessionService) Disconnected(ctx context.Context, clientIP string) error {
+	sess, err := s.GetByClientIP(ctx, clientIP)
+	if err != nil {
+		return err
+	}
+
+	pipe := s.rdb.TxPipeline()
+	pipe.Expire(ctx, authKey(clientIP), disconnectGrace)
+	pipe.Expire(ctx, sessionKey(sess.Token), disconnectGrace)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("shortening session: %w", err)
+	}
+	return nil
+}
+
+// Reconnected restores a session's full lifetime, after a client reconnects
+// and is confirmed still authorised.
+func (s *SessionService) Reconnected(ctx context.Context, clientIP string) error {
+	sess, err := s.GetByClientIP(ctx, clientIP)
+	if err != nil {
+		return err
+	}
+
+	pipe := s.rdb.TxPipeline()
+	pipe.Expire(ctx, authKey(clientIP), time.Until(sess.Expires))
+	pipe.Expire(ctx, sessionKey(sess.Token), time.Until(sess.Expires))
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+// DisconnectGrace reports the grace window, for logs and tests.
+func (s *SessionService) DisconnectGrace() time.Duration { return disconnectGrace }
