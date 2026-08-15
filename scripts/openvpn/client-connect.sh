@@ -19,6 +19,7 @@ set -uo pipefail
 CONFIG_FILE="$1"
 API="${DVARPALA_API:-http://127.0.0.1:8080}"
 LOG="/var/log/openvpn/dvarpala-connect.log"
+FIREWALL="${DVARPALA_FIREWALL:-/opt/dvarpala/scripts/dvarpala-firewall.sh}"
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
@@ -34,6 +35,9 @@ if [[ -z "$CLIENT_IP" ]]; then
     echo 'push "route 172.30.100.1 255.255.255.255"' > "$CONFIG_FILE"
     exit 0
 fi
+
+# Start from the walled garden. Anything below that authenticates will lift it.
+[[ -x "$FIREWALL" ]] && "$FIREWALL" revoke "$CLIENT_IP" >/dev/null 2>&1
 
 # Ask Dvarpala what this client may reach.
 RESPONSE=$(curl -sf --max-time 5 "$API/api/internal/vpn/access/$CLIENT_IP" 2>/dev/null)
@@ -80,6 +84,16 @@ for r in json.load(sys.stdin).get("routes", []):
 
 # DNS, so the routed names resolve.
 echo 'push "dhcp-option DNS 8.8.8.8"' >> "$CONFIG_FILE"
+
+# Routes alone are only half of it: the firewall must also stop dropping this
+# client's traffic.
+if [[ -x "$FIREWALL" ]]; then
+    if "$FIREWALL" allow "$CLIENT_IP" >/dev/null 2>&1; then
+        log "  firewall: $CLIENT_IP promoted out of the walled garden"
+    else
+        log "  WARNING: firewall promotion failed for $CLIENT_IP"
+    fi
+fi
 
 log "  authenticated as $EMAIL; pushed $COUNT route(s)"
 exit 0

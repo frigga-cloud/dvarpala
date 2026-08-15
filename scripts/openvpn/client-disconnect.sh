@@ -13,6 +13,7 @@ set -uo pipefail
 
 API="${DVARPALA_API:-http://127.0.0.1:8080}"
 LOG="/var/log/openvpn/dvarpala-connect.log"
+FIREWALL="${DVARPALA_FIREWALL:-/opt/dvarpala/scripts/dvarpala-firewall.sh}"
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
@@ -26,6 +27,13 @@ log "disconnect: cn=$CN tunnel_ip=$CLIENT_IP duration=${time_duration:-?}s " \
 if [[ -z "$CLIENT_IP" ]]; then
     log "  no tunnel IP; nothing to revoke"
     exit 0
+fi
+
+# Put the client back behind the walled garden immediately. This must happen
+# even if Dvarpala is unreachable below.
+if [[ -x "$FIREWALL" ]]; then
+    "$FIREWALL" revoke "$CLIENT_IP" >/dev/null 2>&1 && \
+        log "  firewall: $CLIENT_IP returned to the walled garden"
 fi
 
 if curl -sf --max-time 5 -X DELETE \
