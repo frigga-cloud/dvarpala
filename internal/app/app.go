@@ -45,7 +45,7 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	}
 
 	// Authentication: providers, session store, and the login flow.
-	svc := services.New(db.DB)
+	svc := services.New(db.DB, cfg)
 	sessions := auth.NewSessionService(redisClient,
 		time.Duration(cfg.Auth.SessionDuration)*time.Second)
 

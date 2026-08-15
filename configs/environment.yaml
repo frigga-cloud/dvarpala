@@ -67,6 +67,22 @@ openvpn:
     captive_portal: 192.168.100.0/24
     full_access: 10.0.0.0/8
 
+  # Certificate authority used to issue one client certificate per user.
+  # auto_create generates a development CA if none exists; a real deployment
+  # should provision its CA deliberately and keep ca_key well protected.
+  pki:
+    ca_cert: ./certs/ca.crt
+    ca_key: ./certs/ca.key
+    ta_key: ./certs/ta.key
+    auto_create: true
+    client_cert_days: 365
+
+  # What gets written into the "remote" line of each client profile.
+  server:
+    host: localhost
+    port: 1194
+    proto: udp
+
 security:
   failed_login_threshold: 5
   ip_block_duration: 1800          # 30 minutes, in seconds

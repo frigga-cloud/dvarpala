@@ -60,18 +60,11 @@ func openServices() (*services.Services, error) {
 	// A CLI should print results, not SQL.
 	db.Logger = gormlogger.Discard
 
-	return services.New(db.DB), nil
+	return services.New(db.DB, cfg), nil
 }
 
 // The command groups below are registered so they appear in help. Their
 // subcommands are added as each phase implements them.
-
-func vpnCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "vpn",
-		Short: "VPN management commands (not yet implemented)",
-	}
-}
 
 func adminCmd() *cobra.Command {
 	return &cobra.Command{

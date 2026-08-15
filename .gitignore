@@ -54,3 +54,6 @@ temp/
 # Dvarpala deployment files
 dvarpala-deployment/
 scripts/installation/dvarpala-deployment/
+
+# Certificate authority material - never commit private keys
+/certs/

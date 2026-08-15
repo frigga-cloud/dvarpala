@@ -67,6 +67,30 @@ type OAuthProvider struct {
 type OpenVPNConfig struct {
 	Management OpenVPNManagement `mapstructure:"management"`
 	Networks   OpenVPNNetworks   `mapstructure:"networks"`
+	PKI        OpenVPNPKI        `mapstructure:"pki"`
+	Server     OpenVPNServer     `mapstructure:"server"`
+}
+
+// OpenVPNPKI locates the certificate authority used to issue per-user client
+// certificates.
+type OpenVPNPKI struct {
+	CACert string `mapstructure:"ca_cert"`
+	CAKey  string `mapstructure:"ca_key"`
+	TAKey  string `mapstructure:"ta_key"`
+
+	// AutoCreate generates a CA when none exists. Convenient for development;
+	// a real deployment should provision its CA deliberately.
+	AutoCreate bool `mapstructure:"auto_create"`
+
+	// ClientCertDays is how long issued client certificates last.
+	ClientCertDays int `mapstructure:"client_cert_days"`
+}
+
+// OpenVPNServer describes the endpoint written into client profiles.
+type OpenVPNServer struct {
+	Host  string `mapstructure:"host"`
+	Port  int    `mapstructure:"port"`
+	Proto string `mapstructure:"proto"`
 }
 
 type OpenVPNManagement struct {
@@ -162,6 +186,11 @@ func loadEnvVars() {
 	viper.BindEnv("openvpn.management.port", "OPENVPN_MANAGEMENT_PORT")
 	viper.BindEnv("openvpn.networks.captive_portal", "OPENVPN_CAPTIVE_PORTAL_NETWORK")
 	viper.BindEnv("openvpn.networks.full_access", "OPENVPN_FULL_ACCESS_NETWORK")
+	viper.BindEnv("openvpn.pki.ca_cert", "OPENVPN_CA_CERT")
+	viper.BindEnv("openvpn.pki.ca_key", "OPENVPN_CA_KEY")
+	viper.BindEnv("openvpn.pki.ta_key", "OPENVPN_TA_KEY")
+	viper.BindEnv("openvpn.server.host", "OPENVPN_SERVER_HOST")
+	viper.BindEnv("openvpn.server.port", "OPENVPN_SERVER_PORT")
 
 	// Security
 	viper.BindEnv("security.failed_login_threshold", "SECURITY_FAILED_LOGIN_THRESHOLD")
