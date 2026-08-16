@@ -82,6 +82,15 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	// Initialize router
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
+
+	// Believe X-Forwarded-For only from configured proxies. With none set,
+	// ClientIP() is the actual peer address and cannot be spoofed.
+	if err := router.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
+		return nil, fmt.Errorf("configuring trusted proxies: %w", err)
+	}
+	if len(cfg.Server.TrustedProxies) > 0 {
+		log.Printf("trusting X-Forwarded-For from %v", cfg.Server.TrustedProxies)
+	}
 	router.LoadHTMLGlob("web/templates/*.html")
 
 	app := &Dvarpala{

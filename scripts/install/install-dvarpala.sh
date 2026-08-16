@@ -142,6 +142,7 @@ server:
   mode: release
   read_timeout: 30s
   write_timeout: 30s
+  trusted_proxies: []
 
 database:
   host: localhost

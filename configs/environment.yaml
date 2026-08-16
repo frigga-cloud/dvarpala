@@ -16,6 +16,10 @@ server:
   mode: debug
   read_timeout: 30s
   write_timeout: 30s
+  # Addresses whose X-Forwarded-For may be trusted. Empty means none, which is
+  # right when VPN clients reach the portal directly. Set this only if a real
+  # reverse proxy sits in front.
+  trusted_proxies: []
 
 database:
   host: localhost

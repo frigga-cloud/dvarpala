@@ -24,6 +24,16 @@ type ServerConfig struct {
 	Mode         string        `mapstructure:"mode"`
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+
+	// TrustedProxies lists the addresses whose X-Forwarded-For header may be
+	// believed. Empty means none, which is correct when VPN clients reach the
+	// portal directly.
+	//
+	// This matters more than it looks: sessions are keyed on the client's
+	// tunnel address, so a client whose forwarded header is trusted can bind a
+	// session to an address it does not own, granting network access to
+	// someone else's tunnel.
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type DatabaseConfig struct {
