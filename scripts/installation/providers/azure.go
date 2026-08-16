@@ -22,11 +22,11 @@ type AzureCredentials struct {
 }
 
 type AzureVPCInfo struct {
-	ResourceGroup   string
-	VNetName        string
-	SubnetName      string
-	NSGName         string
-	PublicIPName    string
+	ResourceGroup string
+	VNetName      string
+	SubnetName    string
+	NSGName       string
+	PublicIPName  string
 }
 
 type AzureInstanceInfo struct {
@@ -52,12 +52,12 @@ func (az *AzureProvider) SetupEnvironment() error {
 			"--username", az.Credentials.ClientID,
 			"--password", az.Credentials.ClientSecret,
 			"--tenant", az.Credentials.TenantID)
-		
+
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to login with service principal: %v", err)
 		}
 	}
-	
+
 	// Set subscription
 	if az.SubscriptionID != "" {
 		cmd := exec.Command("az", "account", "set", "--subscription", az.SubscriptionID)
@@ -65,7 +65,7 @@ func (az *AzureProvider) SetupEnvironment() error {
 			return fmt.Errorf("failed to set subscription: %v", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -75,30 +75,30 @@ func (az *AzureProvider) ValidateAuthentication() error {
 	if err != nil {
 		return fmt.Errorf("Azure authentication failed: %v", err)
 	}
-	
+
 	var account map[string]interface{}
 	if err := json.Unmarshal(output, &account); err != nil {
 		return fmt.Errorf("failed to parse Azure account response: %v", err)
 	}
-	
+
 	fmt.Printf("✅ Authenticated as: %s\n", account["user"].(map[string]interface{})["name"])
 	return nil
 }
 
 func (az *AzureProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*AzureVPCInfo, error) {
 	resourceGroup := vpcName + "-rg"
-	
+
 	// Check if resource group exists
 	existingVPC, err := az.findResourceGroup(resourceGroup)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if existingVPC != nil {
 		fmt.Printf("✅ Using existing resource group: %s\n", existingVPC.ResourceGroup)
 		return existingVPC, nil
 	}
-	
+
 	fmt.Printf("🏗️ Creating new resource group: %s\n", resourceGroup)
 	return az.createNewVPC(vpcName, resourceGroup, config)
 }
@@ -110,19 +110,19 @@ func (az *AzureProvider) findResourceGroup(resourceGroup string) (*AzureVPCInfo,
 		// Resource group doesn't exist
 		return nil, nil
 	}
-	
+
 	var rg map[string]interface{}
 	if err := json.Unmarshal(output, &rg); err != nil {
 		return nil, err
 	}
-	
+
 	vpcInfo := &AzureVPCInfo{
 		ResourceGroup: resourceGroup,
 		VNetName:      "frigga-labs-vnet",
 		SubnetName:    "dvarpala-subnet",
 		NSGName:       "dvarpala-nsg",
 	}
-	
+
 	return vpcInfo, nil
 }
 
@@ -133,17 +133,17 @@ func (az *AzureProvider) createNewVPC(vpcName, resourceGroup string, config Netw
 		SubnetName:    "dvarpala-subnet",
 		NSGName:       "dvarpala-nsg",
 	}
-	
+
 	// Create resource group
 	cmd := exec.Command("az", "group", "create",
 		"--name", resourceGroup,
 		"--location", az.Region,
 		"--tags", "Project=dvarpala", "ManagedBy=frigga-labs")
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create resource group: %v", err)
 	}
-	
+
 	// Create virtual network
 	cmd = exec.Command("az", "network", "vnet", "create",
 		"--resource-group", resourceGroup,
@@ -152,35 +152,35 @@ func (az *AzureProvider) createNewVPC(vpcName, resourceGroup string, config Netw
 		"--subnet-name", vpcInfo.SubnetName,
 		"--subnet-prefix", config.PublicSubnetCidr,
 		"--location", az.Region)
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create virtual network: %v", err)
 	}
-	
+
 	// Create network security group
 	cmd = exec.Command("az", "network", "nsg", "create",
 		"--resource-group", resourceGroup,
 		"--name", vpcInfo.NSGName,
 		"--location", az.Region)
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create network security group: %v", err)
 	}
-	
+
 	// Add security rules
 	az.addSecurityRules(resourceGroup, vpcInfo.NSGName)
-	
+
 	// Associate NSG with subnet
 	cmd = exec.Command("az", "network", "vnet", "subnet", "update",
 		"--resource-group", resourceGroup,
 		"--vnet-name", vpcInfo.VNetName,
 		"--name", vpcInfo.SubnetName,
 		"--network-security-group", vpcInfo.NSGName)
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to associate NSG with subnet: %v", err)
 	}
-	
+
 	fmt.Printf("✅ Virtual network created successfully: %s\n", vpcInfo.VNetName)
 	return vpcInfo, nil
 }
@@ -197,7 +197,7 @@ func (az *AzureProvider) addSecurityRules(resourceGroup, nsgName string) {
 		{"DvarpalaWeb", 1002, "8080", "Tcp"},
 		{"HTTPS", 1003, "443", "Tcp"},
 	}
-	
+
 	for _, rule := range rules {
 		exec.Command("az", "network", "nsg", "rule", "create",
 			"--resource-group", resourceGroup,
@@ -214,7 +214,7 @@ func (az *AzureProvider) addSecurityRules(resourceGroup, nsgName string) {
 func (az *AzureProvider) CreateInstance(vpcInfo *AzureVPCInfo, config InstanceConfig, vmName string) (*AzureInstanceInfo, error) {
 	// Use the provided VM name with Frigga Labs naming convention
 	publicIPName := vmName + "-ip"
-	
+
 	// Create public IP
 	cmd := exec.Command("az", "network", "public-ip", "create",
 		"--resource-group", vpcInfo.ResourceGroup,
@@ -222,11 +222,11 @@ func (az *AzureProvider) CreateInstance(vpcInfo *AzureVPCInfo, config InstanceCo
 		"--location", az.Region,
 		"--allocation-method", "Static",
 		"--sku", "Standard")
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create public IP: %v", err)
 	}
-	
+
 	// Create deployment directory if it doesn't exist
 	deploymentDir := "./dvarpala-deployment"
 	if err := os.MkdirAll(deploymentDir, 0755); err != nil {
@@ -239,19 +239,19 @@ func (az *AzureProvider) CreateInstance(vpcInfo *AzureVPCInfo, config InstanceCo
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to generate SSH key: %v", err)
 	}
-	
+
 	fmt.Printf("🔑 SSH key pair generated: %s\n", sshKeyPath)
-	
+
 	// Read public key
 	pubKeyData, err := os.ReadFile(sshKeyPath + ".pub")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read public key: %v", err)
 	}
 	pubKey := strings.TrimSpace(string(pubKeyData))
-	
+
 	// Generate minimal cloud-init script - just basic system prep
 	cloudInit := az.generateMinimalCloudInit(config)
-	
+
 	// Create VM
 	cmd = exec.Command("az", "vm", "create",
 		"--resource-group", vpcInfo.ResourceGroup,
@@ -266,11 +266,11 @@ func (az *AzureProvider) CreateInstance(vpcInfo *AzureVPCInfo, config InstanceCo
 		"--custom-data", cloudInit,
 		"--location", az.Region,
 		"--tags", "Project=dvarpala", "ManagedBy=frigga-labs")
-	
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create VM: %v", err)
 	}
-	
+
 	// Wait for VM to be running
 	fmt.Printf("⏳ Waiting for VM %s to be running...\n", vmName)
 	for i := 0; i < 30; i++ {
@@ -279,15 +279,15 @@ func (az *AzureProvider) CreateInstance(vpcInfo *AzureVPCInfo, config InstanceCo
 		}
 		time.Sleep(10 * time.Second)
 	}
-	
+
 	// Get VM details
 	instanceInfo, err := az.getVMDetails(vpcInfo.ResourceGroup, vmName, publicIPName)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	instanceInfo.SSHKeyPath = sshKeyPath
-	
+
 	fmt.Printf("✅ VM created: %s (IP: %s)\n", vmName, instanceInfo.PublicIP)
 	fmt.Printf("🔑 SSH private key saved to: %s\n", sshKeyPath)
 	return instanceInfo, nil
@@ -332,80 +332,71 @@ echo "Minimal setup completed. Ready for installer connection."
 func (az *AzureProvider) InstallDvarpalaDirectly(instanceInfo *AzureInstanceInfo, config InstanceConfig, keyPath string) error {
 	fmt.Println("🔗 Connecting to Azure VM for direct installation...")
 	fmt.Printf("🔑 Using SSH key: %s\n", keyPath)
-	
+
 	// Wait for VM to be SSH accessible
 	if err := az.waitForSSHAccess(instanceInfo.PublicIP, keyPath); err != nil {
 		return fmt.Errorf("failed to establish SSH connection: %v", err)
 	}
-	
+
 	fmt.Println("✅ SSH connection established")
-	
+
 	// Install components step by step with real-time tracking
+	// The Dvarpala installer does everything that is the same on every cloud:
+	// PostgreSQL, Redis, OpenVPN with the Dvarpala hooks, the walled-garden
+	// firewall, and the Dvarpala application itself. Previously this file
+	// listed those steps inline, three times over, and never installed the
+	// application at all.
+	hostForCerts := instanceInfo.PublicIP
+
 	steps := []struct {
 		name string
 		cmd  string
 	}{
-		{"Installing nginx", "sudo apt-get install -y nginx"},
-		{"Configuring nginx", "sudo systemctl enable nginx && sudo systemctl start nginx"},
-		{"Installing PostgreSQL", "sudo apt-get install -y postgresql postgresql-contrib"},
-		{"Installing Redis", "sudo apt-get install -y redis-server"},
-		{"Installing OpenVPN", "sudo apt-get install -y openvpn easy-rsa"},
-		{"Installing Go", "curl -fsSL https://go.dev/dl/go1.21.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -"},
-		{"Setting up directories", "mkdir -p /home/$(whoami)/dvarpala /home/$(whoami)/dvarpala/certs && sudo mkdir -p /var/lib/dvarpala"},
-		{"Starting basic services", "sudo systemctl start postgresql redis-server"},
-		{"Setting up Easy-RSA", "make-cadir /home/$(whoami)/dvarpala/easy-rsa"},
-		{"Configuring Easy-RSA vars", az.getEasyRSAVarsCommand()},
-		{"Building Certificate Authority", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa init-pki && ./easyrsa --batch build-ca nopass"},
-		{"Generating server certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-server-full server nopass"},
-		{"Generating admin client certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-client-full admin nopass"},
-		{"Generating TLS authentication key", "cd /home/$(whoami)/dvarpala/easy-rsa && openvpn --genkey --secret pki/ta.key"},
-		{"Copying certificates to OpenVPN directory", "sudo cp /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt /home/$(whoami)/dvarpala/easy-rsa/pki/issued/server.crt /home/$(whoami)/dvarpala/easy-rsa/pki/private/server.key /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/"},
-		{"Creating OpenVPN server configuration", az.getOpenVPNServerConfigCommand()},
-		{"Starting OpenVPN server", "sudo systemctl enable openvpn-server@server && sudo systemctl start openvpn-server@server"},
-		{"Configuring OAuth firewall rules", "sudo bash -c 'curl -fsSL https://raw.githubusercontent.com/frigga-cloud/dvarpala/main/scripts/installation/configure-oauth-firewall.sh | bash'"},
+		{"Fetching Dvarpala source", "sudo apt-get update -qq && sudo apt-get install -y -qq git && sudo rm -rf /opt/dvarpala/src && sudo git clone --depth 1 https://github.com/frigga-cloud/dvarpala.git /opt/dvarpala/src"},
+		{"Installing Dvarpala", "sudo chmod +x /opt/dvarpala/src/scripts/install/install-dvarpala.sh && sudo DVARPALA_ADMIN_EMAIL='" + config.AdminEmail + "' /opt/dvarpala/src/scripts/install/install-dvarpala.sh --source /opt/dvarpala/src --host " + hostForCerts},
 	}
-	
+
 	for i, step := range steps {
 		fmt.Printf("📦 Step %d/%d: %s\n", i+1, len(steps), step.name)
-		
+
 		if err := az.executeSSHCommand(instanceInfo.PublicIP, step.cmd, keyPath); err != nil {
 			return fmt.Errorf("failed at step '%s': %v", step.name, err)
 		}
-		
+
 		fmt.Printf("✅ Completed: %s\n", step.name)
 	}
-	
+
 	// Configure nginx monitoring as separate steps with proper sudo handling
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+1, len(steps)+5, "Creating nginx monitoring config")
 	if err := az.configureNginxMonitoring(instanceInfo.PublicIP, keyPath); err != nil {
 		return fmt.Errorf("failed to configure nginx monitoring: %v", err)
 	}
 	fmt.Printf("✅ Completed: Creating nginx monitoring config\n")
-	
+
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+2, len(steps)+5, "Enabling nginx monitoring site")
 	if err := az.executeSSHCommand(instanceInfo.PublicIP, "sudo ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/", keyPath); err != nil {
 		return fmt.Errorf("failed to enable nginx site: %v", err)
 	}
 	fmt.Printf("✅ Completed: Enabling nginx monitoring site\n")
-	
+
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+3, len(steps)+5, "Reloading nginx configuration")
 	if err := az.executeSSHCommand(instanceInfo.PublicIP, "sudo nginx -t && sudo systemctl reload nginx", keyPath); err != nil {
 		return fmt.Errorf("failed to reload nginx: %v", err)
 	}
 	fmt.Printf("✅ Completed: Reloading nginx configuration\n")
-	
+
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+4, len(steps)+5, "Generating admin OpenVPN configuration")
 	if err := az.generateAdminOVPN(instanceInfo.PublicIP, keyPath); err != nil {
 		return fmt.Errorf("failed to generate admin OVPN: %v", err)
 	}
 	fmt.Printf("✅ Completed: Generating admin OpenVPN configuration\n")
-	
+
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+6, "Making admin.ovpn temporarily available for download")
 	if err := az.executeSSHCommand(instanceInfo.PublicIP, "sudo cp /home/$(whoami)/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn", keyPath); err != nil {
 		return fmt.Errorf("failed to make admin.ovpn downloadable: %v", err)
 	}
 	fmt.Printf("✅ Completed: Making admin.ovpn temporarily available for download\n")
-	
+
 	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+6, len(steps)+6, "Cleaning up public admin.ovpn file")
 	// Give the installer 2 minutes to download the file, then remove it from public access
 	cleanupCommand := "sleep 120 && sudo rm -f /var/www/html/admin.ovpn && echo '🔒 SECURITY: admin.ovpn removed from public web directory for security'"
@@ -413,7 +404,7 @@ func (az *AzureProvider) InstallDvarpalaDirectly(instanceInfo *AzureInstanceInfo
 		return fmt.Errorf("failed to schedule admin.ovpn cleanup: %v", err)
 	}
 	fmt.Printf("✅ Completed: Scheduled cleanup of public admin.ovpn file in 2 minutes\n")
-	
+
 	fmt.Println("🎉 Dvarpala installation completed successfully!")
 	fmt.Println("🔒 SECURITY NOTE: admin.ovpn will be automatically removed from public access in 2 minutes")
 	fmt.Println("📋 The installer will download the file immediately - please wait for download completion")
@@ -422,7 +413,7 @@ func (az *AzureProvider) InstallDvarpalaDirectly(instanceInfo *AzureInstanceInfo
 
 func (az *AzureProvider) waitForSSHAccess(vmIP, keyPath string) error {
 	fmt.Printf("⏳ Waiting for SSH access to %s...\n", vmIP)
-	
+
 	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
 		// Test SSH connectivity with key
@@ -431,24 +422,24 @@ func (az *AzureProvider) waitForSSHAccess(vmIP, keyPath string) error {
 		if sshCmd.Run() == nil {
 			return nil
 		}
-		
+
 		fmt.Printf("⏳ SSH not ready yet... attempt %d/%d\n", i+1, maxAttempts)
 		time.Sleep(10 * time.Second)
 	}
-	
+
 	return fmt.Errorf("SSH access not available after %d attempts", maxAttempts)
 }
 
 func (az *AzureProvider) executeSSHCommand(vmIP, command, keyPath string) error {
 	cmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 		fmt.Sprintf("azureuser@%s", vmIP), command)
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Printf("❌ Command failed: %s\nOutput: %s\n", command, string(output))
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -476,7 +467,7 @@ server {
     }
 }
 EOF`
-	
+
 	return az.executeSSHCommand(vmIP, command, keyPath)
 }
 
@@ -584,7 +575,7 @@ EOF
 chmod 600 /home/$(whoami)/dvarpala/certs/admin.ovpn
 chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
 `
-	
+
 	return az.executeSSHCommand(vmIP, command, keyPath)
 }
 
@@ -621,12 +612,12 @@ func (az *AzureProvider) isVMRunning(resourceGroup, vmName string) bool {
 		"--name", vmName,
 		"--query", "instanceView.statuses[1].displayStatus",
 		"--output", "tsv")
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	
+
 	return strings.TrimSpace(string(output)) == "VM running"
 }
 
@@ -637,13 +628,13 @@ func (az *AzureProvider) getVMDetails(resourceGroup, vmName, publicIPName string
 		"--name", publicIPName,
 		"--query", "ipAddress",
 		"--output", "tsv")
-	
+
 	publicIPOutput, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get public IP: %v", err)
 	}
 	publicIP := strings.TrimSpace(string(publicIPOutput))
-	
+
 	// Get private IP
 	cmd = exec.Command("az", "vm", "show",
 		"--resource-group", resourceGroup,
@@ -651,13 +642,13 @@ func (az *AzureProvider) getVMDetails(resourceGroup, vmName, publicIPName string
 		"--show-details",
 		"--query", "privateIps",
 		"--output", "tsv")
-	
+
 	privateIPOutput, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get private IP: %v", err)
 	}
 	privateIP := strings.TrimSpace(string(privateIPOutput))
-	
+
 	return &AzureInstanceInfo{
 		VMName:        vmName,
 		ResourceGroup: resourceGroup,
@@ -668,7 +659,7 @@ func (az *AzureProvider) getVMDetails(resourceGroup, vmName, publicIPName string
 
 func (az *AzureProvider) CreateStorageAccount(accountName string) error {
 	resourceGroup := "frigga-labs-rg"
-	
+
 	// Check if storage account exists
 	cmd := exec.Command("az", "storage", "account", "show",
 		"--name", accountName,
@@ -682,7 +673,7 @@ func (az *AzureProvider) CreateStorageAccount(accountName string) error {
 		cmd.Run() // Create container if it doesn't exist
 		return nil
 	}
-	
+
 	// Create storage account
 	cmd = exec.Command("az", "storage", "account", "create",
 		"--name", accountName,
@@ -691,17 +682,17 @@ func (az *AzureProvider) CreateStorageAccount(accountName string) error {
 		"--sku", "Standard_LRS",
 		"--kind", "StorageV2",
 		"--tags", "Project=frigga-tools", "ManagedBy=frigga-labs")
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create storage account: %v", err)
 	}
-	
+
 	// Create shared friggalabs container
 	cmd = exec.Command("az", "storage", "container", "create",
 		"--name", "friggalabs",
 		"--account-name", accountName)
 	cmd.Run()
-	
+
 	// Create dvarpala directory marker (Azure blob)
 	cmd = exec.Command("az", "storage", "blob", "upload",
 		"--account-name", accountName,
@@ -709,7 +700,7 @@ func (az *AzureProvider) CreateStorageAccount(accountName string) error {
 		"--name", "dvarpala/.gitkeep",
 		"--file", "/dev/null")
 	cmd.Run()
-	
+
 	fmt.Printf("✅ Storage account created: %s (with shared friggalabs container)\n", accountName)
 	return nil
 }
@@ -725,17 +716,17 @@ func (az *AzureProvider) UploadConfiguration(accountName string, configData []by
 		return err
 	}
 	defer os.Remove(tempFile)
-	
+
 	// Upload to Azure Storage in shared friggalabs container, dvarpala directory
 	cmd := exec.Command("az", "storage", "blob", "upload",
 		"--account-name", accountName,
 		"--container-name", "friggalabs",
 		"--name", fmt.Sprintf("dvarpala/%s", filename),
 		"--file", tempFile)
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to upload configuration to Azure Storage: %v", err)
 	}
-	
+
 	return nil
 }
