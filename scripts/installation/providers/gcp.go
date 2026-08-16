@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -344,48 +345,62 @@ func (gcp *GCPProvider) InstallDvarpalaDirectly(instanceInfo *GCPInstanceInfo, c
 		fmt.Printf("✅ Completed: %s\n", step.name)
 	}
 
-	// Configure nginx monitoring as separate steps with proper sudo handling
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+1, len(steps)+5, "Creating nginx monitoring config")
-	if err := gcp.configureNginxMonitoring(instanceInfo.ExternalIP, keyPath); err != nil {
-		return fmt.Errorf("failed to configure nginx monitoring: %v", err)
+	// Retrieve the administrator's VPN profile.
+	//
+	// It is copied over the SSH session that is already open. The previous
+	// approach published it on the machine's public web root and deleted it
+	// after two minutes; because the file contains the client private key,
+	// anyone who fetched it during that window gained permanent VPN access.
+	fmt.Println("📄 Retrieving the administrator VPN profile")
+	if config.AdminEmail == "" {
+		fmt.Println("   (no admin email supplied, so no profile was issued)")
+	} else if err := gcp.fetchAdminProfile(instanceInfo.ExternalIP, keyPath, config.OutputDir); err != nil {
+		fmt.Printf("⚠️  Could not retrieve admin.ovpn: %v\n", err)
+		fmt.Printf("   Fetch it later with:\n     scp -i %s ubuntu@%s:/tmp/admin.ovpn .\n",
+			keyPath, instanceInfo.ExternalIP)
 	}
-	fmt.Printf("✅ Completed: Creating nginx monitoring config\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+2, len(steps)+5, "Enabling nginx monitoring site")
-	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, "sudo ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/", keyPath); err != nil {
-		return fmt.Errorf("failed to enable nginx site: %v", err)
-	}
-	fmt.Printf("✅ Completed: Enabling nginx monitoring site\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+3, len(steps)+5, "Reloading nginx configuration")
-	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, "sudo nginx -t && sudo systemctl reload nginx && echo '🔍 DEBUG: Nginx configuration test passed and reloaded'", keyPath); err != nil {
-		return fmt.Errorf("failed to reload nginx: %v", err)
-	}
-	fmt.Printf("✅ Completed: Reloading nginx configuration\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+4, len(steps)+5, "Generating admin OpenVPN configuration")
-	if err := gcp.generateAdminOVPN(instanceInfo.ExternalIP, keyPath); err != nil {
-		return fmt.Errorf("failed to generate admin OVPN: %v", err)
-	}
-	fmt.Printf("✅ Completed: Generating admin OpenVPN configuration\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+6, "Making admin.ovpn temporarily available for download")
-	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, "echo '🔍 DEBUG: Copying admin.ovpn to web directory' && sudo cp /home/$(whoami)/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn && echo '🔍 DEBUG: File copied. Checking web directory:' && ls -la /var/www/html/admin.ovpn && wc -l /var/www/html/admin.ovpn && echo '🔍 DEBUG: Testing HTTP access:' && curl -s -I http://localhost/admin.ovpn", keyPath); err != nil {
-		return fmt.Errorf("failed to make admin.ovpn downloadable: %v", err)
-	}
-	fmt.Printf("✅ Completed: Making admin.ovpn temporarily available for download\n")
-
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+6, len(steps)+6, "Cleaning up public admin.ovpn file")
-	// Give the installer 2 minutes to download the file, then remove it from public access
-	cleanupCommand := "sleep 120 && sudo rm -f /var/www/html/admin.ovpn && echo '🔒 SECURITY: admin.ovpn removed from public web directory for security'"
-	if err := gcp.executeSSHCommand(instanceInfo.ExternalIP, fmt.Sprintf("nohup bash -c '%s' > /dev/null 2>&1 &", cleanupCommand), keyPath); err != nil {
-		return fmt.Errorf("failed to schedule admin.ovpn cleanup: %v", err)
-	}
-	fmt.Printf("✅ Completed: Scheduled cleanup of public admin.ovpn file in 2 minutes\n")
 
 	fmt.Println("🎉 Dvarpala installation completed successfully!")
-	fmt.Println("🔒 SECURITY NOTE: admin.ovpn will be automatically removed from public access in 2 minutes")
-	fmt.Println("📋 The installer will download the file immediately - please wait for download completion")
+	return nil
+}
+
+// fetchAdminProfile copies the administrator's .ovpn to the operator's machine.
+//
+// The profile is owned by the dvarpala service user and readable only by it, so
+// it is staged briefly into the login user's home directory - never anywhere
+// served over the network - and removed afterwards.
+func (gcp *GCPProvider) fetchAdminProfile(vmIP, keyPath, outputDir string) error {
+	if outputDir == "" {
+		outputDir = "."
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return err
+	}
+
+	const staged = "/tmp/admin.ovpn"
+	stage := fmt.Sprintf(
+		"sudo cp /opt/dvarpala/certs/admin.ovpn %s && sudo chown $(whoami) %s && chmod 600 %s",
+		staged, staged, staged)
+	if err := gcp.executeSSHCommand(vmIP, stage, keyPath); err != nil {
+		return fmt.Errorf("staging the profile: %w", err)
+	}
+
+	local := filepath.Join(outputDir, "admin.ovpn")
+	cmd := exec.Command("scp", "-i", keyPath,
+		"-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		fmt.Sprintf("ubuntu@%s:%s", vmIP, staged), local)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("scp: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Do not leave a copy on the server.
+	_ = gcp.executeSSHCommand(vmIP, fmt.Sprintf("shred -u %s 2>/dev/null || rm -f %s", staged, staged), keyPath)
+
+	if err := os.Chmod(local, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("✅ Saved %s (mode 0600 - contains a private key)\n", local)
 	return nil
 }
 
