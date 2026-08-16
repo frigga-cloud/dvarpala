@@ -218,3 +218,23 @@ explicit-exit-notify 1
 
 	return b.String()
 }
+
+// IssueServerCert signs the certificate the VPN server presents to clients.
+//
+// Not stored in the database: it belongs to the server rather than to a user,
+// and the installer writes it straight to disk where OpenVPN reads it.
+func (s *VPNConfigService) IssueServerCert(commonName, host string,
+	validity time.Duration) (*vpn.ClientCredential, error) {
+	if s.ca == nil {
+		return nil, ErrNoCA
+	}
+
+	hosts := []string{host}
+	// A client may connect by address even when the profile names a hostname.
+	if s.server.Host != "" && s.server.Host != host {
+		hosts = append(hosts, s.server.Host)
+	}
+	hosts = append(hosts, "127.0.0.1", "localhost")
+
+	return s.ca.IssueServer(commonName, hosts, validity)
+}

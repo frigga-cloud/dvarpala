@@ -15,7 +15,7 @@ func vpnCmd() *cobra.Command {
 		Use:   "vpn",
 		Short: "VPN certificate and profile commands",
 	}
-	cmd.AddCommand(vpnIssueCmd(), vpnListCmd(), vpnRevokeCmd())
+	cmd.AddCommand(vpnIssueCmd(), vpnListCmd(), vpnRevokeCmd(), vpnServerCertCmd())
 	return cmd
 }
 
@@ -125,4 +125,54 @@ func vpnRevokeCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// vpnServerCertCmd issues the certificate the OpenVPN server presents.
+//
+// It is signed by the same authority as the client certificates, so a client
+// profile carries one CA certificate and trusts exactly this server.
+func vpnServerCertCmd() *cobra.Command {
+	var host, outCert, outKey string
+	var days int
+
+	cmd := &cobra.Command{
+		Use:   "server-cert",
+		Short: "Issue the VPN server's own certificate",
+		Example: "  dvarpala-cli vpn server-cert --host vpn.example.com \\\n" +
+			"      --out-cert /opt/dvarpala/certs/server.crt \\\n" +
+			"      --out-key /opt/dvarpala/certs/server.key",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openServices()
+			if err != nil {
+				return err
+			}
+
+			cred, err := svc.VPNConfigs.IssueServerCert(
+				"dvarpala-server", host, time.Duration(days)*24*time.Hour)
+			if err != nil {
+				return err
+			}
+
+			if err := os.WriteFile(outCert, []byte(cred.Certificate), 0o644); err != nil {
+				return fmt.Errorf("writing %s: %w", outCert, err)
+			}
+			if err := os.WriteFile(outKey, []byte(cred.PrivateKey), 0o600); err != nil {
+				return fmt.Errorf("writing %s: %w", outKey, err)
+			}
+
+			fmt.Printf("Issued server certificate for %s\n", host)
+			fmt.Printf("  expires: %s\n", cred.NotAfter.Format("2006-01-02"))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&host, "host", "", "Hostname or IP clients connect to (required)")
+	cmd.Flags().StringVar(&outCert, "out-cert", "", "Where to write the certificate (required)")
+	cmd.Flags().StringVar(&outKey, "out-key", "", "Where to write the private key (required)")
+	cmd.Flags().IntVar(&days, "days", 1825, "How long the certificate is valid")
+	_ = cmd.MarkFlagRequired("host")
+	_ = cmd.MarkFlagRequired("out-cert")
+	_ = cmd.MarkFlagRequired("out-key")
+
+	return cmd
 }
