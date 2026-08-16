@@ -12,6 +12,43 @@
 
 ---
 
+## Read this first: what has changed since this review
+
+This document is a **point-in-time audit of `cff0373` on `main`**, and it is left
+that way deliberately — its purpose is to describe the code as the team wrote it,
+so the findings can be checked against what was actually there.
+
+Work since then, on the unmerged branch `dev/foundation`, has fixed several of the
+problems below. **The sections describing them have not been rewritten.** Where
+this table says *fixed*, read the section as history rather than as the current
+state of that branch.
+
+| § | Finding | Status on `dev/foundation` | Commit |
+|---|---|---|---|
+| §8.7 | Installer fetched from `friggalabs`, a 404 — and the pipeline still exited 0 | Fixed: correct URL, and failure now stops the install | `f794b08` |
+| §6.2 | `environment.yaml` used `${VAR}` placeholders Viper does not expand, so config silently loaded empty | Fixed: literal values | `266e3b8` |
+| §9.10 | Firewall used `MARK`, which is **non-terminating** — packets fell through and the walled garden did not hold | Fixed: replaced with an ipset + `DVARPALA` chain that terminates | `7363c00` |
+| §9.4 | One shared client certificate, so every VPN client was anonymous and interchangeable | Fixed: per-user certificates, email as common name | `8c1ed27` |
+| §9.1 | The captive portal was written but nothing invoked it | Fixed: connect/disconnect hooks now call the application | `5c3cb53` |
+| §10 | The installer provisioned a plain VPN and never installed Dvarpala itself | Fixed: one script, bare Ubuntu to working system; tested on a clean VM | `15aaed1`, `53c9bbd` |
+| §9.8 | `admin.ovpn` — containing a private key — was served world-readable over plain HTTP for 120s | Fixed: copied over the existing SSH session, shredded server-side | `26542e9` |
+| §8.1 | Every endpoint returned a placeholder string | Partly fixed: users and VPN access are real; **groups and resources are still placeholders** | `c988c5e` |
+| §7.4 | No Go tests | Partly fixed: 14 tests covering sessions, providers and proxy trust — coverage is still thin | `565da0d`, `c5cc210` |
+
+One defect in the table was **introduced during this work, not found by it**: Gin
+trusts `X-Forwarded-For` from any peer by default, which let a client bind its
+session to another client's tunnel address. Demonstrated, fixed in `c5cc210`, and
+covered by regression tests.
+
+**Still true as written**, and the main things left: no certificate revocation
+list (§9.7), so a revoked certificate still completes a handshake; revocation
+takes roughly four minutes rather than being immediate; there is no admin web
+console, so user management needs SSH; the cloud provisioning path (§10) has
+**never been run against a real account**; and the 20 empty template files (§8.4)
+are still empty.
+
+---
+
 ## At a glance
 
 **Dvarpala is a well-designed Zero Trust VPN that has been specified three times,
