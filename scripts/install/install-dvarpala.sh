@@ -340,9 +340,42 @@ ok "openvpn-server@server"
 
 # ── 14. firewall ─────────────────────────────────────────────────────────────
 
+# Applied through a systemd unit rather than by calling the script once,
+# because iptables rules and ipsets live only in kernel memory. Run directly,
+# a reboot brings the server back with OpenVPN accepting clients and nothing
+# enforcing the walled garden - and every other signal still reporting health.
+
 log "Applying the walled-garden firewall"
-"$SCRIPT_DIR/dvarpala-firewall.sh" setup
-ok "unauthenticated clients are confined to the portal"
+cat > /etc/systemd/system/dvarpala-firewall.service <<UNIT
+[Unit]
+Description=Dvarpala walled-garden firewall
+Documentation=file://$SCRIPT_DIR/dvarpala-firewall.sh
+
+# The rules must exist before any client can connect, and the MASQUERADE rule
+# needs the outbound interface to be up before the script goes looking for it.
+After=network-online.target
+Wants=network-online.target
+Before=openvpn-server@server.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$SCRIPT_DIR/dvarpala-firewall.sh setup
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable dvarpala-firewall >/dev/null 2>&1
+systemctl restart dvarpala-firewall
+
+# Fail loudly here rather than leaving an unguarded server that looks healthy.
+systemctl is-active --quiet dvarpala-firewall || {
+    journalctl -u dvarpala-firewall -n 20 --no-pager
+    die "the walled-garden firewall did not apply"
+}
+ok "unauthenticated clients are confined to the portal, and it survives reboot"
 
 # ── 15. first administrator ──────────────────────────────────────────────────
 
