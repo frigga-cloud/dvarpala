@@ -15,6 +15,7 @@ func SetupRoutes(r *gin.RouterGroup, authSvc *auth.Service, svc *services.Servic
 	r.Static("/static", "./web/static")
 
 	NewAuthHandler(authSvc, secureCookies(cfg)).Register(r)
+	NewOTPHandler(authSvc).Register(r)
 	NewAdminHandler(authSvc, svc).Register(r)
 }
 

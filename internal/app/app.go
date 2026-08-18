@@ -67,6 +67,38 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 		log.Println("Google login enabled")
 	}
 
+	// Sign-in by emailed code, when this deployment has turned it on.
+	//
+	// Delivery is decided here rather than inside the store: a configured mail
+	// server is used, and only in debug mode may a server fall back to writing
+	// codes to its own log.
+	var otpStore *auth.OTPStore
+	if cfg.Auth.OTP.Enabled {
+		var mailer auth.Mailer
+		switch {
+		case cfg.Auth.SMTP.Host != "":
+			mailer = &auth.SMTPMailer{
+				Host:     cfg.Auth.SMTP.Host,
+				Port:     cfg.Auth.SMTP.Port,
+				Username: cfg.Auth.SMTP.Username,
+				Password: cfg.Auth.SMTP.Password,
+				From:     cfg.Auth.SMTP.From,
+				FromName: cfg.Auth.SMTP.FromName,
+			}
+			log.Printf("code sign-in enabled, sending through %s", cfg.Auth.SMTP.Host)
+		default:
+			logMailer := auth.LogMailer{}
+			if err := logMailer.Guard(cfg.Server.Mode); err != nil {
+				return nil, fmt.Errorf("code sign-in is enabled but no mail server is configured: %w", err)
+			}
+			mailer = logMailer
+			log.Println("WARNING: code sign-in is writing codes to this log (server.mode=debug, no mail server)")
+		}
+
+		otpStore = auth.NewOTPStore(redisClient, mailer)
+		providers.Add(auth.NewOTPProvider(otpStore))
+	}
+
 	// Development stand-in, refused outside debug mode.
 	if dev := auth.NewDevProvider(); dev.Guard(cfg.Server.Mode) == nil {
 		providers.Add(dev)
@@ -78,6 +110,9 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	}
 
 	authSvc := auth.NewService(providers, sessions, svc, redisClient, cfg.Auth.AllowedDomains)
+	if otpStore != nil {
+		authSvc.EnableOTP(otpStore)
+	}
 
 	// Initialize router
 	router := gin.New()

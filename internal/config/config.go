@@ -55,10 +55,30 @@ type RedisConfig struct {
 }
 
 type AuthConfig struct {
-	SessionDuration      int      `mapstructure:"session_duration"`
-	CaptivePortalTimeout int      `mapstructure:"captive_portal_timeout"`
-	JWTSecret            string   `mapstructure:"jwt_secret"`
-	AllowedDomains       []string `mapstructure:"allowed_domains"`
+	SessionDuration      int        `mapstructure:"session_duration"`
+	CaptivePortalTimeout int        `mapstructure:"captive_portal_timeout"`
+	JWTSecret            string     `mapstructure:"jwt_secret"`
+	AllowedDomains       []string   `mapstructure:"allowed_domains"`
+	OTP                  OTPConfig  `mapstructure:"otp"`
+	SMTP                 SMTPConfig `mapstructure:"smtp"`
+}
+
+// OTPConfig controls signing in with a code sent by email.
+type OTPConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// SMTPConfig is the mail server that delivers those codes.
+//
+// With no host set, and only in debug mode, codes are written to the server
+// log instead of being sent - so a server can be exercised without mail.
+type SMTPConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	From     string `mapstructure:"from"`
+	FromName string `mapstructure:"from_name"`
 }
 
 type OAuthConfig struct {
@@ -175,6 +195,13 @@ func loadEnvVars() {
 	viper.BindEnv("auth.session_duration", "AUTH_SESSION_DURATION")
 	viper.BindEnv("auth.captive_portal_timeout", "AUTH_CAPTIVE_PORTAL_TIMEOUT")
 	viper.BindEnv("auth.jwt_secret", "AUTH_JWT_SECRET")
+	viper.BindEnv("auth.otp.enabled", "AUTH_OTP_ENABLED")
+	viper.BindEnv("auth.smtp.host", "AUTH_SMTP_HOST")
+	viper.BindEnv("auth.smtp.port", "AUTH_SMTP_PORT")
+	viper.BindEnv("auth.smtp.username", "AUTH_SMTP_USERNAME")
+	viper.BindEnv("auth.smtp.password", "AUTH_SMTP_PASSWORD")
+	viper.BindEnv("auth.smtp.from", "AUTH_SMTP_FROM")
+	viper.BindEnv("auth.smtp.from_name", "AUTH_SMTP_FROM_NAME")
 
 	// OAuth - Google
 	viper.BindEnv("oauth.google.client_id", "OAUTH_GOOGLE_CLIENT_ID")

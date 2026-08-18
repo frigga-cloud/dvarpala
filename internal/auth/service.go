@@ -47,6 +47,9 @@ type Service struct {
 	audit     *services.AuditService
 	rdb       *redis.Client
 
+	// otp is set only when code sign-in is enabled for this deployment.
+	otp *OTPStore
+
 	// allowedDomains restricts which email domains may authenticate at all.
 	// Empty means any domain is acceptable.
 	allowedDomains []string
@@ -222,6 +225,45 @@ func (s *Service) logDenied(ctx context.Context, email, clientIP, reason string)
 		IPAddress:    clientIP,
 		Details:      map[string]interface{}{"email": email, "reason": reason},
 	})
+}
+
+// EnableOTP turns on signing in with an emailed code.
+func (s *Service) EnableOTP(store *OTPStore) { s.otp = store }
+
+// RequestCode sends a sign-in code, if the address is one that could sign in.
+//
+// The caller learns nothing about whether it was. A portal that answers "no
+// such user" is a way to enumerate an organisation's staff, and this one is
+// reachable by anyone holding a VPN certificate. Refusals go to the audit
+// trail instead, where an administrator can see them and an attacker cannot.
+func (s *Service) RequestCode(ctx context.Context, email, clientIP string) error {
+	if s.otp == nil {
+		return errors.New("code sign-in is not enabled")
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+
+	if !s.domainAllowed(email) {
+		s.logDenied(ctx, email, clientIP, "domain_not_allowed")
+		return nil
+	}
+	if _, err := s.users.IsAuthorised(ctx, email); err != nil {
+		s.logDenied(ctx, email, clientIP, "not_authorised")
+		return nil
+	}
+
+	// Rate limits and delivery failures are returned: the first is something
+	// the person can act on, and the second is something they must not be
+	// left waiting on in silence.
+	return s.otp.Request(ctx, email)
+}
+
+// VerifyCode checks a code against a login attempt and, on success, marks the
+// attempt verified so Complete can exchange it for a session.
+func (s *Service) VerifyCode(ctx context.Context, email, code, state string) error {
+	if s.otp == nil {
+		return errors.New("code sign-in is not enabled")
+	}
+	return s.otp.Verify(ctx, email, code, state)
 }
 
 func stateKey(state string) string { return "oauth_state:" + state }
