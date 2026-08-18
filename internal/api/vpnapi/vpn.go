@@ -22,11 +22,12 @@ type Handler struct {
 	auth  *auth.Service
 	perms *services.PermissionService
 	users *services.UserService
+	audit *services.AuditService
 }
 
 // NewHandler creates the internal API handler.
 func NewHandler(a *auth.Service, svc *services.Services) *Handler {
-	return &Handler{auth: a, perms: svc.Permissions, users: svc.Users}
+	return &Handler{auth: a, perms: svc.Permissions, users: svc.Users, audit: svc.Audit}
 }
 
 // Register attaches the internal routes.
@@ -87,6 +88,19 @@ func (h *Handler) Access(c *gin.Context) {
 	// A session existing is not enough: the user may have been deactivated
 	// since signing in, so re-check authorisation on every connect.
 	if _, err := h.users.IsAuthorised(c.Request.Context(), sess.Email); err != nil {
+		// Worth recording: someone holding a valid session was refused because
+		// their account changed underneath them. That is the kill switch working,
+		// and an administrator should be able to see it happen.
+		h.audit.Log(c.Request.Context(), services.Entry{
+			UserID:       &sess.UserID,
+			Action:       "vpn_access_denied",
+			ResourceType: "vpn_session",
+			IPAddress:    clientIP,
+			Details: map[string]interface{}{
+				"email": sess.Email, "reason": err.Error(),
+			},
+		})
+
 		c.JSON(http.StatusOK, AccessResponse{
 			Authenticated: false, Routes: []Route{},
 			Reason: fmt.Sprintf("session exists but user is no longer authorised: %v", err),
@@ -106,11 +120,28 @@ func (h *Handler) Access(c *gin.Context) {
 		return
 	}
 
+	routes := toRoutes(grants)
+
+	// The record that matters most: this person, at this address, was let on to
+	// the network, and these are the resources it opened for them.
+	h.audit.Log(c.Request.Context(), services.Entry{
+		UserID:       &sess.UserID,
+		Action:       "vpn_access_granted",
+		ResourceType: "vpn_session",
+		IPAddress:    clientIP,
+		Details: map[string]interface{}{
+			"email":     sess.Email,
+			"groups":    sess.Groups,
+			"routes":    len(routes),
+			"resources": grantedResources(grants),
+		},
+	})
+
 	c.JSON(http.StatusOK, AccessResponse{
 		Authenticated: true,
 		Email:         sess.Email,
 		Groups:        sess.Groups,
-		Routes:        toRoutes(grants),
+		Routes:        routes,
 	})
 }
 
@@ -126,10 +157,26 @@ func (h *Handler) Access(c *gin.Context) {
 func (h *Handler) Disconnect(c *gin.Context) {
 	clientIP := c.Param("clientip")
 
+	// Read the session before shortening it, so the record can name who left
+	// rather than only which address went quiet.
+	sess, _ := h.auth.SessionForClientIP(c.Request.Context(), clientIP)
+
 	if err := h.auth.ClientDisconnected(c.Request.Context(), clientIP); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	entry := services.Entry{
+		Action:       "vpn_disconnected",
+		ResourceType: "vpn_session",
+		IPAddress:    clientIP,
+	}
+	if sess != nil {
+		entry.UserID = &sess.UserID
+		entry.Details = map[string]interface{}{"email": sess.Email}
+	}
+	h.audit.Log(c.Request.Context(), entry)
+
 	c.JSON(http.StatusOK, gin.H{"grace_period": true, "client_ip": clientIP})
 }
 
@@ -164,6 +211,23 @@ func toRoutes(grants []services.AccessGrant) []Route {
 		})
 	}
 	return routes
+}
+
+// grantedResources names the resources a connection opened, for the audit
+// record. Names rather than IDs, because the reader of an audit trail is a
+// person asking "what could they reach?".
+func grantedResources(grants []services.AccessGrant) []string {
+	names := make([]string, 0, len(grants))
+	seen := make(map[string]bool)
+
+	for _, g := range grants {
+		if seen[g.Resource.Name] {
+			continue // the same resource granted via two groups is one resource
+		}
+		seen[g.Resource.Name] = true
+		names = append(names, g.Resource.Name)
+	}
+	return names
 }
 
 // splitCIDR converts an address into the network/netmask pair OpenVPN wants.

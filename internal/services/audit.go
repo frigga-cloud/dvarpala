@@ -49,13 +49,6 @@ type Entry struct {
 // logged and swallowed rather than returned. If the audit trail becomes a
 // compliance requirement this should change to a returned error.
 func (s *AuditService) Log(ctx context.Context, e Entry) {
-	details := ""
-	if e.Details != nil {
-		if b, err := json.Marshal(e.Details); err == nil {
-			details = string(b)
-		}
-	}
-
 	entry := models.AuditLog{
 		UserID:       e.UserID,
 		Action:       e.Action,
@@ -63,10 +56,27 @@ func (s *AuditService) Log(ctx context.Context, e Entry) {
 		ResourceID:   e.ResourceID,
 		IPAddress:    e.IPAddress,
 		UserAgent:    e.UserAgent,
-		Details:      details,
+		Details:      marshalDetails(e.Details),
 	}
 
 	if err := s.db.WithContext(ctx).Create(&entry).Error; err != nil {
 		log.Printf("audit: failed to record %q: %v", e.Action, err)
 	}
+}
+
+// marshalDetails renders an entry's context for the jsonb details column.
+//
+// The column is jsonb and PostgreSQL rejects an empty string for one, so an
+// entry carrying no extra context gets an empty object rather than nothing at
+// all. Getting this wrong fails silently, because Log swallows write errors.
+func marshalDetails(details map[string]interface{}) string {
+	if details == nil {
+		return "{}"
+	}
+
+	b, err := json.Marshal(details)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
