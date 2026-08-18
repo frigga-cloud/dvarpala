@@ -202,13 +202,20 @@ func (h *AuthHandler) DevLoginSubmit(c *gin.Context) {
 //  2. the VPN client-IP key, for a tunnel that is authenticated but whose
 //     browser has no cookie (a different browser, or cookies cleared)
 func (h *AuthHandler) currentSession(c *gin.Context) *auth.Session {
+	return sessionFor(c, h.auth)
+}
+
+// sessionFor is the one place a request is turned into a session, shared by
+// the portal and the admin console so they cannot disagree about whether
+// someone is signed in.
+func sessionFor(c *gin.Context, a *auth.Service) *auth.Session {
 	if token, err := c.Cookie(sessionCookie); err == nil && token != "" {
-		if sess, err := h.auth.Session(c.Request.Context(), token); err == nil {
+		if sess, err := a.Session(c.Request.Context(), token); err == nil {
 			return sess
 		}
 	}
 
-	if sess, err := h.auth.SessionForClientIP(c.Request.Context(), clientIP(c)); err == nil {
+	if sess, err := a.SessionForClientIP(c.Request.Context(), clientIP(c)); err == nil {
 		return sess
 	}
 	return nil

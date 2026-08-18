@@ -22,6 +22,15 @@ var (
 // stateTTL is how long a login attempt may sit unfinished.
 const stateTTL = 10 * time.Minute
 
+// consumeStateScript is GETDEL, written out. GETDEL needs Redis 6.2, and
+// Ubuntu 22.04 ships 6.0, so every apt-installed server would fail to log
+// anyone in. A script is atomic on any Redis that supports EVAL.
+var consumeStateScript = goredis.NewScript(`
+local v = redis.call('GET', KEYS[1])
+if v then redis.call('DEL', KEYS[1]) end
+return v
+`)
+
 // Service runs the authentication flow.
 //
 // The two-step check of the product design happens in Complete():
@@ -172,7 +181,7 @@ func (s *Service) consumeState(ctx context.Context, state, providerName string) 
 		return ErrBadState
 	}
 
-	value, err := s.rdb.GetDel(ctx, stateKey(state)).Result()
+	value, err := consumeStateScript.Run(ctx, s.rdb, []string{stateKey(state)}).Text()
 	if errors.Is(err, goredis.Nil) {
 		return ErrBadState
 	}

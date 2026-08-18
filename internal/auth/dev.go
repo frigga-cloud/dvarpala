@@ -17,15 +17,11 @@ import (
 //
 // It must never be enabled on a real deployment: anyone could claim any
 // identity. See Guard() below, which the server calls at startup.
-type DevProvider struct {
-	// BaseURL is where this Dvarpala instance is reachable, e.g.
-	// http://localhost:8080
-	BaseURL string
-}
+type DevProvider struct{}
 
 // NewDevProvider creates the development provider.
-func NewDevProvider(baseURL string) *DevProvider {
-	return &DevProvider{BaseURL: strings.TrimRight(baseURL, "/")}
+func NewDevProvider() *DevProvider {
+	return &DevProvider{}
 }
 
 // Name implements Provider.
@@ -36,8 +32,13 @@ func (d *DevProvider) DisplayName() string { return "Development login (insecure
 
 // AuthURL sends the browser to a local form rather than to a real provider.
 // It lives outside /auth/ so it cannot collide with the /auth/:provider routes.
+//
+// The path is relative on purpose. An absolute URL has to name the server, and
+// any name we could pick is wrong for somebody: "localhost" means the client's
+// own machine once the client is a phone rather than the server itself.
+// Relative keeps whichever address the browser already reached us on.
 func (d *DevProvider) AuthURL(state string) string {
-	return fmt.Sprintf("%s/dev/login?state=%s", d.BaseURL, url.QueryEscape(state))
+	return fmt.Sprintf("/dev/login?state=%s", url.QueryEscape(state))
 }
 
 // Exchange treats the code as the email address the form supplied.

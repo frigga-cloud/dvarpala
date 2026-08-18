@@ -5,11 +5,11 @@ import (
 	"log"
 	"time"
 
+	"dvarpala/internal/api/v1"
+	"dvarpala/internal/api/vpnapi"
+	"dvarpala/internal/auth"
 	"dvarpala/internal/config"
 	"dvarpala/internal/database"
-	"dvarpala/internal/api/vpnapi"
-	"dvarpala/internal/api/v1"
-	"dvarpala/internal/auth"
 	"dvarpala/internal/redis"
 	"dvarpala/internal/services"
 	"dvarpala/internal/web"
@@ -68,7 +68,7 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	}
 
 	// Development stand-in, refused outside debug mode.
-	if dev := auth.NewDevProvider(fmt.Sprintf("http://localhost:%d", cfg.Server.Port)); dev.Guard(cfg.Server.Mode) == nil {
+	if dev := auth.NewDevProvider(); dev.Guard(cfg.Server.Mode) == nil {
 		providers.Add(dev)
 		log.Println("WARNING: development login provider is enabled (server.mode=debug)")
 	}
@@ -122,5 +122,5 @@ func (d *Dvarpala) setupRoutes() {
 
 	// Web routes
 	webGroup := d.router.Group("")
-	web.SetupRoutes(webGroup, d.auth, d.config)
+	web.SetupRoutes(webGroup, d.auth, d.services, d.config)
 }

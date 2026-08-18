@@ -7,7 +7,7 @@ import (
 )
 
 func TestDevProviderExchange(t *testing.T) {
-	p := NewDevProvider("http://localhost:8080")
+	p := NewDevProvider()
 
 	tests := []struct {
 		code      string
@@ -42,21 +42,23 @@ func TestDevProviderExchange(t *testing.T) {
 }
 
 func TestDevProviderAuthURLCarriesState(t *testing.T) {
-	p := NewDevProvider("http://localhost:8080/")
+	p := NewDevProvider()
 
 	got := p.AuthURL("abc123")
 	if !strings.Contains(got, "state=abc123") {
 		t.Errorf("AuthURL = %q, expected it to carry the state", got)
 	}
-	if strings.Contains(got, "//dev") {
-		t.Errorf("AuthURL = %q, trailing slash in base URL was not trimmed", got)
+	// Relative on purpose: an absolute URL would have to name the server, and
+	// "localhost" means the client's own machine once the client is a phone.
+	if !strings.HasPrefix(got, "/dev/login") {
+		t.Errorf("AuthURL = %q, expected a relative path so the browser keeps its own host", got)
 	}
 }
 
 // The dev provider accepts any identity, so it must refuse to run outside
 // debug mode.
 func TestDevProviderRefusedOutsideDebug(t *testing.T) {
-	p := NewDevProvider("http://localhost:8080")
+	p := NewDevProvider()
 
 	if err := p.Guard("debug"); err != nil {
 		t.Errorf("Guard(debug) = %v, want nil", err)
@@ -102,7 +104,7 @@ func TestRegistry(t *testing.T) {
 		t.Errorf("new registry Len = %d, want 0", r.Len())
 	}
 
-	r.Add(NewDevProvider("http://localhost:8080"))
+	r.Add(NewDevProvider())
 	if r.Len() != 1 {
 		t.Errorf("Len after Add = %d, want 1", r.Len())
 	}
