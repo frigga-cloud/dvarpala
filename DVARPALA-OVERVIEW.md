@@ -236,10 +236,12 @@ attempt. `[VERIFIED: Requirement Doc.pdf p.13]`
 
 ### 1.4 How it is publicly positioned today
 
-`[VERIFIED: https://frigga.cloud/product/dvarpala, fetched Aug 2026]` The public
-product page markets Dvarpala as an **"identity-first VPN and access control
+`[VERIFIED: https://frigga.cloud/product/dvarpala, fetched Aug 2026; re-verified
+against the page's own source, frigga-website-new app/product/dvarpala/]` The
+public product page markets Dvarpala as an **"identity-first VPN and access control
 platform"**, status **"In Development"**, with an early-access waitlist and an
-**open-core** model (Free / Team $8 per user per month / Enterprise custom).
+**open-core** model — Free (₹0) / Team $8 per user per month / Enterprise custom.
+`[VERIFIED: frigga-website-new app/components/dvarpala/DvarpalaPricing.tsx:4-19]`
 
 Its headline promise is *"Remove someone from your IdP — their VPN access
 disappears instantly."*
@@ -252,7 +254,11 @@ Those are complementary but not the same mechanism, and nothing in the code
 synchronises with an IdP's user directory. `[INFERRED — no directory-sync code found
 at cff0373]`
 
-Mapping the advertised features (16 at the time of writing) against the repository:
+The page's feature section lists **12** numbered features, one of which pairs two
+capabilities ("Automated User Lifecycle + Open-Core Architecture"); a thirteenth,
+"zero lingering credentials", is promised in the revocation feature's description.
+Broken out and mapped against the repository:
+`[VERIFIED: frigga-website-new app/components/dvarpala/DvarpalaFeatures.tsx:1-13]`
 
 | Advertised | State in this repository |
 |---|---|
@@ -275,8 +281,9 @@ Mapping the advertised features (16 at the time of writing) against the reposito
 repository at `cff0373` is an earlier stage of it. Given the page says "In
 Development", this is expected rather than a contradiction — but a newcomer should
 not assume the advertised feature list reflects existing code. **Roughly half of
-the marketed capabilities have no counterpart here**, and the page is edited over
-time: it listed 12 features when this review began and 16 shortly after.
+the marketed capabilities have no counterpart here.** The page is also edited over
+time — the count has moved during and since this review — so check the component
+above rather than quoting a number from here.
 
 ### 1.5 Who it is for
 
@@ -1844,24 +1851,38 @@ as a "deploy Dvarpala" tool it stops short of deploying Dvarpala.
 
 ## 11. Operations surface and platform integration
 
-### 11.1 Dvarpala is completely standalone
+### 11.1 No other Frigga service depends on Dvarpala
 
-`[VERIFIED via code0 across all 8 indexed repositories, Aug 2026]`
+`[VERIFIED via code0 across all 14 indexed repositories, re-checked Aug 2026]`
 
-The organisation has eight connected repositories: `dvarpala`, `code-service`,
+> *Re-checked after the original review, which searched the eight repositories
+> connected at the time. The organisation now has fourteen, and two of the six added
+> since do mention Dvarpala — so the original wording ("no repository contains a
+> single reference to it") no longer holds. The conclusion below does.*
+
+The organisation has fourteen connected repositories: `dvarpala`, `code-service`,
 `cloud-mapper`, `vor-ai`, `vor-ai-frontend`, `Organisation-Service`,
-`user-service-2`, `Frigga-Accounts-Hub`.
+`user-service-2`, `Frigga-Accounts-Hub`, `sendly-new`, `unified-dashboard`,
+`frigga-cluster`, `shankh-frontend`, `shankh-backend`, `frigga-website-new`.
 
-**No repository other than `dvarpala` contains a single reference to it.** Searches
-for `dvarpala` returned zero matches in `vor-ai`, `vor-ai-frontend`,
-`Organisation-Service`, `cloud-mapper`, `code-service`. The apparent hits in
-`Frigga-Accounts-Hub` and `user-service-2` are coincidental substrings inside
-`package-lock.json` dependency hashes, not code.
+**No repository imports, calls or deploys Dvarpala.** Searching all fourteen for
+`dvarpala` returns matches in only two, and neither is a dependency:
 
-This matters for two reasons:
+| Repository | What it contains | Kind |
+|---|---|---|
+| `frigga-website-new` | `app/product/dvarpala/` — the public product page (hero, features, pricing, CTA), plus mentions on `/use-cases` and `/about` | Marketing copy |
+| `sendly-new` | Dvarpala in the sales knowledge base and AI scanner prompt, tagged `futureUpsells` only, with the standing rule that it *"must not be presented as a currently shipping product"* | Sales collateral |
+
+The other twelve — including `Frigga-Accounts-Hub` and `user-service-2` — return
+**zero** matches.
+
+This matters for three reasons:
 
 - **Nothing depends on Dvarpala.** You can change anything in this repository
   without breaking another Frigga service. That is unusually free rein.
+- **The rest of the organisation already treats it as unshipped.** `sendly-new`
+  encodes that explicitly, which is worth knowing before anyone is told a date.
+  `[VERIFIED: sendly-new FRIGGA_KNOWLEDGE_BASE.md:880, 1608]`
 - **Dvarpala does not use Frigga's own identity platform.** The organisation
   operates `Frigga-Accounts-Hub` and `user-service-2`, yet Dvarpala implements its
   own user table and its own OAuth provider configuration from scratch. Given the
@@ -2147,7 +2168,7 @@ this document applied to `main`.
 | `--migrate` flag does not exist | ran the binary |
 | `.env` → nested config yields all-empty values | ran the binary as systemd does |
 | `friggalabs` URL 404s; pipeline still exits 0 | `curl`, pipeline simulation |
-| No other org repo references Dvarpala | code0, all 8 repositories |
+| No other org repo depends on Dvarpala in code | code0, all 14 repositories (§11.1) |
 | The restructure branch does not build | extracted and built both modules |
 
 ### 13.2 Confidence statement
