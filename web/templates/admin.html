@@ -18,56 +18,33 @@
     --allow-bg:#0d3a2c;
     --deny:    #f87171;
     --deny-bg: #3f1d1d;
+    --warn:    #fbbf24;
+    --warn-bg: #3a2c08;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 15px;
-    line-height: 1.6;
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
   a { color: inherit; }
 
-  header {
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-  }
+  header { border-bottom: 1px solid var(--border); background: var(--surface); }
   .bar {
-    max-width: 62rem;
-    margin: 0 auto;
-    padding: 0 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-    min-height: 3.5rem;
-    flex-wrap: wrap;
+    max-width: 64rem; margin: 0 auto; padding: 0 1.5rem;
+    display: flex; align-items: center; gap: 2rem; min-height: 3.5rem; flex-wrap: wrap;
   }
-  .brand {
-    font-weight: 650;
-    letter-spacing: -.01em;
-    display: flex;
-    align-items: baseline;
-    gap: .5rem;
-  }
+  .brand { font-weight: 650; letter-spacing: -.01em; display: flex; align-items: baseline; gap: .5rem; }
   .brand span {
-    font-family: var(--mono);
-    font-size: .68rem;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-    color: var(--accent);
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent);
   }
   nav { display: flex; gap: .25rem; margin-right: auto; }
   nav a {
-    text-decoration: none;
-    color: var(--muted);
-    padding: .35rem .7rem;
-    border-radius: 5px;
-    font-size: .9rem;
+    text-decoration: none; color: var(--muted);
+    padding: .35rem .7rem; border-radius: 5px; font-size: .9rem;
   }
   nav a:hover { color: var(--text); background: var(--raised); }
   nav a.on { color: var(--text); background: var(--raised); font-weight: 550; }
@@ -75,39 +52,31 @@
   .who { font-size: .8rem; color: var(--faint); font-family: var(--mono); }
 
   main {
-    max-width: 62rem;
-    margin: 0 auto;
-    padding: 2.5rem 1.5rem 5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
+    max-width: 64rem; margin: 0 auto; padding: 2.5rem 1.5rem 5rem;
+    display: flex; flex-direction: column; gap: 1.5rem;
   }
-  h1 {
-    font-size: 1.5rem;
-    font-weight: 650;
-    letter-spacing: -.015em;
-    margin: 0;
-  }
+  h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -.015em; margin: 0; }
+  h2 { font-size: 1.05rem; font-weight: 620; margin: 0; }
   .sub { color: var(--muted); font-size: .92rem; margin: -.75rem 0 0; }
 
   .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
   }
+  .panel-head {
+    padding: .9rem 1.1rem; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap;
+  }
+  .panel-head p { margin: 0; color: var(--faint); font-size: .85rem; }
+  .panel-body { padding: 1.1rem; }
   .scroll { overflow-x: auto; }
+
   table { border-collapse: collapse; width: 100%; font-size: .9rem; }
   th, td { text-align: left; padding: .7rem 1rem; border-bottom: 1px solid var(--border); }
   tr:last-child td { border-bottom: 0; }
   th {
-    font-family: var(--mono);
-    font-size: .66rem;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: var(--faint);
-    font-weight: 500;
-    background: var(--bg);
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint); font-weight: 500; background: var(--bg);
   }
   tbody tr:hover { background: var(--raised); }
   td.id { font-family: var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
@@ -117,29 +86,52 @@
   a.row:hover { color: var(--accent); }
 
   .pill {
-    display: inline-block;
-    font-family: var(--mono);
-    font-size: .66rem;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    padding: .15rem .5rem;
-    border-radius: 3px;
-    background: var(--raised);
-    color: var(--muted);
+    display: inline-block; font-family: var(--mono); font-size: .66rem;
+    letter-spacing: .08em; text-transform: uppercase; padding: .15rem .5rem;
+    border-radius: 3px; background: var(--raised); color: var(--muted);
   }
   .pill-allow { background: var(--allow-bg); color: var(--allow); }
   .pill-deny  { background: var(--deny-bg);  color: var(--deny); }
 
   .empty { padding: 2.5rem 1rem; text-align: center; color: var(--faint); font-size: .9rem; }
 
+  /* ── forms ── */
+  form.inline { display: contents; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
+  .field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+  label {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint);
+  }
+  input, select {
+    width: 100%; padding: .55rem .65rem; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    font-size: .92rem; font-family: inherit;
+  }
+  input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+  }
+  .actions { display: flex; gap: .6rem; align-items: center; margin-top: .9rem; flex-wrap: wrap; }
+  button {
+    padding: .55rem 1rem; border: 0; border-radius: 6px; background: var(--accent);
+    color: #fff; font-size: .9rem; font-family: inherit; font-weight: 550; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  button.quiet { background: var(--raised); color: var(--muted); }
+  button.quiet:hover { color: var(--text); }
+  button.danger { background: var(--deny-bg); color: var(--deny); }
+  button.tiny { padding: .3rem .6rem; font-size: .78rem; font-weight: 500; }
+
+  /* ── messages ── */
+  .msg { padding: .8rem 1.1rem; border-radius: 8px; font-size: .9rem; line-height: 1.5; }
+  .msg-ok   { background: var(--allow-bg); border: 1px solid #14603f; color: var(--allow); }
+  .msg-err  { background: var(--deny-bg);  border: 1px solid #6b2c2c; color: var(--deny); font-family: var(--mono); font-size: .82rem; }
+  .msg-warn { background: var(--warn-bg);  border: 1px solid #6b551a; color: var(--warn); }
+
   .verdict {
-    display: flex;
-    align-items: center;
-    gap: .8rem;
-    padding: 1rem 1.25rem;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    flex-wrap: wrap;
+    display: flex; align-items: center; gap: .8rem; padding: 1rem 1.25rem;
+    border-radius: 8px; border: 1px solid var(--border); flex-wrap: wrap;
   }
   .verdict.yes { background: var(--allow-bg); border-color: #14603f; }
   .verdict.no  { background: var(--deny-bg);  border-color: #6b2c2c; }
@@ -148,29 +140,14 @@
   .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 1px; background: var(--border); }
   .fact { background: var(--surface); padding: .9rem 1.1rem; }
   .fact dt {
-    font-family: var(--mono);
-    font-size: .64rem;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: var(--faint);
-    margin-bottom: .2rem;
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: .2rem;
   }
   .fact dd { margin: 0; font-size: .95rem; word-break: break-word; }
 
   .back { color: var(--muted); text-decoration: none; font-size: .85rem; }
   .back:hover { color: var(--text); }
-
-  .err {
-    background: var(--deny-bg);
-    border: 1px solid #6b2c2c;
-    color: var(--deny);
-    padding: .8rem 1.1rem;
-    border-radius: 8px;
-    font-family: var(--mono);
-    font-size: .82rem;
-  }
-
-  .note { color: var(--faint); font-size: .82rem; max-width: 44rem; }
+  .note { color: var(--faint); font-size: .82rem; max-width: 46rem; }
 </style>
 </head>
 <body>
@@ -180,7 +157,7 @@
     <div class="brand">Dvarpala <span>admin</span></div>
     <nav>
       <a href="/admin/users"     class="{{if or (eq .Page "users") (eq .Page "user")}}on{{end}}">People</a>
-      <a href="/admin/groups"    class="{{if eq .Page "groups"}}on{{end}}">Groups</a>
+      <a href="/admin/groups"    class="{{if eq .Page "groups"}}on{{end}}">Groups &amp; access</a>
       <a href="/admin/resources" class="{{if eq .Page "resources"}}on{{end}}">Resources</a>
     </nav>
     {{if .Session}}<div class="who">{{.Session.Email}}</div>{{end}}
@@ -189,24 +166,22 @@
 
 <main>
 
-{{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+{{if .Notice}}<div class="msg msg-ok">{{.Notice}}</div>{{end}}
+{{if .Error}}<div class="msg msg-err">{{.Error}}</div>{{end}}
 
 {{if eq .Page "denied"}}
   <h1>Not an administrator</h1>
   <p class="sub">You are signed in as {{.Session.Email}}, but this console is
     limited to members of the <b>system_admins</b> group.</p>
-  <p class="note">An administrator can add you with:
-    <code>dvarpala-cli group assign --user {{.Session.Email}} --group system_admins</code></p>
 
 {{else if eq .Page "users"}}
   <h1>People</h1>
-  <p class="sub">Everyone Dvarpala knows about, and the groups they belong to.</p>
+  <p class="sub">Everyone Dvarpala knows about. Click someone to see what they may reach.</p>
+
   <div class="panel scroll">
     {{if .Users}}
     <table>
-      <thead><tr>
-        <th>ID</th><th>Email</th><th>Name</th><th>Department</th><th>Status</th><th>Groups</th>
-      </tr></thead>
+      <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Department</th><th>Status</th><th>Groups</th><th></th></tr></thead>
       <tbody>
       {{range .Users}}
         <tr>
@@ -216,13 +191,40 @@
           <td>{{if .Department}}{{.Department}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
           <td><span class="pill {{if eq (printf "%s" .Status) "active"}}pill-allow{{else}}pill-deny{{end}}">{{.Status}}</span></td>
           <td>{{if .Groups}}{{range $i, $g := .Groups}}{{if $i}}, {{end}}{{$g.Name}}{{end}}{{else}}<span class="dim">none</span>{{end}}</td>
+          <td>
+            {{if eq (printf "%s" .Status) "active"}}
+            <form method="POST" action="/admin/users/deactivate">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="email" value="{{.Email}}">
+              <button class="quiet tiny" type="submit">Deactivate</button>
+            </form>
+            {{end}}
+          </td>
         </tr>
       {{end}}
       </tbody>
     </table>
     {{else}}
-      <div class="empty">No people yet. Add one with <code>dvarpala-cli user create</code>.</div>
+      <div class="empty">Nobody yet. Add the first person below.</div>
     {{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Add someone</h2><p>They reach nothing until you put them in a group.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/users/create">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="u-email">Email</label>
+            <input id="u-email" name="email" type="email" required placeholder="sam@company.com"></div>
+          <div class="field"><label for="u-name">Full name</label>
+            <input id="u-name" name="name" type="text" placeholder="Sam Patel"></div>
+          <div class="field"><label for="u-dept">Department</label>
+            <input id="u-dept" name="department" type="text" placeholder="Engineering"></div>
+        </div>
+        <div class="actions"><button type="submit">Add person</button></div>
+      </form>
+    </div>
   </div>
 
 {{else if eq .Page "user"}}
@@ -242,41 +244,98 @@
       <div class="fact"><dt>Email</dt><dd>{{.User.Email}}</dd></div>
       <div class="fact"><dt>Department</dt><dd>{{if .User.Department}}{{.User.Department}}{{else}}&mdash;{{end}}</dd></div>
       <div class="fact"><dt>Status</dt><dd>{{.User.Status}}</dd></div>
-      <div class="fact"><dt>Groups</dt><dd>{{if .User.Groups}}{{range $i, $g := .User.Groups}}{{if $i}}, {{end}}{{$g.Name}}{{end}}{{else}}none{{end}}</dd></div>
       <div class="fact"><dt>Created</dt><dd>{{.User.CreatedAt.Format "2 Jan 2006"}}</dd></div>
       <div class="fact"><dt>Last login</dt><dd>{{if .User.LastLogin}}{{.User.LastLogin.Format "2 Jan 2006 15:04"}}{{else}}never{{end}}</dd></div>
     </dl>
   </div>
 
-  <h1 style="font-size:1.15rem;margin-top:.5rem">What they may reach</h1>
-  <div class="panel scroll">
-    {{if .Grants}}
-    <table>
-      <thead><tr><th>Resource</th><th>Address</th><th>Permission</th><th>Granted via</th></tr></thead>
-      <tbody>
-      {{range .Grants}}
-        <tr>
-          <td>{{.Resource.Name}}</td>
-          <td class="mono">{{if .Resource.URL}}{{.Resource.URL}}{{else}}{{.Resource.IPAddress}}{{if .Resource.Port}}:{{.Resource.Port}}{{end}}{{end}}</td>
-          <td><span class="pill">{{.Permission}}</span></td>
-          <td>{{.ViaGroup}}</td>
-        </tr>
+  <div class="panel">
+    <div class="panel-head"><h2>Groups</h2><p>Access is granted through groups, never to a person directly.</p></div>
+    <div class="panel-body">
+      {{if .User.Groups}}
+      <div class="scroll"><table>
+        <tbody>
+        {{range .User.Groups}}
+          <tr>
+            <td class="mono">{{.Name}}</td>
+            <td style="text-align:right">
+              <form method="POST" action="/admin/groups/remove">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="email" value="{{$.User.Email}}">
+                <input type="hidden" name="group" value="{{.Name}}">
+                <button class="quiet tiny" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table></div>
+      {{else}}
+        <p class="note" style="margin-bottom:1rem">In no groups, so they reach nothing.</p>
       {{end}}
-      </tbody>
-    </table>
-    {{else}}
-      <div class="empty">Nothing. Someone in no groups, or whose groups have no
-        permissions, reaches nothing &mdash; that is the intended default.</div>
-    {{end}}
+
+      <form method="POST" action="/admin/groups/assign">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="email" value="{{.User.Email}}">
+        <div class="fields">
+          <div class="field"><label for="g-add">Add to group</label>
+            <select id="g-add" name="group" required>
+              <option value="">Choose a group&hellip;</option>
+              {{range .Groups}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select>
+          </div>
+        </div>
+        <div class="actions"><button type="submit">Add to group</button></div>
+      </form>
+    </div>
   </div>
-  <p class="note">Permissions do not yet flow down a group hierarchy: only
-    direct membership counts. A member of a child group does not inherit its
-    parent's grants.</p>
+
+  <div class="panel">
+    <div class="panel-head"><h2>What they may reach</h2></div>
+    <div class="scroll">
+      {{if .Grants}}
+      <table>
+        <thead><tr><th>Resource</th><th>Address</th><th>Permission</th><th>Granted via</th></tr></thead>
+        <tbody>
+        {{range .Grants}}
+          <tr>
+            <td>{{.Resource.Name}}</td>
+            <td class="mono">{{if .Resource.IPAddress}}{{.Resource.IPAddress}}{{if .Resource.Port}}:{{.Resource.Port}}{{end}}{{else}}<span class="dim">no address &mdash; not routable</span>{{end}}</td>
+            <td><span class="pill">{{.Permission}}</span></td>
+            <td>{{.ViaGroup}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+        <div class="empty">Nothing. Someone in no groups, or whose groups have no
+          permissions, reaches nothing &mdash; that is the intended default.</div>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>VPN profile</h2><p>Contains their private key. Send it to them securely.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/vpn/issue">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="email" value="{{.User.Email}}">
+        <div class="actions">
+          <button type="submit">Issue and download .ovpn</button>
+          <span class="note">Any profile they already hold stops working.</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <p class="note">Permissions do not flow down a group hierarchy: only direct
+    membership counts. A member of a child group does not inherit its parent's grants.</p>
   {{end}}
 
 {{else if eq .Page "groups"}}
-  <h1>Groups</h1>
-  <p class="sub">Permissions are granted to groups, never to people directly.</p>
+  <h1>Groups &amp; access</h1>
+  <p class="sub">Permissions are granted to groups. People get access by being in one.</p>
+
   <div class="panel scroll">
     {{if .Groups}}
     <table>
@@ -293,14 +352,68 @@
       {{end}}
       </tbody>
     </table>
-    {{else}}
-      <div class="empty">No groups yet. Add one with <code>dvarpala-cli group create</code>.</div>
-    {{end}}
+    {{else}}<div class="empty">No groups yet.</div>{{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Create a group</h2></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/groups/create">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="gc-name">Name</label>
+            <input id="gc-name" name="name" type="text" required placeholder="engineering"></div>
+          <div class="field"><label for="gc-desc">Description</label>
+            <input id="gc-desc" name="description" type="text" placeholder="Engineering team"></div>
+          <div class="field"><label for="gc-parent">Parent group</label>
+            <select id="gc-parent" name="parent">
+              <option value="">None</option>
+              {{range .Groups}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select>
+          </div>
+        </div>
+        <div class="actions"><button type="submit">Create group</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Grant access</h2><p>Give a group the ability to reach a resource.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/permissions/grant">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="p-group">Group</label>
+            <select id="p-group" name="group" required>
+              <option value="">Choose&hellip;</option>
+              {{range .Groups}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select></div>
+          <div class="field"><label for="p-res">Resource</label>
+            <select id="p-res" name="resource" required>
+              <option value="">Choose&hellip;</option>
+              {{range .Resources}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select></div>
+          <div class="field"><label for="p-perm">Permission</label>
+            <select id="p-perm" name="permission">
+              <option value="read">read</option>
+              <option value="write">write</option>
+              <option value="ssh">ssh</option>
+              <option value="admin">admin</option>
+              <option value="full">full</option>
+            </select></div>
+        </div>
+        <div class="actions">
+          <button type="submit">Grant</button>
+          <button class="danger" type="submit" formaction="/admin/permissions/revoke">Revoke</button>
+        </div>
+      </form>
+    </div>
   </div>
 
 {{else if eq .Page "resources"}}
   <h1>Resources</h1>
-  <p class="sub">The addresses that access can be granted to.</p>
+  <p class="sub">The addresses access can be granted to.</p>
+
   <div class="panel scroll">
     {{if .Resources}}
     <table>
@@ -311,20 +424,44 @@
           <td class="id">{{.ID}}</td>
           <td>{{.Name}}</td>
           <td><span class="pill">{{.Type}}</span></td>
-          <td class="mono">{{if .URL}}{{.URL}}{{else}}{{.IPAddress}}{{if .Port}}:{{.Port}}{{end}}{{end}}</td>
+          <td class="mono">{{if .IPAddress}}{{.IPAddress}}{{if .Port}}:{{.Port}}{{end}}{{else if .URL}}<span class="dim">{{.URL}} &mdash; no IP, not routable</span>{{else}}<span class="dim">&mdash;</span>{{end}}</td>
           <td>{{if .Description}}{{.Description}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
         </tr>
       {{end}}
       </tbody>
     </table>
-    {{else}}
-      <div class="empty">No resources yet. Add one with <code>dvarpala-cli resource create</code>.</div>
-    {{end}}
+    {{else}}<div class="empty">No resources yet.</div>{{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Register a resource</h2><p>An IP address is what gets routed. A URL alone cannot be reached through the VPN.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/resources/create">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="r-name">Name</label>
+            <input id="r-name" name="name" type="text" required placeholder="wiki"></div>
+          <div class="field"><label for="r-type">Type</label>
+            <select id="r-type" name="type" required>
+              <option value="service">service</option>
+              <option value="dashboard">dashboard</option>
+              <option value="vm">vm</option>
+              <option value="database">database</option>
+            </select></div>
+          <div class="field"><label for="r-ip">IP address</label>
+            <input id="r-ip" name="ip" type="text" placeholder="10.0.1.20"></div>
+          <div class="field"><label for="r-port">Port</label>
+            <input id="r-port" name="port" type="number" min="1" max="65535" placeholder="80"></div>
+          <div class="field"><label for="r-url">URL (optional)</label>
+            <input id="r-url" name="url" type="text" placeholder="http://wiki.internal"></div>
+          <div class="field"><label for="r-desc">Description</label>
+            <input id="r-desc" name="description" type="text" placeholder="Internal wiki"></div>
+        </div>
+        <div class="actions"><button type="submit">Register resource</button></div>
+      </form>
+    </div>
   </div>
 {{end}}
-
-<p class="note">This console is read-only. Creating people, groups and
-  permissions still goes through <code>dvarpala-cli</code>.</p>
 
 </main>
 </body>
