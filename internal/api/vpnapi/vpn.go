@@ -52,10 +52,10 @@ type Route struct {
 
 // AccessResponse is what client-connect.sh receives.
 type AccessResponse struct {
-	Authenticated bool    `json:"authenticated"`
-	Email         string  `json:"email,omitempty"`
+	Authenticated bool     `json:"authenticated"`
+	Email         string   `json:"email,omitempty"`
 	Groups        []string `json:"groups,omitempty"`
-	Routes        []Route `json:"routes"`
+	Routes        []Route  `json:"routes"`
 
 	// Reason explains a refusal, for the VPN's log.
 	Reason string `json:"reason,omitempty"`

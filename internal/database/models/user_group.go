@@ -9,20 +9,20 @@ import (
 type UserGroup struct {
 	// Foreign key to user who is a member of the group
 	UserID uint `gorm:"primaryKey;not null"`
-	
+
 	// Foreign key to group that the user belongs to
 	GroupID uint `gorm:"primaryKey;not null"`
-	
+
 	// Timestamp when user was added to the group
 	CreatedAt time.Time `gorm:"autoCreateTime"`
-	
+
 	// Timestamp when membership was last updated
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
-	
+
 	// Foreign key constraints
 	// Reference to the user
 	User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	
+
 	// Reference to the group
 	Group Group `gorm:"foreignKey:GroupID;constraint:OnDelete:CASCADE"`
 }
