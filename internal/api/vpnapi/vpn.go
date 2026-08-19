@@ -8,6 +8,7 @@ package vpnapi
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -30,11 +31,34 @@ func NewHandler(a *auth.Service, svc *services.Services) *Handler {
 	return &Handler{auth: a, perms: svc.Permissions, users: svc.Users, audit: svc.Audit}
 }
 
-// Register attaches the internal routes.
+// Register attaches the internal routes, behind the loopback check.
 func (h *Handler) Register(r *gin.RouterGroup) {
-	g := r.Group("/api/internal/vpn")
+	g := r.Group("/api/internal/vpn", localOnly)
 	g.GET("/access/:clientip", h.Access)
 	g.DELETE("/session/:clientip", h.Disconnect)
+}
+
+// localOnly refuses any caller that is not the server itself.
+//
+// These endpoints answer by tunnel address rather than by any credential the
+// caller presents, so without this anyone who can reach the portal - which is
+// every VPN client, authenticated or not - could read any user's access map
+// and end any user's session.
+//
+// RemoteIP, not ClientIP: the peer address of the connection, never a header a
+// caller can set. The OpenVPN hooks reach us over loopback (DVARPALA_API
+// defaults to http://127.0.0.1:8080), so nothing legitimate is affected. A
+// deployment that ever moved the hooks off this machine would need a real
+// credential here rather than a wider address range.
+func localOnly(c *gin.Context) {
+	ip := net.ParseIP(c.RemoteIP())
+	if ip == nil || !ip.IsLoopback() {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error": "this endpoint is served only to the machine itself",
+		})
+		return
+	}
+	c.Next()
 }
 
 // Route is one network route to push to a client.
