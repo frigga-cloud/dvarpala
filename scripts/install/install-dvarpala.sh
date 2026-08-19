@@ -381,16 +381,41 @@ ok "unauthenticated clients are confined to the portal, and it survives reboot"
 
 if [[ -n "$ADMIN_EMAIL" ]]; then
     log "Creating the first administrator"
-    sudo -u "$DVARPALA_USER" "$DVARPALA_DIR/bin/dvarpala-cli" \
-        --config "$CONFIG_DIR/environment.yaml" \
-        user create --email "$ADMIN_EMAIL" --name "Administrator" >/dev/null 2>&1 || true
-    sudo -u "$DVARPALA_USER" "$DVARPALA_DIR/bin/dvarpala-cli" \
-        --config "$CONFIG_DIR/environment.yaml" \
-        group assign --user "$ADMIN_EMAIL" --group system_admins >/dev/null 2>&1 || true
-    sudo -u "$DVARPALA_USER" "$DVARPALA_DIR/bin/dvarpala-cli" \
-        --config "$CONFIG_DIR/environment.yaml" \
-        vpn issue --user "$ADMIN_EMAIL" --name admin \
-        --output "$CERT_DIR/admin.ovpn" >/dev/null 2>&1 || true
+
+    cli() {
+        sudo -u "$DVARPALA_USER" "$DVARPALA_DIR/bin/dvarpala-cli" \
+            --config "$CONFIG_DIR/environment.yaml" "$@"
+    }
+
+    # Creating a user or a membership that already exists is not a failure -
+    # this script is meant to be safe to re-run - so those two are allowed to
+    # fail and the end state is checked instead. What must never happen is a
+    # failure followed by a green tick: an administrator who was silently not
+    # created only shows up much later, at a login page, as "user not found".
+    create_out=$(cli user create --email "$ADMIN_EMAIL" --name "Administrator" 2>&1) || true
+    assign_out=$(cli group assign --user "$ADMIN_EMAIL" --group system_admins 2>&1) || true
+
+    # One row, carrying both answers: the address exists, and the groups it
+    # belongs to. "group list" reports member counts rather than names, so it
+    # cannot answer the second question.
+    admin_row=$(cli user list 2>/dev/null | grep -F "$ADMIN_EMAIL" || true)
+
+    if [[ -z "$admin_row" ]]; then
+        echo "$create_out" >&2
+        die "could not create the administrator $ADMIN_EMAIL"
+    fi
+    if [[ "$admin_row" != *system_admins* ]]; then
+        echo "$assign_out" >&2
+        die "$ADMIN_EMAIL was created but could not be added to system_admins"
+    fi
+
+    # This one has no idempotent excuse: if a profile cannot be issued, the
+    # install has not produced anything anybody can connect with.
+    if ! cli vpn issue --user "$ADMIN_EMAIL" --name admin \
+            --output "$CERT_DIR/admin.ovpn" >/dev/null; then
+        die "could not issue a VPN profile for $ADMIN_EMAIL"
+    fi
+
     ok "$ADMIN_EMAIL created; profile at $CERT_DIR/admin.ovpn"
 fi
 
