@@ -79,6 +79,7 @@ func (s *Service) Providers() []Provider { return s.providers.Enabled() }
 func (s *Service) Begin(ctx context.Context, providerName, clientIP string) (string, error) {
 	provider, err := s.providers.Get(providerName)
 	if err != nil {
+		s.logFailed(ctx, providerName, clientIP, "unknown_provider", err)
 		return "", err
 	}
 
@@ -91,6 +92,7 @@ func (s *Service) Begin(ctx context.Context, providerName, clientIP string) (str
 	// login cannot complete another.
 	value := providerName + "|" + clientIP
 	if err := s.rdb.Set(ctx, stateKey(state), value, stateTTL).Err(); err != nil {
+		s.logFailed(ctx, providerName, clientIP, "state_not_stored", err)
 		return "", fmt.Errorf("storing state: %w", err)
 	}
 
@@ -102,16 +104,19 @@ func (s *Service) Begin(ctx context.Context, providerName, clientIP string) (str
 func (s *Service) Complete(ctx context.Context, providerName, code, state, clientIP string) (*Session, error) {
 	provider, err := s.providers.Get(providerName)
 	if err != nil {
+		s.logFailed(ctx, providerName, clientIP, "unknown_provider", err)
 		return nil, err
 	}
 
 	if err := s.consumeState(ctx, state, providerName); err != nil {
+		s.logFailed(ctx, providerName, clientIP, "bad_state", err)
 		return nil, err
 	}
 
 	// Step 1: who is this?
 	info, err := provider.Exchange(ctx, code)
 	if err != nil {
+		s.logFailed(ctx, providerName, clientIP, "identity_not_verified", err)
 		return nil, fmt.Errorf("verifying identity: %w", err)
 	}
 
@@ -142,6 +147,7 @@ func (s *Service) Complete(ctx context.Context, providerName, code, state, clien
 		ClientIP: clientIP,
 	})
 	if err != nil {
+		s.logFailed(ctx, providerName, clientIP, "session_not_stored", err)
 		return nil, err
 	}
 
@@ -216,6 +222,28 @@ func (s *Service) domainAllowed(email string) bool {
 		}
 	}
 	return false
+}
+
+// logFailed records a login that broke down before anyone was identified.
+//
+// Distinct from logDenied, which means "we know who you are and you may not
+// have access". This means the machinery itself did not get that far: an
+// unknown provider, a stale state token, a provider that would not answer. The
+// person sees only a redirect to the error page, so without this an
+// administrator has nothing at all to look at - which is exactly how a
+// disabled provider once cost an afternoon.
+func (s *Service) logFailed(ctx context.Context, provider, clientIP, stage string, cause error) {
+	details := map[string]interface{}{"provider": provider, "stage": stage}
+	if cause != nil {
+		details["error"] = cause.Error()
+	}
+
+	s.audit.Log(ctx, services.Entry{
+		Action:       "authentication_failed",
+		ResourceType: "session",
+		IPAddress:    clientIP,
+		Details:      details,
+	})
 }
 
 func (s *Service) logDenied(ctx context.Context, email, clientIP, reason string) {
