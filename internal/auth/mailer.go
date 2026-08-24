@@ -25,6 +25,24 @@ type Mailer interface {
 // request open until the browser gave up, with no explanation on either side.
 const mailTimeout = 20 * time.Second
 
+// Connecting is retried, briefly, because a large mail service is many
+// machines behind one name and an individual one can be transiently
+// unreachable. Observed against Gmail: a connection that timed out succeeded
+// on the next attempt a moment later.
+//
+// Only the connection is retried. A server that answered and then refused has
+// given a verdict, and asking again would not change it.
+const (
+	dialTimeout = 8 * time.Second
+	dialTries   = 3
+
+	// dialPause separates attempts. Without it the retries land in the same
+	// instant as the failure and test nothing new - a refused connection
+	// fails immediately, so three attempts would finish in microseconds and
+	// hit whatever was briefly wrong all three times.
+	dialPause = 300 * time.Millisecond
+)
+
 // SMTPMailer sends codes through a mail server.
 //
 // Any server will do - a provider such as Google Workspace, or a relay on the
@@ -90,7 +108,7 @@ func (m *SMTPMailer) send(to string, msg []byte) error {
 	}
 	addr := net.JoinHostPort(m.Host, fmt.Sprint(port))
 
-	conn, err := m.dial(addr, port)
+	conn, err := m.dialWithRetry(addr, port)
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", addr, err)
 	}
@@ -148,9 +166,48 @@ func (m *SMTPMailer) send(to string, msg []byte) error {
 	return c.Quit()
 }
 
-// dial opens the connection, encrypted from the outset on port 465.
-func (m *SMTPMailer) dial(addr string, port int) (net.Conn, error) {
-	d := &net.Dialer{Timeout: m.timeout()}
+// dialWithRetry connects, trying again on a failure to reach the server.
+//
+// Each attempt is short and the whole loop stays inside the overall budget,
+// so this makes a transient failure recoverable without making a genuine
+// outage take any longer to report.
+func (m *SMTPMailer) dialWithRetry(addr string, port int) (net.Conn, error) {
+	deadline := time.Now().Add(m.timeout())
+
+	var err error
+	for attempt := 1; attempt <= dialTries; attempt++ {
+		if attempt > 1 {
+			if time.Until(deadline) <= dialPause {
+				break
+			}
+			time.Sleep(dialPause)
+		}
+
+		var conn net.Conn
+		conn, err = m.dial(addr, port, m.attemptTimeout(deadline))
+		if err == nil {
+			return conn, nil
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	return nil, err
+}
+
+// attemptTimeout is how long one attempt may take: the usual short window,
+// or whatever remains of the overall budget if that is less.
+func (m *SMTPMailer) attemptTimeout(deadline time.Time) time.Duration {
+	remaining := time.Until(deadline)
+	if remaining < dialTimeout {
+		return remaining
+	}
+	return dialTimeout
+}
+
+// dial opens one connection, encrypted from the outset on port 465.
+func (m *SMTPMailer) dial(addr string, port int, timeout time.Duration) (net.Conn, error) {
+	d := &net.Dialer{Timeout: timeout}
 	if port == 465 {
 		return tls.DialWithDialer(d, "tcp", addr, &tls.Config{ServerName: m.Host})
 	}

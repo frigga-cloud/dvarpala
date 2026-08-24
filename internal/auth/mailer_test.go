@@ -319,3 +319,67 @@ func TestMissingConfigurationIsNamed(t *testing.T) {
 		})
 	}
 }
+
+// A large mail service is many machines behind one name, and an individual
+// one can be transiently unreachable. Observed against Gmail: a connection
+// that timed out succeeded moments later. Somebody signing in should not have
+// to notice that.
+func TestAConnectionIsRetried(t *testing.T) {
+	// A listener that refuses the first connections, then accepts.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close() // nothing is listening yet: connections are refused
+
+	srv := &fakeSMTP{t: t}
+	var reopen sync.Once
+	go func() {
+		// Bring the real server up on the same address a moment later, as a
+		// rotating endpoint becoming reachable again.
+		time.Sleep(200 * time.Millisecond)
+		reopen.Do(func() {
+			l, err := net.Listen("tcp", addr)
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { l.Close() })
+			for {
+				conn, err := l.Accept()
+				if err != nil {
+					return
+				}
+				go srv.serve(conn)
+			}
+		})
+	}()
+
+	m := mailerFor(addr)
+	m.Timeout = 5 * time.Second
+
+	if err := m.SendCode("sam@example.com", "481920"); err != nil {
+		t.Fatalf("a transient connection failure was not retried: %v", err)
+	}
+	if !strings.Contains(srv.message(), "481920") {
+		t.Error("the message did not arrive after the retry")
+	}
+}
+
+// Retrying must not turn a genuine outage into a long wait.
+func TestRetryingStaysWithinTheOverallBudget(t *testing.T) {
+	// Port 1 on loopback: nothing listens, connections are refused at once.
+	m := &SMTPMailer{Host: "127.0.0.1", Port: 1, From: "noreply@example.com"}
+	m.Timeout = 3 * time.Second
+
+	started := time.Now()
+	err := m.SendCode("sam@example.com", "481920")
+	took := time.Since(started)
+
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if took > m.Timeout+2*time.Second {
+		t.Fatalf("took %s, which is beyond the %s budget", took, m.Timeout)
+	}
+}
