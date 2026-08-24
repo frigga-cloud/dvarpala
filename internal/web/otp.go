@@ -11,8 +11,9 @@ import (
 
 // OTPHandler serves signing in with an emailed code.
 //
-// It lives outside /auth/ so it cannot collide with the /auth/:provider
-// routes, exactly as the development login form does.
+// It lives outside /auth/ because those routes are all one provider each,
+// and these are the pages of a flow rather than a provider of their own -
+// the same reason the development login form sits outside.
 type OTPHandler struct {
 	auth *auth.Service
 }
