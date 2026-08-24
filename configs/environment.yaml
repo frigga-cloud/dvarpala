@@ -45,6 +45,45 @@ auth:
     - "frigga.cloud"
     - "acme.com"
 
+  # Signing in with a code sent by email.
+  otp:
+    enabled: true
+
+  # The mail server that delivers those codes.
+  #
+  # Any mail server will do - what matters is that the receiving end trusts
+  # it. Sending straight from this machine does not work out of the box: a
+  # freshly built server has no sending reputation, so codes are filtered as
+  # spam, and cloud providers block the port direct delivery uses.
+  #
+  # The straightforward answer is the mail service the organisation already
+  # uses, which is already trusted. For Google Workspace:
+  #
+  #     host: smtp.gmail.com
+  #     port: 587
+  #
+  # The password must be an app password rather than an account password -
+  # Google refuses ordinary passwords from programs. Generate one at
+  # myaccount.google.com/apppasswords.
+  #
+  # Set it in the environment, never here:
+  #
+  #     AUTH_SMTP_PASSWORD=...
+  #
+  # Check it works before anyone depends on it:
+  #
+  #     dvarpala-cli mail test you@your-domain
+  #
+  # With no host set, and only in debug mode, codes are written to the
+  # server log instead of being sent.
+  smtp:
+    host: ""
+    port: 587
+    username: ""
+    password: ""              # leave empty; use AUTH_SMTP_PASSWORD
+    from: ""
+    from_name: "Dvarpala"
+
 oauth:
   google:
     client_id: ""
