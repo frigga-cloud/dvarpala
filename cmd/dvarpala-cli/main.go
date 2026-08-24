@@ -68,8 +68,10 @@ func openServices() (*services.Services, error) {
 // subcommands are added as each phase implements them.
 
 func adminCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "admin",
-		Short: "Administrative commands (not yet implemented)",
+		Short: "Administrative commands",
 	}
+	cmd.AddCommand(breakGlassCmd())
+	return cmd
 }

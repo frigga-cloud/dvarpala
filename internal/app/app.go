@@ -114,6 +114,10 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 		authSvc.EnableOTP(otpStore)
 	}
 
+	// Emergency access. The links are minted by the CLI on this machine; all
+	// the server does is redeem them.
+	authSvc.EnableBreakGlass(auth.NewBreakGlass(redisClient, sessions, svc.Users, svc.Audit))
+
 	// Initialize router
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())

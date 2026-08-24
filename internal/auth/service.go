@@ -50,6 +50,9 @@ type Service struct {
 	// otp is set only when code sign-in is enabled for this deployment.
 	otp *OTPStore
 
+	// breakGlass redeems the emergency links the CLI issues.
+	breakGlass *BreakGlass
+
 	// allowedDomains restricts which email domains may authenticate at all.
 	// Empty means any domain is acceptable.
 	allowedDomains []string
@@ -273,6 +276,27 @@ func (s *Service) logDenied(ctx context.Context, email, clientIP, reason string)
 
 // EnableOTP turns on signing in with an emailed code.
 func (s *Service) EnableOTP(store *OTPStore) { s.otp = store }
+
+// EnableBreakGlass turns on redeeming the emergency links the CLI issues.
+//
+// Always on: the situation it exists for is one where nothing else works, so
+// a deployment that had to remember to enable it would not have it when it
+// mattered. Issuing still requires shell access to the server.
+func (s *Service) EnableBreakGlass(b *BreakGlass) { s.breakGlass = b }
+
+// RedeemBreakGlass exchanges an emergency link for its session.
+func (s *Service) RedeemBreakGlass(ctx context.Context, code, clientIP string) (*Session, error) {
+	if s.breakGlass == nil {
+		return nil, ErrNoBreakGlass
+	}
+
+	sess, err := s.breakGlass.Redeem(ctx, code)
+	if err != nil {
+		s.logFailed(ctx, "break-glass", clientIP, "not_redeemable", err)
+		return nil, err
+	}
+	return sess, nil
+}
 
 // RequestCode sends a sign-in code, if the address is one that could sign in.
 //

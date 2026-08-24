@@ -35,13 +35,20 @@ func (h *AuthHandler) Register(r *gin.RouterGroup) {
 	r.GET("/auth/error", h.Failure)
 	r.GET("/auth/logout", h.Logout)
 
-	// Development provider form. Kept outside /auth/ so it cannot collide
-	// with the /auth/:provider wildcard.
+	// Development provider form. Kept outside /auth/ because everything
+	// under it belongs to a provider, and this is a page rather than a
+	// provider. Gin would in fact match a literal path there in preference
+	// to the wildcard - the separation is for readers, not the router.
 	r.GET("/dev/login", h.DevLoginForm)
 	r.POST("/dev/login", h.DevLoginSubmit)
 
 	// Polled by captive-portal.js so the page can notice a completed login.
 	r.GET("/api/internal/auth-status", h.Status)
+
+	// Emergency access, issued by the CLI on the server itself. Outside
+	// /auth/ for the same reason as the development form: it is not a
+	// provider, and reading it as one would be misleading.
+	r.GET("/break-glass", h.BreakGlass)
 
 	// Generic provider routes.
 	r.GET("/auth/:provider", h.Begin)
@@ -114,6 +121,26 @@ func (h *AuthHandler) Callback(c *gin.Context) {
 	sess, err := h.auth.Complete(c.Request.Context(), provider, code, state, clientIP(c))
 	if err != nil {
 		h.fail(c, provider, errorCode(err), err.Error())
+		return
+	}
+
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(sessionCookie, sess.Token,
+		int(time.Until(sess.Expires).Seconds()), "/", "", h.secureCookies, true)
+
+	c.Redirect(http.StatusFound, "/auth/success")
+}
+
+// BreakGlass redeems an emergency access link.
+//
+// The link carries a single-use code rather than the session token itself,
+// because a URL is written to the access log of every proxy it passes
+// through. Redeeming spends the code, so a copy recovered from a log later
+// is already worthless.
+func (h *AuthHandler) BreakGlass(c *gin.Context) {
+	sess, err := h.auth.RedeemBreakGlass(c.Request.Context(), c.Query("code"), clientIP(c))
+	if err != nil {
+		h.fail(c, "break-glass", "NOT_REDEEMABLE", err.Error())
 		return
 	}
 
