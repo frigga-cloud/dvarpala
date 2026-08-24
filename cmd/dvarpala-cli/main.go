@@ -34,6 +34,7 @@ func main() {
 	rootCmd.AddCommand(resourceCmd())
 	rootCmd.AddCommand(permissionCmd())
 	rootCmd.AddCommand(vpnCmd())
+	rootCmd.AddCommand(mailCmd())
 	rootCmd.AddCommand(adminCmd())
 
 	if err := rootCmd.Execute(); err != nil {
