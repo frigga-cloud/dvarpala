@@ -46,11 +46,86 @@ die()  { echo -e "\033[0;31merror:\033[0m $*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "must run as root"
 [[ -d "$SOURCE_DIR" ]] || die "source directory not found: $SOURCE_DIR"
-[[ -n "$SERVER_HOST" ]] || SERVER_HOST="$(hostname -I | awk '{print $1}')"
+
+# is_private reports whether an address is one only reachable from inside a
+# private network.
+is_private() {
+    case "$1" in
+        10.*|127.*|169.254.*|192.168.*) return 0 ;;
+        172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# public_ip_from_metadata asks the cloud provider for this machine's public
+# address, printing nothing if there is no metadata service to ask.
+#
+# This matters more than it looks. On a cloud instance the public address is
+# NAT'd and never appears on any interface, so `hostname -I` returns the
+# private one - and that address goes into every .ovpn this install issues.
+# The result installs cleanly, starts every service, and hands out profiles
+# nobody outside the VPC can connect to, with no error at any point.
+public_ip_from_metadata() {
+    local ip token
+
+    # AWS, tokened (IMDSv2) then untokened (IMDSv1).
+    token="$(curl -sf --max-time 2 -X PUT \
+        -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+        http://169.254.169.254/latest/api/token 2>/dev/null)" || true
+    if [[ -n "${token:-}" ]]; then
+        ip="$(curl -sf --max-time 2 -H "X-aws-ec2-metadata-token: $token" \
+            http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null)" || true
+    else
+        ip="$(curl -sf --max-time 2 \
+            http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null)" || true
+    fi
+    [[ -n "${ip:-}" ]] && { echo "$ip"; return; }
+
+    # Google Cloud.
+    ip="$(curl -sf --max-time 2 -H 'Metadata-Flavor: Google' \
+        'http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip' \
+        2>/dev/null)" || true
+    [[ -n "${ip:-}" ]] && { echo "$ip"; return; }
+
+    # Azure.
+    ip="$(curl -sf --max-time 2 -H 'Metadata:true' \
+        'http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01&format=text' \
+        2>/dev/null)" || true
+    [[ -n "${ip:-}" ]] && { echo "$ip"; return 0; }
+
+    # Found nothing, which is the ordinary case off a cloud instance. Return
+    # success anyway: under `set -e` a non-zero status here would abort the
+    # install at the assignment, silently, on every machine that has no
+    # metadata service to ask.
+    return 0
+}
+
+if [[ -z "$SERVER_HOST" ]]; then
+    SERVER_HOST="$(public_ip_from_metadata)"
+    if [[ -n "$SERVER_HOST" ]]; then
+        HOST_SOURCE="cloud metadata"
+    else
+        SERVER_HOST="$(hostname -I | awk '{print $1}')"
+        HOST_SOURCE="this machine's own interface"
+    fi
+fi
 
 log "Installing Dvarpala"
 echo "    source: $SOURCE_DIR"
-echo "    host:   $SERVER_HOST"
+echo "    host:   $SERVER_HOST${HOST_SOURCE:+  (detected from $HOST_SOURCE)}"
+
+# Every profile this install issues will tell clients to connect to
+# SERVER_HOST. A private address is right for an internal deployment and wrong
+# for anything a client reaches over the internet, and we cannot tell which
+# this is - so say so plainly rather than discovering it when nobody can
+# connect.
+if [[ -n "${HOST_SOURCE:-}" ]] && is_private "$SERVER_HOST"; then
+    warn "$SERVER_HOST is a private address."
+    warn "Clients outside this network will not be able to reach it, and every"
+    warn "VPN profile issued here will point at it."
+    warn "If that is wrong, stop now and re-run with:  --host <PUBLIC-IP-OR-DOMAIN>"
+    echo
+fi
 
 # ── 1. packages ──────────────────────────────────────────────────────────────
 
