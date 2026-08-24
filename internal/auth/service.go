@@ -298,7 +298,25 @@ func (s *Service) RequestCode(ctx context.Context, email, clientIP string) error
 	// Rate limits and delivery failures are returned: the first is something
 	// the person can act on, and the second is something they must not be
 	// left waiting on in silence.
-	return s.otp.Request(ctx, email)
+	err := s.otp.Request(ctx, email)
+
+	// Record the request either way. Without this, "I never got a code" has
+	// no answer: nothing distinguishes a code the mail server refused from
+	// one that was delivered and ignored, or from a person who never asked.
+	details := map[string]interface{}{"email": email}
+	action := "signin_code_sent"
+	if err != nil {
+		action = "signin_code_failed"
+		details["error"] = err.Error()
+	}
+	s.audit.Log(ctx, services.Entry{
+		Action:       action,
+		ResourceType: "session",
+		IPAddress:    clientIP,
+		Details:      details,
+	})
+
+	return err
 }
 
 // VerifyCode checks a code against a login attempt and, on success, marks the
