@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"dvarpala/internal/redis"
@@ -157,6 +159,73 @@ func (s *SessionService) RevokeByClientIP(ctx context.Context, clientIP string) 
 		return err
 	}
 	return s.Revoke(ctx, sess.Token)
+}
+
+// ActiveSession is one live session, with how long it has left.
+type ActiveSession struct {
+	Session
+
+	// Remaining is what Redis says is left of this session, which can be less
+	// than Expires suggests: a disconnect shortens a session without changing
+	// the time recorded inside it.
+	Remaining time.Duration
+
+	// OnTunnel is true when the session is reachable by client address, which
+	// is the lookup the VPN performs. A session without it signs a browser in
+	// but opens no network access.
+	OnTunnel bool
+}
+
+// Active lists the sessions that exist right now.
+//
+// Read from the auth:<ip> and session:<token> keys together, because those are
+// two views of the same thing and a session can exist under one without the
+// other - a browser sign-in with no tunnel, or a tunnel whose token has been
+// revoked. Showing only one view would quietly hide half the answer.
+//
+// SCAN rather than KEYS: this runs against a live server, and KEYS blocks
+// Redis for the whole sweep.
+func (s *SessionService) Active(ctx context.Context) ([]ActiveSession, error) {
+	byToken := make(map[string]*ActiveSession)
+
+	for _, pattern := range []string{"auth:*", "session:*"} {
+		iter := s.rdb.Scan(ctx, 0, pattern, 100).Iterator()
+		for iter.Next(ctx) {
+			key := iter.Val()
+
+			sess, err := s.fetch(ctx, key)
+			if err != nil {
+				continue // expired between the scan and the read, or unreadable
+			}
+
+			existing, seen := byToken[sess.Token]
+			if !seen {
+				existing = &ActiveSession{Session: *sess}
+				byToken[sess.Token] = existing
+			}
+			if strings.HasPrefix(key, "auth:") {
+				existing.OnTunnel = true
+			}
+
+			// The shortest remaining life across the keys is the honest one:
+			// it is when access actually stops.
+			if ttl, err := s.rdb.TTL(ctx, key).Result(); err == nil && ttl > 0 {
+				if existing.Remaining == 0 || ttl < existing.Remaining {
+					existing.Remaining = ttl
+				}
+			}
+		}
+		if err := iter.Err(); err != nil {
+			return nil, fmt.Errorf("listing sessions: %w", err)
+		}
+	}
+
+	out := make([]ActiveSession, 0, len(byToken))
+	for _, a := range byToken {
+		out = append(out, *a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IssuedAt.After(out[j].IssuedAt) })
+	return out, nil
 }
 
 // TTL reports how long sessions last.
