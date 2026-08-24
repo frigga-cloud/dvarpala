@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -26,12 +27,31 @@ var (
 type UserService struct {
 	db    *gorm.DB
 	audit *AuditService
+
+	// disconnect ends a person's live tunnel, when the VPN offers a way to.
+	// Optional: without it, deactivating still takes effect, just not until
+	// the person next connects.
+	disconnect Disconnector
+}
+
+// Disconnector closes the tunnels belonging to a common name.
+//
+// Deactivating somebody stops them authenticating again, but on its own it
+// leaves whatever session they are already holding untouched - and OpenVPN
+// takes minutes to notice a client that has gone quiet. For a product whose
+// whole claim is controlling access, "revoked in four minutes" is not
+// revoked.
+type Disconnector interface {
+	Kill(ctx context.Context, commonName string) (int, error)
 }
 
 // NewUserService creates a user service backed by the given database.
 func NewUserService(db *gorm.DB, audit *AuditService) *UserService {
 	return &UserService{db: db, audit: audit}
 }
+
+// EnableDisconnect lets deactivation end a session that is already open.
+func (s *UserService) EnableDisconnect(d Disconnector) { s.disconnect = d }
 
 // CreateUserRequest is the input to CreateUser.
 type CreateUserRequest struct {
@@ -135,12 +155,26 @@ func (s *UserService) DeactivateUser(ctx context.Context, email string) error {
 		return fmt.Errorf("deactivating user: %w", err)
 	}
 
+	// Close any tunnel they are holding. Deliberately after the database
+	// change and never fatal: the account is already deactivated, and failing
+	// here would report that it had not been.
+	killed := 0
+	if s.disconnect != nil {
+		if n, err := s.disconnect.Kill(ctx, user.Email); err != nil {
+			log.Printf("vpn: could not disconnect %s: %v", user.Email, err)
+		} else {
+			killed = n
+		}
+	}
+
 	s.audit.Log(ctx, Entry{
 		UserID:       &user.ID,
 		Action:       "user_deactivated",
 		ResourceType: "user",
 		ResourceID:   &user.ID,
-		Details:      map[string]interface{}{"email": user.Email},
+		Details: map[string]interface{}{
+			"email": user.Email, "tunnels_closed": killed,
+		},
 	})
 
 	return nil

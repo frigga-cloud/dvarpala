@@ -12,6 +12,7 @@ import (
 	"dvarpala/internal/database"
 	"dvarpala/internal/redis"
 	"dvarpala/internal/services"
+	"dvarpala/internal/vpn"
 	"dvarpala/internal/web"
 
 	"github.com/gin-gonic/gin"
@@ -117,6 +118,18 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	// Emergency access. The links are minted by the CLI on this machine; all
 	// the server does is redeem them.
 	authSvc.EnableBreakGlass(auth.NewBreakGlass(redisClient, sessions, svc.Users, svc.Audit))
+
+	// OpenVPN's control channel, which is the only way to act on a tunnel that
+	// is already established. It gives two things: deactivating somebody ends
+	// the session they are holding rather than only the next one, and a
+	// completed login applies itself instead of asking the person to
+	// reconnect by hand.
+	//
+	// Not fatal if absent. An older server, or one whose config predates the
+	// management line, simply behaves as it did before.
+	mgmt := vpn.NewManagement(cfg.OpenVPN.Management.Host, cfg.OpenVPN.Management.Port)
+	svc.Users.EnableDisconnect(mgmt)
+	authSvc.EnableReconnect(mgmt)
 
 	// Initialize router
 	router := gin.New()

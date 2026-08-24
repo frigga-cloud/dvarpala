@@ -395,6 +395,15 @@ persist-tun
 status /var/log/openvpn/openvpn-status.log
 log-append /var/log/openvpn/openvpn.log
 verb 3
+
+# The control channel. It is the only way to act on a tunnel that is already
+# up: Dvarpala uses it to end somebody's session the moment they are
+# deactivated, and to make a client reconnect after signing in so its routes
+# arrive without the person doing anything.
+#
+# Anything that can reach this port controls the VPN completely, so it is
+# bound to the loopback address and must never be exposed.
+management 127.0.0.1 7505
 CONF
 
 # OpenVPN drops privileges but the hooks must read the certificates.

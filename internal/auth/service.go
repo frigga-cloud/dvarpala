@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -52,6 +53,11 @@ type Service struct {
 
 	// breakGlass redeems the emergency links the CLI issues.
 	breakGlass *BreakGlass
+
+	// reconnect makes a client re-establish its tunnel after signing in, when
+	// the VPN offers a way to. Optional: without it the person has to
+	// reconnect by hand, which is what they had to do before.
+	reconnect Reconnector
 
 	// allowedDomains restricts which email domains may authenticate at all.
 	// Empty means any domain is acceptable.
@@ -172,6 +178,16 @@ func (s *Service) Complete(ctx context.Context, providerName, code, state, clien
 
 	_ = s.users.RecordLogin(ctx, user.ID)
 
+	// Close the walled-garden tunnel they signed in over, so their client
+	// reconnects and picks up the routes this login has just earned. Never
+	// fatal: the login succeeded either way, and the fallback is the manual
+	// reconnect that was always required.
+	if s.reconnect != nil {
+		if _, err := s.reconnect.Reconnect(ctx, user.Email); err != nil {
+			log.Printf("vpn: could not prompt %s to reconnect: %v", user.Email, err)
+		}
+	}
+
 	s.audit.Log(ctx, services.Entry{
 		UserID:       &user.ID,
 		Action:       "authentication_success",
@@ -283,6 +299,21 @@ func (s *Service) EnableOTP(store *OTPStore) { s.otp = store }
 // a deployment that had to remember to enable it would not have it when it
 // mattered. Issuing still requires shell access to the server.
 func (s *Service) EnableBreakGlass(b *BreakGlass) { s.breakGlass = b }
+
+// EnableReconnect lets a completed login apply itself without the person
+// disconnecting and reconnecting by hand.
+//
+// Routes are chosen when a tunnel is established and cannot be changed after,
+// so somebody who signs in while connected is still holding the walled-garden
+// tunnel they arrived on. Closing it makes their client reconnect by itself -
+// every VPN client does - and the second connection is the one that gets
+// their routes. The person sees access appear.
+func (s *Service) EnableReconnect(r Reconnector) { s.reconnect = r }
+
+// Reconnector asks a client to re-establish its tunnel.
+type Reconnector interface {
+	Reconnect(ctx context.Context, commonName string) (int, error)
+}
 
 // RedeemBreakGlass exchanges an emergency link for its session.
 func (s *Service) RedeemBreakGlass(ctx context.Context, code, clientIP string) (*Session, error) {
