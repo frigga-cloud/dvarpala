@@ -49,13 +49,47 @@ func (h *AuthHandler) Register(r *gin.RouterGroup) {
 }
 
 // Portal serves the sign-in page a user sees inside the walled garden.
+//
+// The page is built from the providers this deployment actually enabled. It
+// used to offer four sign-in buttons regardless, three of which led nowhere:
+// a person inside the walled garden has no other page to try, so a button
+// that cannot work is worse there than anywhere else.
 func (h *AuthHandler) Portal(c *gin.Context) {
 	// Already signed in? Say so rather than asking again.
 	if sess := h.currentSession(c); sess != nil {
 		c.Redirect(http.StatusFound, "/auth/success")
 		return
 	}
-	c.HTML(http.StatusOK, "captive-portal.html", gin.H{})
+
+	c.HTML(http.StatusOK, "captive-portal.html", portalView(h.auth, ""))
+}
+
+// portalView describes the sign-in page: whether to show the code form, and
+// which other providers to offer alongside it.
+//
+// A package function rather than a method, because the code sign-in handler
+// also has to render the portal - when creating a login attempt fails, the
+// only honest place to send someone is back to where they started.
+func portalView(a *auth.Service, errMessage string) gin.H {
+	var (
+		otp    bool
+		others []gin.H
+	)
+
+	for _, p := range a.Providers() {
+		if p.Name() == "otp" {
+			otp = true
+			continue // the code form takes its place, rather than a button
+		}
+		others = append(others, gin.H{"name": p.Name(), "label": p.DisplayName()})
+	}
+
+	return gin.H{
+		"otp":       otp,
+		"providers": others,
+		"none":      !otp && len(others) == 0,
+		"error":     errMessage,
+	}
 }
 
 // Begin starts a login with the named provider.

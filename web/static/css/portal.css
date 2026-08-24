@@ -1,0 +1,124 @@
+/* Dvarpala portal styling.
+ *
+ * Served from the portal itself rather than a CDN. The pages that use it are
+ * shown to people inside the walled garden, where by design nothing else on
+ * the internet is reachable yet - a stylesheet from elsewhere would simply
+ * never arrive, and the first thing a new user saw would be a broken page.
+ */
+
+:root {
+    --ink:        #10131a;
+    --ink-soft:   #5b6572;
+    --line:       #e2e6ec;
+    --accent:     #4f46e5;
+    --accent-dim: #4338ca;
+    --danger:     #97271d;
+    --danger-bg:  #fdeceb;
+    --ok:         #166534;
+    --ok-bg:      #dcfce7;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: linear-gradient(135deg, #4338ca 0%, #6d28d9 50%, #0891b2 100%);
+}
+
+.shell { width: 100%; max-width: 420px; }
+
+.brand { text-align: center; margin-bottom: 22px; }
+.brand .mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 56px; height: 56px; margin-bottom: 12px;
+    border-radius: 50%; background: rgba(255, 255, 255, .18);
+    font-size: 26px;
+}
+.brand h1 { margin: 0; font-size: 26px; color: #fff; letter-spacing: -.5px; }
+.brand p  { margin: 4px 0 0; font-size: 13px; color: rgba(255, 255, 255, .78); }
+
+.card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, .22);
+}
+
+.card h2 { margin: 0 0 6px; font-size: 19px; }
+.card .lede { margin: 0 0 20px; font-size: 14px; line-height: 1.5; color: var(--ink-soft); }
+
+label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+
+input[type="email"], input[type="text"] {
+    width: 100%; padding: 11px 12px; font-size: 15px;
+    border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--ink);
+}
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+
+input.code {
+    letter-spacing: 10px; text-align: center; font-size: 24px;
+    font-variant-numeric: tabular-nums;
+}
+
+button, .btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; margin-top: 14px; padding: 12px;
+    font-size: 15px; font-weight: 600; font-family: inherit;
+    border: 0; border-radius: 8px; cursor: pointer;
+    color: #fff; background: var(--accent);
+    text-decoration: none;
+}
+button:hover, .btn:hover { background: var(--accent-dim); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+
+.btn-secondary {
+    background: #fff; color: var(--ink);
+    border: 1px solid var(--line);
+}
+.btn-secondary:hover { background: #f6f7f9; }
+
+.divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 22px 0 4px; font-size: 12px; color: var(--ink-soft);
+}
+.divider::before, .divider::after {
+    content: ""; flex: 1; height: 1px; background: var(--line);
+}
+
+.note {
+    margin-top: 20px; padding: 12px 14px; border-radius: 8px;
+    font-size: 13px; line-height: 1.5;
+    background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
+}
+
+.alert {
+    padding: 11px 13px; border-radius: 8px; font-size: 13px;
+    line-height: 1.45; margin-bottom: 16px;
+}
+.alert-error { background: var(--danger-bg); color: var(--danger); }
+.alert-ok    { background: var(--ok-bg);     color: var(--ok); }
+
+.meta {
+    margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-soft); line-height: 1.7;
+}
+.meta strong { color: var(--ink); font-weight: 600; }
+
+.foot { text-align: center; margin-top: 18px; font-size: 12px; color: rgba(255, 255, 255, .7); }
+.foot a { color: rgba(255, 255, 255, .9); }
+
+.linkish {
+    display: inline; width: auto; margin: 0; padding: 0;
+    background: none; border: 0; color: var(--accent);
+    font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: underline;
+}
+.linkish:hover { background: none; color: var(--accent-dim); }

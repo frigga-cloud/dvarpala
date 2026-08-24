@@ -83,6 +83,22 @@ func (s *Service) Begin(ctx context.Context, providerName, clientIP string) (str
 		return "", err
 	}
 
+	state, err := s.NewLoginAttempt(ctx, providerName, clientIP)
+	if err != nil {
+		return "", err
+	}
+
+	return provider.AuthURL(state), nil
+}
+
+// NewLoginAttempt records a login attempt and returns its state token.
+//
+// Begin uses this and then hands the token to the provider. The portal calls
+// it directly, because asking for an email address and sending the code are
+// one action there rather than a redirect to somewhere else - but the attempt
+// still has to exist first, or Complete would have nothing to validate
+// against and the sign-in could not finish.
+func (s *Service) NewLoginAttempt(ctx context.Context, providerName, clientIP string) (string, error) {
 	state, err := newToken()
 	if err != nil {
 		return "", fmt.Errorf("generating state: %w", err)
@@ -96,7 +112,7 @@ func (s *Service) Begin(ctx context.Context, providerName, clientIP string) (str
 		return "", fmt.Errorf("storing state: %w", err)
 	}
 
-	return provider.AuthURL(state), nil
+	return state, nil
 }
 
 // Complete finishes a login: it validates the state, resolves the identity,

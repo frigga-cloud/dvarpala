@@ -1,7 +1,6 @@
 package web
 
 import (
-	"html/template"
 	"net/http"
 	"net/url"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OTPHandler serves the two steps of signing in with an emailed code.
+// OTPHandler serves signing in with an emailed code.
 //
 // It lives outside /auth/ so it cannot collide with the /auth/:provider
 // routes, exactly as the development login form does.
@@ -23,25 +22,52 @@ func NewOTPHandler(a *auth.Service) *OTPHandler { return &OTPHandler{auth: a} }
 
 // Register attaches the code sign-in routes.
 func (h *OTPHandler) Register(r *gin.RouterGroup) {
+	r.POST("/otp/start", h.Start)
 	r.GET("/otp/login", h.Form)
 	r.POST("/otp/request", h.Request)
 	r.POST("/otp/verify", h.Verify)
 }
 
+// Start is the portal's own entry point: an address arrives, a login attempt
+// is created for it, and a code goes out - all from one button.
+//
+// The other providers begin at /auth/:provider, which redirects somewhere
+// else to collect an identity. There is nowhere else to send anyone here, so
+// the attempt is created in place instead.
+func (h *OTPHandler) Start(c *gin.Context) {
+	email := c.PostForm("email")
+
+	state, err := h.auth.NewLoginAttempt(c.Request.Context(), "otp", clientIP(c))
+	if err != nil {
+		// Back to the portal with the reason, rather than onward to a code
+		// form that could never work.
+		c.HTML(http.StatusOK, "captive-portal.html", portalView(h.auth, err.Error()))
+		return
+	}
+
+	h.send(c, email, state)
+}
+
 // Form asks for an email address.
+//
+// Reached when a login begins at /auth/otp rather than from the portal - the
+// generic provider route, which every provider has.
 func (h *OTPHandler) Form(c *gin.Context) {
 	h.render(c, otpView{Step: "email", State: c.Query("state")})
 }
 
-// Request sends a code, then asks for it.
+// Request sends a code for an attempt that already exists. This is the
+// "send it again" path, and the form's own submit.
+func (h *OTPHandler) Request(c *gin.Context) {
+	h.send(c, c.PostForm("email"), c.PostForm("state"))
+}
+
+// send asks for a code and shows whichever step comes next.
 //
 // The answer is the same whether or not the address can sign in - see
 // Service.RequestCode. Only a rate limit or a mail failure changes what the
 // person is told, because those are the two things they can act on.
-func (h *OTPHandler) Request(c *gin.Context) {
-	email := c.PostForm("email")
-	state := c.PostForm("state")
-
+func (h *OTPHandler) send(c *gin.Context, email, state string) {
 	view := otpView{Step: "code", State: state, Email: email}
 
 	if err := h.auth.RequestCode(c.Request.Context(), email, clientIP(c)); err != nil {
@@ -80,63 +106,7 @@ type otpView struct {
 }
 
 func (h *OTPHandler) render(c *gin.Context, v otpView) {
-	c.Status(http.StatusOK)
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	_ = otpLoginPage.Execute(c.Writer, v)
+	c.HTML(http.StatusOK, "otp-login.html", gin.H{
+		"step": v.Step, "state": v.State, "email": v.Email, "error": v.Error,
+	})
 }
-
-// otpLoginPage is inline rather than a file in web/templates, because those
-// are loaded into one shared namespace by LoadHTMLGlob and this page belongs
-// to the login flow rather than to the portal's own set.
-var otpLoginPage = template.Must(template.New("otp").Parse(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in to Dvarpala</title>
-<style>
-  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-         background: #f4f5f8; color: #1b2029; display: flex;
-         min-height: 100vh; align-items: center; justify-content: center; margin: 0; }
-  .card { background: #fff; border-radius: 12px; padding: 32px; width: 100%;
-          max-width: 380px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  h1 { font-size: 20px; margin: 0 0 6px; }
-  p  { color: #5b6572; font-size: 14px; line-height: 1.5; margin: 0 0 20px; }
-  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-  input { width: 100%; box-sizing: border-box; padding: 11px 12px; font-size: 15px;
-          border: 1px solid #d4d9e0; border-radius: 7px; }
-  input.code { letter-spacing: 8px; text-align: center; font-size: 22px; }
-  button { width: 100%; margin-top: 16px; padding: 11px; font-size: 15px;
-           font-weight: 600; color: #fff; background: #2f6fdb; border: 0;
-           border-radius: 7px; cursor: pointer; }
-  .err { background: #fdeceb; color: #97271d; border-radius: 7px;
-         padding: 10px 12px; font-size: 13px; margin-bottom: 16px; }
-</style>
-</head>
-<body>
-  <div class="card">
-  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
-  {{if eq .Step "code"}}
-    <h1>Check your email</h1>
-    <p>If {{.Email}} can sign in, a six-digit code is on its way. It expires in five minutes.</p>
-    <form method="post" action="/otp/verify">
-      <input type="hidden" name="state" value="{{.State}}">
-      <input type="hidden" name="email" value="{{.Email}}">
-      <label for="code">Sign-in code</label>
-      <input class="code" id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
-             maxlength="6" required autofocus>
-      <button type="submit">Sign in</button>
-    </form>
-  {{else}}
-    <h1>Sign in to Dvarpala</h1>
-    <p>Enter your work email address and we will send you a code.</p>
-    <form method="post" action="/otp/request">
-      <input type="hidden" name="state" value="{{.State}}">
-      <label for="email">Work email</label>
-      <input id="email" name="email" type="email" autocomplete="email" required autofocus>
-      <button type="submit">Send me a code</button>
-    </form>
-  {{end}}
-  </div>
-</body>
-</html>`))

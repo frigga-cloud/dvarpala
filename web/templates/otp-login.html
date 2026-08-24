@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in to Dvarpala</title>
+    <link rel="stylesheet" href="/static/css/portal.css">
+</head>
+<body>
+<div class="shell">
+
+    <div class="brand">
+        <div class="mark">&#128737;</div>
+        <h1>Dvarpala</h1>
+        <p>Zero Trust VPN Gateway</p>
+    </div>
+
+    <div class="card">
+        {{if .error}}<div class="alert alert-error">{{.error}}</div>{{end}}
+
+        {{if eq .step "code"}}
+            <h2>Check your email</h2>
+            <p class="lede">If <strong>{{.email}}</strong> can sign in, a six-digit
+               code is on its way. It expires in five minutes.</p>
+
+            <form method="POST" action="/otp/verify">
+                <input type="hidden" name="state" value="{{.state}}">
+                <input type="hidden" name="email" value="{{.email}}">
+                <label for="code">Sign-in code</label>
+                <input class="code" id="code" name="code" type="text"
+                       inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code"
+                       maxlength="6" required autofocus>
+                <button type="submit">Sign in</button>
+            </form>
+
+            <div class="meta">
+                Nothing arrived? Check spam, then
+                <form method="POST" action="/otp/request" style="display:inline">
+                    <input type="hidden" name="state" value="{{.state}}">
+                    <input type="hidden" name="email" value="{{.email}}">
+                    <button type="submit" class="linkish">send another code</button>
+                </form>.
+                One code per minute.
+            </div>
+        {{else}}
+            <h2>Sign in to Dvarpala</h2>
+            <p class="lede">Enter your work email address and we will send you a code.</p>
+
+            <form method="POST" action="/otp/request">
+                <input type="hidden" name="state" value="{{.state}}">
+                <label for="email">Work email</label>
+                <input id="email" name="email" type="email" autocomplete="email"
+                       placeholder="you@company.com" value="{{.email}}" required autofocus>
+                <button type="submit">Email me a sign-in code</button>
+            </form>
+        {{end}}
+    </div>
+
+    <p class="foot">Secured by Dvarpala</p>
+</div>
+</body>
+</html>
