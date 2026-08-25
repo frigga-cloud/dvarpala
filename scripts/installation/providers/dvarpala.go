@@ -86,8 +86,14 @@ func InstallDvarpala(cfg InstallConfig, run SSHRunner, upload func(local, remote
 		}
 
 		fmt.Printf("📦 Cloning %s (%s)\n", repo, ref)
+		// A freshly booted cloud instance is still running apt itself, and SSH
+		// accepts connections before that finishes. Installing straight away
+		// loses the race and dies with "Could not get lock", which reads like
+		// a broken installer rather than one that arrived early.
 		clone := fmt.Sprintf(
-			"sudo apt-get update -qq && sudo apt-get install -y -qq git && "+
+			"sudo cloud-init status --wait >/dev/null 2>&1 || true; "+
+				"sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && "+
+				"sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq git && "+
 				"sudo rm -rf %s && sudo git clone --depth 1 --branch %s %s %s",
 			remoteSrcDir, shellQuote(ref), shellQuote(repo), remoteSrcDir)
 		if err := run(clone); err != nil {
