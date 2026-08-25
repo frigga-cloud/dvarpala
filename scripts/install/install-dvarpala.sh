@@ -131,8 +131,22 @@ fi
 
 log "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq \
+
+# A freshly booted cloud instance is already running apt itself - cloud-init
+# and the unattended upgrade both do - and SSH starts accepting connections
+# before either has finished. Installing straight away loses a race against
+# the machine's own setup and dies with "Could not get lock", which reads like
+# a broken installer rather than one that arrived early.
+if command -v cloud-init >/dev/null 2>&1; then
+    log "  waiting for the machine to finish its own setup"
+    cloud-init status --wait >/dev/null 2>&1 || true
+fi
+
+# And wait rather than fail if something else takes the lock anyway.
+APT_WAIT=(-o DPkg::Lock::Timeout=600)
+
+apt-get "${APT_WAIT[@]}" update -qq
+apt-get "${APT_WAIT[@]}" install -y -qq \
     postgresql postgresql-contrib redis-server \
     openvpn easy-rsa iptables ipset conntrack \
     curl ca-certificates python3 >/dev/null
