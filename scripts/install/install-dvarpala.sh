@@ -634,4 +634,13 @@ cat <<SUMMARY
   Then re-check with:  journalctl -u dvarpala | grep -i enabled
 
 SUMMARY
-exit 1
+
+# Exit 2, not 1. The machine is installed and every service is running; what
+# is missing is a decision only the operator can make. A wrapper that runs
+# this needs to tell that apart from a real failure, or it reports a working
+# system as a crash - which is exactly what the cloud installer did.
+#
+#   0  installed, and somebody can sign in
+#   2  installed, but no sign-in method is configured yet
+#   1  something actually went wrong
+exit 2

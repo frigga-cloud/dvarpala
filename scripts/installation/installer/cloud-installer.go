@@ -97,7 +97,7 @@ func cloudInstaller() {
 		fmt.Printf("✅ Configuration loaded from: %s\n", *configFile)
 	} else if *interactive {
 		fmt.Printf("✅ Running in interactive mode\n")
-		config = runInteractiveSetup()
+		config = runInteractiveSetup(*region, *outputDir)
 	} else {
 		fmt.Printf("✅ Creating configuration from flags\n")
 		config = createConfigFromFlags(*provider, *region, *outputDir)
@@ -188,11 +188,24 @@ func cloudInstaller() {
 	printSSHConnectionInfo(vmInfo)
 }
 
-func runInteractiveSetup() InstallationConfig {
+// runInteractiveSetup asks for what it needs, using anything already supplied
+// on the command line as the default.
+//
+// It used to ignore the flags entirely, so --region chose nothing: the prompt
+// offered us-east-1, pressing enter took it, and deployments appeared in a
+// region the operator had explicitly asked away from.
+func runInteractiveSetup(region, outputDir string) InstallationConfig {
 	scanner := bufio.NewScanner(os.Stdin)
+
+	out := strings.TrimSpace(outputDir)
+	if out == "" {
+		out = "./dvarpala-deployment"
+	}
+
 	config := InstallationConfig{
 		BackupEnabled:   true,
-		OutputDirectory: "./dvarpala-deployment",
+		OutputDirectory: out,
+		Cloud:           CloudConfig{Region: strings.TrimSpace(region)},
 		VMConfig: VMConfig{
 			DiskSize: 50,
 			Tags: map[string]string{
@@ -270,11 +283,19 @@ func setupAWSConfig(config InstallationConfig, scanner *bufio.Scanner) Installat
 		}
 	}
 
-	fmt.Print("AWS Region [us-east-1]: ")
+	// Whatever --region was given is the default here, so pressing enter
+	// agrees with the flag instead of quietly overruling it. Deployments were
+	// landing in us-east-1 while the operator had asked for somewhere else,
+	// and nothing said so until an address in the wrong country turned up.
+	regionDefault := strings.TrimSpace(config.Cloud.Region)
+	if regionDefault == "" {
+		regionDefault = "us-east-1"
+	}
+	fmt.Printf("AWS Region [%s]: ", regionDefault)
 	scanner.Scan()
 	region := strings.TrimSpace(scanner.Text())
 	if region == "" {
-		region = "us-east-1"
+		region = regionDefault
 	}
 	config.Cloud.Region = region
 
