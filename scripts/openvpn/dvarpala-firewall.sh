@@ -35,10 +35,12 @@
 set -uo pipefail
 
 PORTAL_IP="${DVARPALA_PORTAL_IP:-172.30.100.1}"
+PORTAL_PORT="${DVARPALA_PORTAL_PORT:-8080}"
 VPN_SUBNET="${DVARPALA_VPN_SUBNET:-172.30.100.0/24}"
 WAN_IF="${DVARPALA_WAN_IF:-$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')}"
 
 CHAIN="DVARPALA"
+NAT_CHAIN="DVARPALA_PORTAL"
 AUTH_SET="dvarpala_auth"
 OAUTH_SET="dvarpala_oauth"
 
@@ -68,6 +70,41 @@ oauth_ranges() {
 34.74.90.64/28
 34.74.226.0/24
 EOF
+}
+
+# portal_interception answers a signed-out client's web requests with the
+# sign-in page, whatever it asked for.
+#
+# Dropping those requests is not enough. A browser asked for a host it cannot
+# reach waits, and then reports that the site is down - so the person is told
+# their internet is broken rather than that they need to sign in, and never
+# sees the portal at all.
+#
+# Rewriting the destination instead means anything they open lands on the
+# sign-in page. It is also what makes a phone or laptop notice by itself:
+# every operating system tests its connection by fetching a known URL over
+# plain HTTP, and an answer that is not the expected one is precisely how it
+# decides to show its "sign in to network" panel.
+#
+# Only port 80. An HTTPS request cannot be answered by anyone but the site it
+# was addressed to - that is the point of it - so those are left to the DROP
+# in the filter chain. Every captive portal behaves this way.
+portal_interception() {
+    iptables -t nat -N "$NAT_CHAIN" 2>/dev/null || true
+    iptables -t nat -F "$NAT_CHAIN"
+
+    # Signed in: leave their traffic alone.
+    iptables -t nat -A "$NAT_CHAIN" -m set --match-set "$AUTH_SET" src -j RETURN
+
+    # Already talking to the portal: nothing to rewrite.
+    iptables -t nat -A "$NAT_CHAIN" -d "$PORTAL_IP" -j RETURN
+
+    # Everyone else asking for a web page gets the sign-in page.
+    iptables -t nat -A "$NAT_CHAIN" -p tcp --dport 80 \
+        -j DNAT --to-destination "$PORTAL_IP:$PORTAL_PORT"
+
+    iptables -t nat -C PREROUTING -i tun+ -p tcp --dport 80 -j "$NAT_CHAIN" 2>/dev/null || \
+        iptables -t nat -I PREROUTING 1 -i tun+ -p tcp --dport 80 -j "$NAT_CHAIN"
 }
 
 setup() {
@@ -112,6 +149,15 @@ setup() {
     iptables -C FORWARD -i tun+ -j "$CHAIN" 2>/dev/null || \
         iptables -I FORWARD 1 -i tun+ -j "$CHAIN"
 
+    # The portal has to be reachable from the tunnel. Traffic addressed to
+    # this machine's own tunnel address arrives on INPUT, not FORWARD, so the
+    # rule above never sees it - stating this explicitly means the portal does
+    # not depend on INPUT happening to default to ACCEPT.
+    iptables -C INPUT -i tun+ -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT 1 -i tun+ -p tcp --dport "$PORTAL_PORT" -j ACCEPT
+
+    portal_interception
+
     # NAT, so permitted traffic can reach the wider network.
     if [[ -n "$WAN_IF" ]]; then
         iptables -t nat -C POSTROUTING -s "$VPN_SUBNET" -o "$WAN_IF" -j MASQUERADE 2>/dev/null || \
@@ -120,7 +166,9 @@ setup() {
 
     sysctl -qw net.ipv4.ip_forward=1
 
-    echo "  done. unauthenticated clients can reach the portal, DNS and OAuth only."
+    echo "  done. every client takes the default route, so all of their traffic"
+    echo "  arrives here. Signed out, a web request is answered by the portal;"
+    echo "  anything else is dropped."
 }
 
 allow() {
@@ -140,6 +188,8 @@ revoke() {
 }
 
 status() {
+    echo "── portal interception (signed-out web requests) ──"
+    iptables -t nat -L "$NAT_CHAIN" -v -n --line-numbers 2>/dev/null | sed 's/^/  /'
     echo "── authenticated clients ──"
     ipset list "$AUTH_SET" 2>/dev/null | sed -n '/Members/,$p' | tail -n +2 | sed 's/^/  /'
     echo "── chain (packets/bytes) ──"

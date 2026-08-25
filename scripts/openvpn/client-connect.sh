@@ -20,10 +20,34 @@ CONFIG_FILE="$1"
 API="${DVARPALA_API:-http://127.0.0.1:8080}"
 LOG="/var/log/openvpn/dvarpala-connect.log"
 FIREWALL="${DVARPALA_FIREWALL:-/opt/dvarpala/scripts/dvarpala-firewall.sh}"
+PORTAL_IP="${DVARPALA_PORTAL_IP:-172.30.100.1}"
+DNS="${DVARPALA_DNS:-8.8.8.8}"
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+
+# tunnel_everything is what every client gets, signed in or not.
+#
+# The default route is taken deliberately, and this is the whole reason the
+# walled garden is a restriction rather than a suggestion. Withholding a route
+# is not a denial: a laptop that is not told to send something through the
+# tunnel sends it over its own wifi instead, where this server never sees it
+# and cannot refuse it. Taking the default route means every packet arrives
+# here to be judged.
+#
+# DNS goes with it. Once we carry all of a client's traffic, one with no
+# resolver cannot look anything up at all - including the sign-in page it is
+# being sent to.
+#
+# The explicit portal route is redundant while the default route is in place,
+# and is kept as the thing that still works if a client refuses the default
+# route for its own reasons.
+tunnel_everything() {
+    echo 'push "redirect-gateway def1 bypass-dhcp"'
+    echo "push \"route $PORTAL_IP 255.255.255.255\""
+    echo "push \"dhcp-option DNS $DNS\""
+}
 
 CLIENT_IP="${ifconfig_pool_remote_ip:-}"
 CN="${common_name:-unknown}"
@@ -32,7 +56,7 @@ log "connect: cn=$CN tunnel_ip=$CLIENT_IP real_ip=${trusted_ip:-?}"
 
 if [[ -z "$CLIENT_IP" ]]; then
     log "  no tunnel IP supplied by OpenVPN; granting captive portal only"
-    echo 'push "route 172.30.100.1 255.255.255.255"' > "$CONFIG_FILE"
+    tunnel_everything > "$CONFIG_FILE"
     exit 0
 fi
 
@@ -49,7 +73,7 @@ if [[ $CURL_STATUS -ne 0 || -z "$RESPONSE" ]]; then
     # management server is down.
     log "  ERROR: could not reach Dvarpala at $API (curl exit $CURL_STATUS)"
     log "  failing closed: captive portal only"
-    echo 'push "route 172.30.100.1 255.255.255.255"' > "$CONFIG_FILE"
+    tunnel_everything > "$CONFIG_FILE"
     exit 0
 fi
 
@@ -61,15 +85,18 @@ if [[ "$AUTHENTICATED" != "true" ]]; then
         'import json,sys; print(json.load(sys.stdin).get("reason",""))' 2>/dev/null)
     log "  not authenticated: $REASON"
     log "  granting captive portal only"
-    echo 'push "route 172.30.100.1 255.255.255.255"' > "$CONFIG_FILE"
+    tunnel_everything > "$CONFIG_FILE"
     exit 0
 fi
 
 EMAIL=$(echo "$RESPONSE" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("email",""))' 2>/dev/null)
 
-# Write one push line per route the user is entitled to.
-: > "$CONFIG_FILE"
+# Still a full tunnel after signing in, so every packet is still judged here.
+# What authentication changes is what the firewall will pass, not whether the
+# traffic reaches it.
+tunnel_everything > "$CONFIG_FILE"
+
 COUNT=0
 while IFS=$'\t' read -r network netmask resource; do
     [[ -z "$network" ]] && continue
@@ -81,9 +108,6 @@ import json, sys
 for r in json.load(sys.stdin).get("routes", []):
     print("\t".join([r["network"], r["netmask"], r.get("resource", "")]))
 ' 2>/dev/null)
-
-# DNS, so the routed names resolve.
-echo 'push "dhcp-option DNS 8.8.8.8"' >> "$CONFIG_FILE"
 
 # Routes alone are only half of it: the firewall must also stop dropping this
 # client's traffic.

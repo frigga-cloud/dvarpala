@@ -429,8 +429,10 @@ tls-crypt $CERT_DIR/ta.key
 server ${VPN_SUBNET%/*} 255.255.255.0
 topology subnet
 
-# No redirect-gateway: a client gets nothing beyond the portal until the
-# connect hook decides otherwise.
+# The connect hook pushes the default route to every client, signed in or
+# not, so that all of their traffic arrives here to be judged. This route is
+# the fallback for a client that declines the default route for reasons of
+# its own: it can still reach the sign-in page.
 push "route $PORTAL_IP 255.255.255.255"
 
 script-security 3
