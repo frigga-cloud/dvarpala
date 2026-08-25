@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,29 @@ import (
 	"strings"
 	"time"
 )
+
+// awsOutput runs an AWS CLI command and returns its output.
+//
+// exec.Cmd.Output discards standard error, which is the only place the AWS CLI
+// puts the reason for a refusal. Losing it turns every failure into "exit
+// status 254" - a number that says a client error occurred and nothing about
+// which one, leaving an operator with no way to tell an unavailable instance
+// type from a missing permission from a bad subnet.
+func awsOutput(cmd *exec.Cmd) ([]byte, error) {
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil
+	}
+
+	detail := strings.TrimSpace(stderr.String())
+	if detail == "" {
+		return out, err
+	}
+	return out, fmt.Errorf("%s: %s", err, detail)
+}
 
 type AWSProvider struct {
 	Region      string
@@ -95,7 +119,7 @@ func (aws *AWSProvider) findVPCByName(vpcName string) (*AWSVPCInfo, error) {
 		"--query", "Vpcs[0].VpcId",
 		"--output", "text")
 
-	output, err := cmd.Output()
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +142,7 @@ func (aws *AWSProvider) getVPCDetails(vpcID string) (*AWSVPCInfo, error) {
 		"--query", "Subnets[?MapPublicIpOnLaunch==`true`].SubnetId",
 		"--output", "text")
 
-	if output, err := cmd.Output(); err == nil {
+	if output, err := awsOutput(cmd); err == nil {
 		if subnetID := strings.TrimSpace(string(output)); subnetID != "" {
 			vpcInfo.PublicSubnetID = subnetID
 		}
@@ -131,7 +155,7 @@ func (aws *AWSProvider) getVPCDetails(vpcID string) (*AWSVPCInfo, error) {
 		"--query", "SecurityGroups[0].GroupId",
 		"--output", "text")
 
-	if output, err := cmd.Output(); err == nil {
+	if output, err := awsOutput(cmd); err == nil {
 		if sgID := strings.TrimSpace(string(output)); sgID != "None" && sgID != "" {
 			vpcInfo.SecurityGroupID = sgID
 		}
@@ -149,7 +173,7 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--query", "Vpc.VpcId",
 		"--output", "text")
 
-	output, err := cmd.Output()
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VPC: %v", err)
 	}
@@ -171,7 +195,7 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--query", "InternetGateway.InternetGatewayId",
 		"--output", "text")
 
-	output, err = cmd.Output()
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create internet gateway: %v", err)
 	}
@@ -191,7 +215,7 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--query", "Subnet.SubnetId",
 		"--output", "text")
 
-	output, err = cmd.Output()
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create public subnet: %v", err)
 	}
@@ -211,7 +235,7 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--query", "Subnet.SubnetId",
 		"--output", "text")
 
-	output, err = cmd.Output()
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create private subnet: %v", err)
 	}
@@ -224,7 +248,7 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--query", "RouteTable.RouteTableId",
 		"--output", "text")
 
-	output, err = cmd.Output()
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create route table: %v", err)
 	}
@@ -250,7 +274,7 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--query", "GroupId",
 		"--output", "text")
 
-	output, err = cmd.Output()
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security group: %v", err)
 	}
@@ -304,7 +328,7 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 		"--query", "KeyMaterial",
 		"--output", "text")
 
-	keyMaterial, err := cmd.Output()
+	keyMaterial, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create key pair: %v", err)
 	}
@@ -346,7 +370,7 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 		"--query", "Instances[0].InstanceId",
 		"--output", "text")
 
-	output, err := cmd.Output()
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch instance: %v", err)
 	}
@@ -382,7 +406,7 @@ func (aws *AWSProvider) getLatestUbuntuAMI() (string, error) {
 		"--query", "Images|sort_by(@, &CreationDate)[-1].ImageId",
 		"--output", "text")
 
-	output, err := cmd.Output()
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get Ubuntu AMI: %v", err)
 	}
@@ -557,7 +581,7 @@ func (aws *AWSProvider) getInstanceDetails(instanceID string) (*AWSInstanceInfo,
 		"--query", "Reservations[0].Instances[0].[PublicIpAddress,PrivateIpAddress]",
 		"--output", "text")
 
-	output, err := cmd.Output()
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance details: %v", err)
 	}
