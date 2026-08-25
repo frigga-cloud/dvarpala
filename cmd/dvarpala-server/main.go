@@ -37,6 +37,12 @@ func main() {
 		Handler: dvarpala.Router(),
 	}
 
+	// Work that runs alongside the HTTP server - currently closing tunnels
+	// nobody ever signed in on. Stopped by the same signal that stops serving.
+	background, stopBackground := context.WithCancel(context.Background())
+	defer stopBackground()
+	go dvarpala.Background(background)
+
 	// Graceful shutdown
 	go func() {
 		sigChan := make(chan os.Signal, 1)
@@ -44,6 +50,8 @@ func main() {
 		<-sigChan
 
 		log.Println("Shutting down server...")
+		stopBackground()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 

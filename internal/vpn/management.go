@@ -147,6 +147,38 @@ func (m *Management) Kill(ctx context.Context, commonName string) (int, error) {
 	return 1, nil
 }
 
+// KillClient closes one connection by its id.
+//
+// Kill works by common name and closes every tunnel that name holds. This is
+// for the case where that is wrong: ending a tunnel somebody left sitting
+// unidentified must not also end the one they are working over.
+//
+// The message tells the client what to do about it. HALT means stop and stay
+// stopped, which is what an abandoned tunnel deserves - RESTART would bring it
+// straight back and the reap would achieve nothing.
+func (m *Management) KillClient(ctx context.Context, clientID int, message string) error {
+	if message == "" {
+		message = "HALT"
+	}
+	if strings.ContainsAny(message, "\r\n") {
+		return fmt.Errorf("invalid message")
+	}
+
+	lines, err := m.command(ctx, fmt.Sprintf("client-kill %d %s", clientID, message),
+		func(line string) bool {
+			return strings.HasPrefix(line, "SUCCESS:") || strings.HasPrefix(line, "ERROR:")
+		})
+	if err != nil {
+		return err
+	}
+	if len(lines) > 0 && strings.HasPrefix(lines[len(lines)-1], "ERROR:") {
+		// Already gone between listing and killing. Not a failure: the tunnel
+		// is closed either way, which is what was wanted.
+		return nil
+	}
+	return nil
+}
+
 // command sends one command and collects the reply.
 //
 // done reports whether a line ends the reply. OpenVPN also emits unsolicited

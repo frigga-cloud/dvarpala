@@ -401,6 +401,14 @@ func (s *Service) Session(ctx context.Context, token string) (*Session, error) {
 	return s.sessions.Get(ctx, token)
 }
 
+// SignedIn reports whether a tunnel address belongs to somebody who has
+// identified themselves. This is the question the idle sweep asks of every
+// open tunnel.
+func (s *Service) SignedIn(ctx context.Context, clientIP string) bool {
+	_, err := s.sessions.GetByClientIP(ctx, clientIP)
+	return err == nil
+}
+
 // SessionForClientIP returns the session for a VPN client address. This is the
 // lookup the OpenVPN connect path performs.
 func (s *Service) SessionForClientIP(ctx context.Context, clientIP string) (*Session, error) {

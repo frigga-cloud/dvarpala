@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -19,6 +20,7 @@ import (
 )
 
 type Dvarpala struct {
+	sweeper  *vpn.IdleSweeper
 	config   *config.Config
 	db       *database.DB
 	redis    *redis.Client
@@ -131,6 +133,26 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	svc.Users.EnableDisconnect(mgmt)
 	authSvc.EnableReconnect(mgmt)
 
+	// Close tunnels that were opened and never signed in on. Holding a
+	// certificate opens a tunnel; only signing in earns access, and nothing
+	// used to end the gap between the two.
+	sweeper := vpn.NewIdleSweeper(mgmt, authSvc.SignedIn,
+		time.Duration(cfg.Auth.CaptivePortalTimeout)*time.Second)
+	if sweeper != nil {
+		sweeper.OnReap = func(c vpn.ConnectedClient, idle time.Duration) {
+			svc.Audit.Log(context.Background(), services.Entry{
+				Action:       "vpn_idle_disconnected",
+				ResourceType: "vpn_session",
+				IPAddress:    c.VirtualAddress,
+				Details: map[string]interface{}{
+					"common_name":     c.CommonName,
+					"idle_minutes":    int(idle.Minutes()),
+					"never_signed_in": true,
+				},
+			})
+		}
+	}
+
 	// Initialize router
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
@@ -146,6 +168,7 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	router.LoadHTMLGlob("web/templates/*.html")
 
 	app := &Dvarpala{
+		sweeper:  sweeper,
 		config:   cfg,
 		db:       db,
 		redis:    redisClient,
@@ -162,6 +185,12 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 
 func (d *Dvarpala) Router() *gin.Engine {
 	return d.router
+}
+
+// Background starts the work that runs alongside the HTTP server, and returns
+// when the context is cancelled. Safe to call when nothing is configured.
+func (d *Dvarpala) Background(ctx context.Context) {
+	d.sweeper.Run(ctx)
 }
 
 func (d *Dvarpala) setupRoutes() {
