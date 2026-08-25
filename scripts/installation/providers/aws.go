@@ -99,7 +99,7 @@ func (aws *AWSProvider) ValidateAuthentication() error {
 
 func (aws *AWSProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*AWSVPCInfo, error) {
 	// Check if VPC already exists
-	existingVPC, err := aws.findVPCByName(vpcName)
+	existingVPC, err := aws.findVPCByName(vpcName, config)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (aws *AWSProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*A
 	return aws.createNewVPC(vpcName, config)
 }
 
-func (aws *AWSProvider) findVPCByName(vpcName string) (*AWSVPCInfo, error) {
+func (aws *AWSProvider) findVPCByName(vpcName string, config NetworkConfig) (*AWSVPCInfo, error) {
 	cmd := exec.Command("aws", "ec2", "describe-vpcs",
 		"--filters", fmt.Sprintf("Name=tag:Name,Values=%s", vpcName),
 		"--query", "Vpcs[0].VpcId",
@@ -130,10 +130,17 @@ func (aws *AWSProvider) findVPCByName(vpcName string) (*AWSVPCInfo, error) {
 	}
 
 	// Get VPC details
-	return aws.getVPCDetails(vpcID)
+	return aws.getVPCDetails(vpcName, vpcID, config)
 }
 
-func (aws *AWSProvider) getVPCDetails(vpcID string) (*AWSVPCInfo, error) {
+// getVPCDetails describes a VPC that already exists, which is what every
+// re-run after a failure finds.
+//
+// It must return either a complete description or an error. Returning a
+// half-filled one is how an empty security group id reached RunInstances,
+// where AWS refused it with "you must specify a group id for each item" -
+// several steps away from the lookup that came back with nothing.
+func (aws *AWSProvider) getVPCDetails(vpcName, vpcID string, config NetworkConfig) (*AWSVPCInfo, error) {
 	vpcInfo := &AWSVPCInfo{VPCID: vpcID}
 
 	// Get subnets
@@ -148,20 +155,65 @@ func (aws *AWSProvider) getVPCDetails(vpcID string) (*AWSVPCInfo, error) {
 		}
 	}
 
-	// Get security groups
-	cmd = exec.Command("aws", "ec2", "describe-security-groups",
+	if vpcInfo.PublicSubnetID == "" {
+		return nil, fmt.Errorf("vpc %s has no public subnet; delete it and run again, "+
+			"or pass a different name", vpcID)
+	}
+
+	// The group is looked up by the name it was created with. This used to
+	// interpolate a hardcoded "frigga-labs" instead of the actual name, so it
+	// matched nothing unless the deployment happened to be called that.
+	sgID, err := aws.ensureSecurityGroup(vpcName, vpcID, config)
+	if err != nil {
+		return nil, err
+	}
+	vpcInfo.SecurityGroupID = sgID
+
+	return vpcInfo, nil
+}
+
+// ensureSecurityGroup returns the deployment's security group, creating it if
+// it is not there.
+//
+// Creating it here matters: a run that failed after making the VPC but before
+// making the group would otherwise leave a VPC that every later run finds and
+// no run can complete.
+func (aws *AWSProvider) ensureSecurityGroup(vpcName, vpcID string, config NetworkConfig) (string, error) {
+	groupName := vpcName + "-dvarpala-sg"
+
+	cmd := exec.Command("aws", "ec2", "describe-security-groups",
 		"--filters", fmt.Sprintf("Name=vpc-id,Values=%s", vpcID),
-		fmt.Sprintf("Name=group-name,Values=%s-dvarpala-sg", "frigga-labs"),
+		fmt.Sprintf("Name=group-name,Values=%s", groupName),
 		"--query", "SecurityGroups[0].GroupId",
 		"--output", "text")
 
 	if output, err := awsOutput(cmd); err == nil {
-		if sgID := strings.TrimSpace(string(output)); sgID != "None" && sgID != "" {
-			vpcInfo.SecurityGroupID = sgID
+		if id := strings.TrimSpace(string(output)); id != "None" && id != "" {
+			return id, nil
 		}
 	}
 
-	return vpcInfo, nil
+	fmt.Printf("🔒 Creating security group: %s\n", groupName)
+	cmd = exec.Command("aws", "ec2", "create-security-group",
+		"--group-name", groupName,
+		"--description", "Security group for Dvarpala VPN server",
+		"--vpc-id", vpcID,
+		"--query", "GroupId",
+		"--output", "text")
+
+	output, err := awsOutput(cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to create security group: %v", err)
+	}
+
+	id := strings.TrimSpace(string(output))
+	if id == "" {
+		return "", fmt.Errorf("aws returned no id for security group %s", groupName)
+	}
+
+	aws.tagResource(id, groupName, "Security Group")
+	aws.addSecurityGroupRules(id, config.AllowedIPs)
+	return id, nil
 }
 
 func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWSVPCInfo, error) {
@@ -266,23 +318,14 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--subnet-id", vpcInfo.PublicSubnetID,
 		"--route-table-id", vpcInfo.RouteTableID).Run()
 
-	// Create Security Group
-	cmd = exec.Command("aws", "ec2", "create-security-group",
-		"--group-name", vpcName+"-dvarpala-sg",
-		"--description", "Security group for Dvarpala VPN server",
-		"--vpc-id", vpcInfo.VPCID,
-		"--query", "GroupId",
-		"--output", "text")
-
-	output, err = awsOutput(cmd)
+	// Create Security Group, through the same function the reuse path calls,
+	// so the name it is created with and the name it is found by cannot drift
+	// apart again.
+	sgID, err := aws.ensureSecurityGroup(vpcName, vpcInfo.VPCID, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create security group: %v", err)
+		return nil, err
 	}
-	vpcInfo.SecurityGroupID = strings.TrimSpace(string(output))
-	aws.tagResource(vpcInfo.SecurityGroupID, vpcName+"-sg", "Security Group")
-
-	// Add security group rules
-	aws.addSecurityGroupRules(vpcInfo.SecurityGroupID, config.AllowedIPs)
+	vpcInfo.SecurityGroupID = sgID
 
 	fmt.Printf("✅ VPC created successfully: %s\n", vpcInfo.VPCID)
 	return vpcInfo, nil
@@ -355,6 +398,21 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 
 	// Create minimal user data script - just basic system prep
 	userData := aws.generateMinimalUserData(config)
+
+	// Everything the launch needs, checked here rather than discovered from
+	// AWS's reply. A blank value produces "MissingParameter: when specifying a
+	// security group you must specify a group id for each item", which names
+	// neither the value that was empty nor where it should have come from.
+	for _, required := range []struct{ name, value string }{
+		{"security group", vpcInfo.SecurityGroupID},
+		{"public subnet", vpcInfo.PublicSubnetID},
+		{"key pair", keyPairName},
+		{"machine image", amiID},
+	} {
+		if strings.TrimSpace(required.value) == "" {
+			return nil, fmt.Errorf("cannot launch: no %s was found or created", required.name)
+		}
+	}
 
 	// Launch instance
 	cmd = exec.Command("aws", "ec2", "run-instances",
