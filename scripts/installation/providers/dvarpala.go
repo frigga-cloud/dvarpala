@@ -46,7 +46,15 @@ type InstallConfig struct {
 
 const (
 	defaultRepoURL = "https://github.com/frigga-cloud/dvarpala.git"
-	defaultRepoRef = "main"
+
+	// The branch the cloud installers clone.
+	//
+	// TEMPORARY: this should be "main". It points at dev/foundation because
+	// main does not yet contain scripts/install/ at all - a clone of it
+	// installs nothing and fails on a missing file. Set this back to "main"
+	// the day dev/foundation merges; it is the only place the branch is
+	// named.
+	defaultRepoRef = "dev/foundation"
 	remoteSrcDir   = "/opt/dvarpala/src"
 )
 

@@ -69,12 +69,10 @@ func (h *AdminHandler) requireAdmin(c *gin.Context) {
 		return
 	}
 
-	for _, g := range sess.Groups {
-		if g == adminGroup {
-			c.Set("session", sess)
-			c.Next()
-			return
-		}
+	if isAdmin(sess) {
+		c.Set("session", sess)
+		c.Next()
+		return
 	}
 
 	c.HTML(http.StatusForbidden, "admin.html", adminView{Page: "denied", Session: sess})

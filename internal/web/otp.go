@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -72,8 +73,21 @@ func (h *OTPHandler) send(c *gin.Context, email, state string) {
 	view := otpView{Step: "code", State: state, Email: email}
 
 	if err := h.auth.RequestCode(c.Request.Context(), email, clientIP(c)); err != nil {
-		view.Step = "email"
 		view.Error = err.Error()
+
+		// Being told to wait means a code was just sent, so the person has a
+		// working one in front of them - keep them on the step where they can
+		// type it. Only send them back to the start for errors that make a
+		// code impossible, such as the mail server refusing it.
+		//
+		// This is not hypothetical tidying. A page that submits twice, which
+		// captive-portal browsers do, sent a code on the first attempt and hit
+		// the cooldown on the second - and the second reply replaced the code
+		// form with "wait before asking for another" and an empty email box.
+		// The code was in their inbox and there was nowhere to type it.
+		if !errors.Is(err, auth.ErrTooSoon) {
+			view.Step = "email"
+		}
 	}
 	h.render(c, view)
 }

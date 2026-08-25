@@ -353,7 +353,7 @@ func (az *AzureProvider) InstallDvarpalaDirectly(instanceInfo *AzureInstanceInfo
 		name string
 		cmd  string
 	}{
-		{"Fetching Dvarpala source", "sudo apt-get update -qq && sudo apt-get install -y -qq git && sudo rm -rf /opt/dvarpala/src && sudo git clone --depth 1 https://github.com/frigga-cloud/dvarpala.git /opt/dvarpala/src"},
+		{"Fetching Dvarpala source", fmt.Sprintf("sudo apt-get update -qq && sudo apt-get install -y -qq git && sudo rm -rf /opt/dvarpala/src && sudo git clone --depth 1 --branch %s %s /opt/dvarpala/src", defaultRepoRef, defaultRepoURL)},
 		{"Installing Dvarpala", "sudo chmod +x /opt/dvarpala/src/scripts/install/install-dvarpala.sh && sudo DVARPALA_ADMIN_EMAIL='" + config.AdminEmail + "' /opt/dvarpala/src/scripts/install/install-dvarpala.sh --source /opt/dvarpala/src --host " + hostForCerts},
 	}
 

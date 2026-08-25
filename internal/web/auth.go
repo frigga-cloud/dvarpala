@@ -57,10 +57,10 @@ func (h *AuthHandler) Register(r *gin.RouterGroup) {
 
 // Portal serves the sign-in page a user sees inside the walled garden.
 //
-// The page is built from the providers this deployment actually enabled. It
-// used to offer four sign-in buttons regardless, three of which led nowhere:
-// a person inside the walled garden has no other page to try, so a button
-// that cannot work is worse there than anywhere else.
+// The page asks for an email address and nothing else. It used to offer four
+// OAuth buttons, three of which led nowhere: a person inside the walled garden
+// has no other page to try, so a button that cannot work is worse there than
+// anywhere else. See portalView for why the remaining one went too.
 func (h *AuthHandler) Portal(c *gin.Context) {
 	// Already signed in? Say so rather than asking again.
 	if sess := h.currentSession(c); sess != nil {
@@ -71,31 +71,32 @@ func (h *AuthHandler) Portal(c *gin.Context) {
 	c.HTML(http.StatusOK, "captive-portal.html", portalView(h.auth, ""))
 }
 
-// portalView describes the sign-in page: whether to show the code form, and
-// which other providers to offer alongside it.
+// portalView describes the sign-in page: whether the emailed-code form can be
+// offered, and any error to show above it.
+//
+// The portal offers one way in, an emailed code, and nothing else. It used to
+// list whichever OAuth providers were configured as well, but every one of
+// them takes the browser to a host on the public internet - which is precisely
+// what the walled garden drops. Making those work at all means punching the
+// provider's domains through the firewall before anyone has identified
+// themselves, so the single-field form is both the smaller attack surface and
+// the only one that reliably works from inside the garden.
 //
 // A package function rather than a method, because the code sign-in handler
 // also has to render the portal - when creating a login attempt fails, the
 // only honest place to send someone is back to where they started.
 func portalView(a *auth.Service, errMessage string) gin.H {
-	var (
-		otp    bool
-		others []gin.H
-	)
-
+	var otp bool
 	for _, p := range a.Providers() {
 		if p.Name() == "otp" {
 			otp = true
-			continue // the code form takes its place, rather than a button
+			break
 		}
-		others = append(others, gin.H{"name": p.Name(), "label": p.DisplayName()})
 	}
 
 	return gin.H{
-		"otp":       otp,
-		"providers": others,
-		"none":      !otp && len(others) == 0,
-		"error":     errMessage,
+		"otp":   otp,
+		"error": errMessage,
 	}
 }
 
@@ -152,6 +153,18 @@ func (h *AuthHandler) BreakGlass(c *gin.Context) {
 }
 
 // Success shows the "you're in" page.
+//
+// The tunnel address comes from the session rather than from OpenVPN's control
+// channel. A session exists under auth:<client-ip> only because the person
+// reached the portal through the tunnel and authenticated over it, so the
+// address is proof enough that the VPN is up - and reading it costs nothing,
+// where asking the management interface would put a network call with its own
+// timeout in front of every render of this page.
+//
+// The console link is shown only to administrators. A person who is not one
+// would land on a refusal, and this page is often the first thing somebody
+// sees on a new network - a button that only ever says no belongs there least
+// of all.
 func (h *AuthHandler) Success(c *gin.Context) {
 	sess := h.currentSession(c)
 	if sess == nil {
@@ -163,7 +176,20 @@ func (h *AuthHandler) Success(c *gin.Context) {
 		"username":  sess.Email,
 		"provider":  sess.Provider,
 		"timestamp": sess.IssuedAt.Format("2006-01-02 15:04:05"),
+		"expires":   sess.Expires.Format("2006-01-02 15:04:05"),
+		"client_ip": sess.ClientIP,
+		"admin":     isAdmin(sess),
 	})
+}
+
+// isAdmin reports whether a session belongs to the administrator group.
+func isAdmin(sess *auth.Session) bool {
+	for _, g := range sess.Groups {
+		if g == adminGroup {
+			return true
+		}
+	}
+	return false
 }
 
 // Failure shows the error page.

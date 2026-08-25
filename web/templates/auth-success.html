@@ -6,8 +6,9 @@
     <title>Signed in to Dvarpala</title>
     <link rel="stylesheet" href="/static/css/portal.css">
 </head>
-<body>
+<body class="state-ok">
 <div class="shell">
+  <div class="glass">
 
     <div class="brand">
         <div class="mark">&#128737;</div>
@@ -16,12 +17,21 @@
     </div>
 
     <div class="card">
-        <div class="alert alert-ok">You are signed in. The network is open to you.</div>
+        <div class="status">
+            <span class="dot"></span>
+            VPN connected
+            {{if .client_ip}}<span class="addr">{{.client_ip}}</span>{{end}}
+        </div>
 
         <h2>Welcome, {{.username}}</h2>
-        <p class="lede">Your access lasts until you disconnect from the VPN.
-           Only the resources granted to you are reachable &mdash; everything
-           else stays closed.</p>
+        <p class="lede">You are signed in and the tunnel is up. Only the
+           resources granted to you are reachable &mdash; everything else stays
+           closed, and access ends when you disconnect.</p>
+
+        {{if .admin}}
+        <a class="btn" href="/admin">Open the admin console</a>
+        {{end}}
+        <a class="btn btn-secondary" href="/auth/logout">Sign out</a>
 
         <div class="note">
             If a resource still will not open, disconnect and reconnect once.
@@ -31,13 +41,13 @@
         <div class="meta">
             <strong>Signed in as</strong> {{.username}}<br>
             <strong>Method</strong> {{.provider}}<br>
-            <strong>At</strong> {{.timestamp}}
+            <strong>Since</strong> {{.timestamp}}<br>
+            <strong>Access until</strong> {{.expires}}
         </div>
-
-        <a class="btn btn-secondary" href="/auth/logout">Sign out</a>
     </div>
 
     <p class="foot">Secured by Dvarpala</p>
+  </div>
 </div>
 </body>
 </html>

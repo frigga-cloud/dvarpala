@@ -37,6 +37,7 @@ func main() {
 	rootCmd.AddCommand(mailCmd())
 	rootCmd.AddCommand(auditCmd())
 	rootCmd.AddCommand(sessionCmd())
+	rootCmd.AddCommand(checkCmd())
 	rootCmd.AddCommand(adminCmd())
 
 	if err := rootCmd.Execute(); err != nil {

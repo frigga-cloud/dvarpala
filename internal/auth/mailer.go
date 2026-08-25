@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -324,4 +325,50 @@ func (LogMailer) Guard(serverMode string) error {
 		return fmt.Errorf("log mailer refused: server.mode is %q, expected %q", serverMode, "debug")
 	}
 	return nil
+}
+
+// SMTPProbe checks mail credentials without sending anything.
+//
+// It exists for the installation check: proving that mail will work should not
+// require putting a message in somebody's inbox, and an operator running a
+// health check repeatedly should not be mailing themselves each time.
+type SMTPProbe struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+}
+
+// Probe connects, secures the connection, authenticates, and hangs up.
+func (p *SMTPProbe) Probe() error {
+	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
+
+	conn, err := net.DialTimeout("tcp", addr, 8*time.Second)
+	if err != nil {
+		return fmt.Errorf("connecting to %s: %w", addr, err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+
+	c, err := smtp.NewClient(conn, p.Host)
+	if err != nil {
+		return fmt.Errorf("greeting from %s: %w", addr, err)
+	}
+	defer c.Close()
+
+	// Credentials must not cross the wire in the clear, and Go's SMTP client
+	// refuses plain authentication on an unsecured connection anyway.
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err := c.StartTLS(&tls.Config{ServerName: p.Host}); err != nil {
+			return fmt.Errorf("securing the connection: %w", err)
+		}
+	}
+
+	if p.Username != "" {
+		if err := c.Auth(smtp.PlainAuth("", p.Username, p.Password, p.Host)); err != nil {
+			return err
+		}
+	}
+
+	return c.Quit()
 }

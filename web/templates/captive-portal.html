@@ -8,6 +8,7 @@
 </head>
 <body>
 <div class="shell">
+  <div class="glass">
 
     <div class="brand">
         <div class="mark">&#128737;</div>
@@ -29,19 +30,11 @@
                    placeholder="you@company.com" required autofocus>
             <button type="submit">Email me a sign-in code</button>
         </form>
-        {{end}}
-
-        {{if .providers}}
-            {{if .otp}}<div class="divider">or</div>{{end}}
-            {{range .providers}}
-            <a class="btn btn-secondary" href="/auth/{{.name}}">{{.label}}</a>
-            {{end}}
-        {{end}}
-
-        {{if .none}}
+        {{else}}
         <div class="alert alert-error">
-            No sign-in method is enabled on this server, so nobody can
-            authenticate. An administrator needs to configure one.
+            Sign-in by emailed code is not configured on this server, so nobody
+            can authenticate. An administrator needs to set up the mail
+            settings before this page can let anyone through.
         </div>
         {{end}}
 
@@ -52,6 +45,7 @@
     </div>
 
     <p class="foot">Secured by Dvarpala</p>
+  </div>
 </div>
 
 <script src="/static/js/captive-portal.js"></script>

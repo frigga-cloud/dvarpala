@@ -8,6 +8,7 @@
 </head>
 <body>
 <div class="shell">
+  <div class="glass">
 
     <div class="brand">
         <div class="mark">&#128737;</div>
@@ -38,8 +39,7 @@
                 <form method="POST" action="/otp/request" style="display:inline">
                     <input type="hidden" name="state" value="{{.state}}">
                     <input type="hidden" name="email" value="{{.email}}">
-                    <button type="submit" class="linkish">send another code</button>
-                </form>.
+                    <button type="submit" class="linkish">send another code</button></form>.
                 One code per minute.
             </div>
         {{else}}
@@ -57,6 +57,7 @@
     </div>
 
     <p class="foot">Secured by Dvarpala</p>
+  </div>
 </div>
 </body>
 </html>

@@ -4,6 +4,10 @@
  * shown to people inside the walled garden, where by design nothing else on
  * the internet is reachable yet - a stylesheet from elsewhere would simply
  * never arrive, and the first thing a new user saw would be a broken page.
+ *
+ * That constraint is why the glass-and-gradient treatment below is written by
+ * hand rather than pulled from Tailwind: the look is the one the portal has
+ * always had, but every byte of it ships from this server.
  */
 
 :root {
@@ -16,7 +20,27 @@
     --danger-bg:  #fdeceb;
     --ok:         #166534;
     --ok-bg:      #dcfce7;
+
+    --glass:      rgba(255, 255, 255, .12);
+    --glass-line: rgba(255, 255, 255, .22);
+
+    /* The backdrop, as three stops. Indigo is the resting state: the sign-in
+     * page, and anything that has not yet gone one way or the other. */
+    --wash-1: #4338ca;
+    --wash-2: #6d28d9;
+    --wash-3: #0891b2;
+    --lift:   rgba(67, 56, 202, .28);
 }
+
+/* An outcome is legible before a word of the page is read, which on a captive
+ * portal matters: these are often glanced at through a system pop-up that is
+ * dismissed a second later. */
+body.state-ok   { --wash-1: #10b981; --wash-2: #059669; --wash-3: #047857;
+                  --accent: #059669; --accent-dim: #047857;
+                  --lift: rgba(5, 150, 105, .3); }
+body.state-bad  { --wash-1: #ef4444; --wash-2: #dc2626; --wash-3: #b91c1c;
+                  --accent: #dc2626; --accent-dim: #b91c1c;
+                  --lift: rgba(220, 38, 38, .3); }
 
 * { box-sizing: border-box; }
 
@@ -30,39 +54,88 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                  "Helvetica Neue", Arial, sans-serif;
     color: var(--ink);
-    background: linear-gradient(135deg, #4338ca 0%, #6d28d9 50%, #0891b2 100%);
+
+    /* The drifting gradient, with a faint grid laid over it. The grid is two
+     * repeating gradients rather than an SVG so that it costs no request. */
+    background-color: var(--wash-1);
+    background-image:
+        repeating-linear-gradient(0deg,  rgba(255,255,255,.05) 0 1px, transparent 1px 44px),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 44px),
+        linear-gradient(135deg, var(--wash-1) 0%, var(--wash-2) 50%, var(--wash-3) 100%);
+    background-size: auto, auto, 400% 400%;
+    background-attachment: fixed;
+    animation: drift 18s ease infinite;
 }
 
-.shell { width: 100%; max-width: 420px; }
+@keyframes drift {
+    0%   { background-position: 0 0, 0 0, 0% 50%; }
+    50%  { background-position: 0 0, 0 0, 100% 50%; }
+    100% { background-position: 0 0, 0 0, 0% 50%; }
+}
 
-.brand { text-align: center; margin-bottom: 22px; }
+@keyframes rise {
+    from { opacity: 0; transform: translateY(22px); }
+    to   { opacity: 1; transform: none; }
+}
+
+@keyframes breathe {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .35; }
+}
+
+.shell {
+    width: 100%;
+    max-width: 430px;
+    animation: rise .5s ease-out both;
+}
+
+/* The frosted panel the whole portal sits on. */
+.glass {
+    padding: 26px 22px 20px;
+    border-radius: 26px;
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .28);
+}
+
+.brand { text-align: center; margin-bottom: 20px; }
 .brand .mark {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 56px; height: 56px; margin-bottom: 12px;
-    border-radius: 50%; background: rgba(255, 255, 255, .18);
-    font-size: 26px;
+    width: 58px; height: 58px; margin-bottom: 12px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .2);
+    border: 1px solid rgba(255, 255, 255, .28);
+    font-size: 27px; line-height: 1;
 }
-.brand h1 { margin: 0; font-size: 26px; color: #fff; letter-spacing: -.5px; }
-.brand p  { margin: 4px 0 0; font-size: 13px; color: rgba(255, 255, 255, .78); }
+.brand h1 { margin: 0; font-size: 27px; color: #fff; letter-spacing: -.6px; }
+.brand p  { margin: 5px 0 0; font-size: 13px; color: rgba(255, 255, 255, .8); }
 
 .card {
     background: #fff;
-    border-radius: 16px;
+    border-radius: 18px;
     padding: 28px;
-    box-shadow: 0 20px 45px rgba(0, 0, 0, .22);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .14);
+    animation: rise .55s ease-out .08s both;
 }
 
-.card h2 { margin: 0 0 6px; font-size: 19px; }
-.card .lede { margin: 0 0 20px; font-size: 14px; line-height: 1.5; color: var(--ink-soft); }
+.card h2 { margin: 0 0 6px; font-size: 19px; letter-spacing: -.2px; }
+.card .lede { margin: 0 0 20px; font-size: 14px; line-height: 1.55; color: var(--ink-soft); }
 
 label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 
 input[type="email"], input[type="text"] {
-    width: 100%; padding: 11px 12px; font-size: 15px;
-    border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    width: 100%; padding: 12px; font-size: 15px;
+    border: 1px solid var(--line); border-radius: 10px; background: #fff;
     color: var(--ink);
+    transition: border-color .15s ease, box-shadow .15s ease;
 }
-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+input[type="email"]:focus, input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--lift);
+}
 
 input.code {
     letter-spacing: 10px; text-align: center; font-size: 24px;
@@ -73,18 +146,29 @@ button, .btn {
     display: flex; align-items: center; justify-content: center; gap: 8px;
     width: 100%; margin-top: 14px; padding: 12px;
     font-size: 15px; font-weight: 600; font-family: inherit;
-    border: 0; border-radius: 8px; cursor: pointer;
+    border: 0; border-radius: 10px; cursor: pointer;
     color: #fff; background: var(--accent);
     text-decoration: none;
+    transition: background .2s ease, transform .2s ease, box-shadow .2s ease;
 }
-button:hover, .btn:hover { background: var(--accent-dim); }
-button:disabled { opacity: .55; cursor: not-allowed; }
+button:hover, .btn:hover {
+    background: var(--accent-dim);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px var(--lift);
+}
+button:focus-visible, .btn:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+button:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
 
 .btn-secondary {
     background: #fff; color: var(--ink);
     border: 1px solid var(--line);
 }
-.btn-secondary:hover { background: #f6f7f9; }
+.btn-secondary:hover {
+    background: #f6f7f9; color: var(--ink);
+    box-shadow: 0 10px 22px rgba(16, 19, 26, .12);
+}
 
 .divider {
     display: flex; align-items: center; gap: 12px;
@@ -94,14 +178,34 @@ button:disabled { opacity: .55; cursor: not-allowed; }
     content: ""; flex: 1; height: 1px; background: var(--line);
 }
 
+/* Live tunnel state. Shown once somebody is signed in, because until then
+ * the only thing worth saying is that they are not. */
+.status {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 16px; padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--ok-bg); border: 1px solid #bbf7d0;
+    font-size: 13px; font-weight: 600; color: var(--ok);
+}
+.status .dot {
+    flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%;
+    background: #16a34a;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, .18);
+    animation: breathe 2.4s ease-in-out infinite;
+}
+.status .addr {
+    margin-left: auto; font-weight: 500; font-size: 12px;
+    font-variant-numeric: tabular-nums; color: #15803d;
+}
+
 .note {
-    margin-top: 20px; padding: 12px 14px; border-radius: 8px;
+    margin-top: 20px; padding: 12px 14px; border-radius: 10px;
     font-size: 13px; line-height: 1.5;
     background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
 }
 
 .alert {
-    padding: 11px 13px; border-radius: 8px; font-size: 13px;
+    padding: 11px 13px; border-radius: 10px; font-size: 13px;
     line-height: 1.45; margin-bottom: 16px;
 }
 .alert-error { background: var(--danger-bg); color: var(--danger); }
@@ -113,12 +217,26 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 }
 .meta strong { color: var(--ink); font-weight: 600; }
 
-.foot { text-align: center; margin-top: 18px; font-size: 12px; color: rgba(255, 255, 255, .7); }
-.foot a { color: rgba(255, 255, 255, .9); }
+.foot { text-align: center; margin-top: 16px; font-size: 12px; color: rgba(255, 255, 255, .72); }
+.foot a { color: rgba(255, 255, 255, .92); }
 
 .linkish {
     display: inline; width: auto; margin: 0; padding: 0;
     background: none; border: 0; color: var(--accent);
     font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: underline;
+    transition: none;
 }
-.linkish:hover { background: none; color: var(--accent-dim); }
+.linkish:hover {
+    background: none; color: var(--accent-dim);
+    transform: none; box-shadow: none;
+}
+
+/* Captive-portal browsers and anyone who has asked for less movement get the
+ * same layout without the animation. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+    button:hover, .btn:hover { transform: none; }
+}
