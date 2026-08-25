@@ -175,4 +175,9 @@ func (d *Dvarpala) setupRoutes() {
 	// Web routes
 	webGroup := d.router.Group("")
 	web.SetupRoutes(webGroup, d.auth, d.services, d.config)
+
+	// Anything else is answered by the portal. Clients inside the walled
+	// garden have their web requests redirected here whatever they asked for,
+	// so the paths that arrive are whatever they happened to be opening.
+	d.router.NoRoute(web.NotFound(d.auth))
 }
