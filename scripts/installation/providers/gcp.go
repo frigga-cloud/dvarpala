@@ -157,7 +157,10 @@ func (gcp *GCPProvider) createNewVPC(vpcName string, config NetworkConfig) (*GCP
 	firewallName := vpcName + "-allow-dvarpala"
 	cmd = exec.Command("gcloud", "compute", "firewall-rules", "create", firewallName,
 		"--network", vpcName,
-		"--allow", "tcp:22,tcp:8080,tcp:443,udp:1194",
+		// SSH and the VPN only. The portal listens on 8080 but is reached
+		// through the tunnel, so it needs no path from the internet, and
+		// nothing listens on 443.
+		"--allow", "tcp:22,udp:1194",
 		"--source-ranges", "0.0.0.0/0",
 		"--description=Allow dvarpala VPN and web access")
 

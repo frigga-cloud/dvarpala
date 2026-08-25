@@ -193,10 +193,13 @@ func (az *AzureProvider) addSecurityRules(resourceGroup, nsgName string) {
 		port     string
 		protocol string
 	}{
+		// Only these two. The portal listens on 8080 but is reached from
+		// inside the tunnel, so it never crosses this boundary - opening it
+		// published the sign-in page, the emergency-access endpoint and the
+		// administration console to anyone who found the address. Nothing
+		// listens on 443 at all.
 		{"SSH", 1000, "22", "Tcp"},
 		{"OpenVPN", 1001, "1194", "Udp"},
-		{"DvarpalaWeb", 1002, "8080", "Tcp"},
-		{"HTTPS", 1003, "443", "Tcp"},
 	}
 
 	for _, rule := range rules {

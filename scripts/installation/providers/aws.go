@@ -3,6 +3,7 @@ package providers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +19,18 @@ import (
 // status 254" - a number that says a client error occurred and nothing about
 // which one, leaving an operator with no way to tell an unavailable instance
 // type from a missing permission from a bad subnet.
+// exitCode returns the status a failed command exited with, or -1 when the
+// failure was something else - the command not being found, or the connection
+// dropping. Distinguishing those matters: an installer that reports "needs
+// configuring" is not one that crashed.
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
 func awsOutput(cmd *exec.Cmd) ([]byte, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -331,33 +344,31 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 	return vpcInfo, nil
 }
 
+// addSecurityGroupRules opens the two ports a Dvarpala server needs, and no
+// others.
+//
+// The portal is deliberately absent. It listens on 8080, but only ever needs
+// reaching from inside the tunnel, at 172.30.100.1 - which arrives on tun0
+// and never crosses the security group at all. Opening 8080 to the internet
+// published the sign-in page to anyone who found the address: the form that
+// sends codes to real employees, the endpoint that redeems emergency access
+// links, and the administration console. None of that is a way in on its own,
+// and none of it should be reachable from outside either.
+//
+// Port 443 is absent for a simpler reason: nothing listens on it.
 func (aws *AWSProvider) addSecurityGroupRules(sgID string, allowedIPs []string) {
-	// SSH access (restricted after installation)
+	// SSH, for installing and administering the machine.
 	exec.Command("aws", "ec2", "authorize-security-group-ingress",
 		"--group-id", sgID,
 		"--protocol", "tcp",
 		"--port", "22",
 		"--cidr", "0.0.0.0/0").Run()
 
-	// OpenVPN port
+	// The VPN itself. This is how a client reaches everything else.
 	exec.Command("aws", "ec2", "authorize-security-group-ingress",
 		"--group-id", sgID,
 		"--protocol", "udp",
 		"--port", "1194",
-		"--cidr", "0.0.0.0/0").Run()
-
-	// Dvarpala web interface
-	exec.Command("aws", "ec2", "authorize-security-group-ingress",
-		"--group-id", sgID,
-		"--protocol", "tcp",
-		"--port", "8080",
-		"--cidr", "0.0.0.0/0").Run()
-
-	// HTTPS for Let's Encrypt (optional)
-	exec.Command("aws", "ec2", "authorize-security-group-ingress",
-		"--group-id", sgID,
-		"--protocol", "tcp",
-		"--port", "443",
 		"--cidr", "0.0.0.0/0").Run()
 }
 
@@ -539,10 +550,21 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 		{"Installing Dvarpala", "sudo chmod +x /opt/dvarpala/src/scripts/install/install-dvarpala.sh && sudo DVARPALA_ADMIN_EMAIL='" + config.AdminEmail + "' /opt/dvarpala/src/scripts/install/install-dvarpala.sh --source /opt/dvarpala/src --host " + hostForCerts},
 	}
 
+	needsSignIn := false
+
 	for i, step := range steps {
 		fmt.Printf("📦 Step %d/%d: %s\n", i+1, len(steps), step.name)
 
 		if err := aws.executeSSHCommand(instanceInfo.PublicIP, step.cmd, keyPath); err != nil {
+			// Exit 2 from the installer means the machine is built and every
+			// service is running, and only a sign-in method is still to be
+			// chosen. Treating that as a failure reported a working system as
+			// a crash, over output that had a tick against all fifteen steps.
+			if exitCode(err) == 2 {
+				fmt.Printf("⚠️  %s completed, but no sign-in method is configured yet\n", step.name)
+				needsSignIn = true
+				continue
+			}
 			return fmt.Errorf("failed at step '%s': %v", step.name, err)
 		}
 
@@ -560,6 +582,21 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 		fmt.Printf("⚠️  Could not retrieve admin.ovpn: %v\n", err)
 		fmt.Printf("   Fetch it later with:\n     scp -i %s ubuntu@%s:/tmp/admin.ovpn .\n",
 			keyPath, instanceInfo.PublicIP)
+	}
+
+	if needsSignIn {
+		// Said plainly, because a machine nobody can sign in to is not
+		// finished, and the profile just fetched cannot be used until it is.
+		fmt.Println()
+		fmt.Println("⚠️  Dvarpala is installed and running, but NOBODY CAN SIGN IN YET.")
+		fmt.Println("   Anyone who connects reaches the sign-in page and nothing else.")
+		fmt.Println()
+		fmt.Println("   Configure a sign-in method on the server:")
+		fmt.Println("     sudo nano /opt/dvarpala/config/environment.yaml   # auth.otp + auth.smtp")
+		fmt.Println("     sudo systemctl edit dvarpala                      # AUTH_SMTP_PASSWORD")
+		fmt.Println("     sudo systemctl restart dvarpala")
+		fmt.Println("     dvarpala-cli mail test you@your-domain")
+		return nil
 	}
 
 	fmt.Println("🎉 Dvarpala installation completed successfully!")
