@@ -429,10 +429,13 @@ tls-crypt $CERT_DIR/ta.key
 server ${VPN_SUBNET%/*} 255.255.255.0
 topology subnet
 
-# The connect hook pushes the default route to every client, signed in or
-# not, so that all of their traffic arrives here to be judged. This route is
-# the fallback for a client that declines the default route for reasons of
-# its own: it can still reach the sign-in page.
+# The connect hook decides each client's routes, and gives it one of two
+# shapes: the default route while it is unidentified, so that everything it
+# sends arrives here to be judged, and only the company's addresses once it
+# has signed in, so that nobody's personal traffic is carried.
+#
+# This route is the fallback for a client that declines the default route for
+# reasons of its own: it can still reach the sign-in page.
 push "route $PORTAL_IP 255.255.255.255"
 
 script-security 3

@@ -27,24 +27,46 @@ mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 
-# tunnel_everything is what every client gets, signed in or not.
+# A client is given one of two shapes, and which one is the whole design.
 #
-# The default route is taken deliberately, and this is the whole reason the
-# walled garden is a restriction rather than a suggestion. Withholding a route
-# is not a denial: a laptop that is not told to send something through the
-# tunnel sends it over its own wifi instead, where this server never sees it
-# and cannot refuse it. Taking the default route means every packet arrives
-# here to be judged.
+#   before signing in   the default route, so we carry everything
+#   after signing in    only the routes to what that person may reach
 #
-# DNS goes with it. Once we carry all of a client's traffic, one with no
-# resolver cannot look anything up at all - including the sign-in page it is
-# being sent to.
+# walled_garden is the first. The default route is taken deliberately, and it
+# is the reason the walled garden is a restriction rather than a suggestion.
+# Withholding a route is not a denial: a laptop not told to send something
+# through the tunnel sends it over its own wifi instead, where this server
+# never sees it and cannot refuse it. Taking the default route means every
+# packet arrives here to be judged - and, for a web request, to be answered
+# with the sign-in page.
 #
-# The explicit portal route is redundant while the default route is in place,
-# and is kept as the thing that still works if a client refuses the default
-# route for its own reasons.
-tunnel_everything() {
+# DNS goes with it, because a client whose traffic we are carrying and which
+# has no resolver cannot look anything up at all, including the sign-in page
+# it is being sent to.
+#
+# The explicit portal route is redundant while the default route is in place.
+# It is what still works if a client declines the default route for reasons of
+# its own.
+walled_garden() {
     echo 'push "redirect-gateway def1 bypass-dhcp"'
+    echo "push \"route $PORTAL_IP 255.255.255.255\""
+    echo "push \"dhcp-option DNS $DNS\""
+}
+
+# work_only is the second shape: the company's addresses through the tunnel,
+# everything else left alone.
+#
+# Note what is absent - redirect-gateway. Signing in gives this person their
+# own network back. Their personal traffic never touches this server, which is
+# what makes this a tool for reaching work rather than a tap on everything
+# they do.
+#
+# This is only safe because of the order it happens in. A client holds the
+# default route from the moment it connects until the moment it authenticates,
+# so there is no window in which it is both unidentified and free to go where
+# it likes. Dvarpala forces the reconnect that applies this the instant a
+# sign-in completes.
+work_only() {
     echo "push \"route $PORTAL_IP 255.255.255.255\""
     echo "push \"dhcp-option DNS $DNS\""
 }
@@ -56,7 +78,7 @@ log "connect: cn=$CN tunnel_ip=$CLIENT_IP real_ip=${trusted_ip:-?}"
 
 if [[ -z "$CLIENT_IP" ]]; then
     log "  no tunnel IP supplied by OpenVPN; granting captive portal only"
-    tunnel_everything > "$CONFIG_FILE"
+    walled_garden > "$CONFIG_FILE"
     exit 0
 fi
 
@@ -73,7 +95,7 @@ if [[ $CURL_STATUS -ne 0 || -z "$RESPONSE" ]]; then
     # management server is down.
     log "  ERROR: could not reach Dvarpala at $API (curl exit $CURL_STATUS)"
     log "  failing closed: captive portal only"
-    tunnel_everything > "$CONFIG_FILE"
+    walled_garden > "$CONFIG_FILE"
     exit 0
 fi
 
@@ -85,17 +107,16 @@ if [[ "$AUTHENTICATED" != "true" ]]; then
         'import json,sys; print(json.load(sys.stdin).get("reason",""))' 2>/dev/null)
     log "  not authenticated: $REASON"
     log "  granting captive portal only"
-    tunnel_everything > "$CONFIG_FILE"
+    walled_garden > "$CONFIG_FILE"
     exit 0
 fi
 
 EMAIL=$(echo "$RESPONSE" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("email",""))' 2>/dev/null)
 
-# Still a full tunnel after signing in, so every packet is still judged here.
-# What authentication changes is what the firewall will pass, not whether the
-# traffic reaches it.
-tunnel_everything > "$CONFIG_FILE"
+# Signed in: the default route goes away and only the company's addresses are
+# carried from here on.
+work_only > "$CONFIG_FILE"
 
 COUNT=0
 while IFS=$'\t' read -r network netmask resource; do
