@@ -8,14 +8,22 @@
 #
 # Design
 # ------
-# One ipset holds the tunnel IPs of authenticated clients. Everything arriving
-# on a tun interface passes through one chain:
+# One ipset holds (client, destination) pairs: who may reach what. Everything
+# arriving on a tun interface passes through one chain:
 #
-#   authenticated source        -> ACCEPT   (their routes decide reachability)
-#   destined for the portal     -> ACCEPT
-#   DNS                         -> ACCEPT   (needed to resolve the OAuth hosts)
-#   destined for an OAuth host  -> ACCEPT   (so people can actually sign in)
-#   anything else               -> DROP
+#   client -> a destination granted to them  -> ACCEPT
+#   destined for the portal                  -> ACCEPT
+#   DNS                                      -> ACCEPT   (to resolve at all)
+#   destined for an OAuth host               -> ACCEPT   (so people can sign in)
+#   anything else                            -> DROP
+#
+# Note what is absent: there is no rule that accepts traffic merely because it
+# comes from somebody who has signed in. Authentication decides whether you
+# have any destinations at all; it does not decide where you may go. That is
+# the difference between a VPN with a login page and Zero Trust, and it used
+# to be the other way round here - one rule accepted everything from an
+# authenticated source, leaving the routes as the only thing keeping anybody
+# to their own resources. Routes are a suggestion. This is not.
 #
 # Why an ipset rather than per-client rules:
 #
@@ -28,8 +36,8 @@
 #
 # Usage:
 #   dvarpala-firewall.sh setup            create chains, sets and base rules
-#   dvarpala-firewall.sh allow   <ip>     promote a client (authenticated)
-#   dvarpala-firewall.sh revoke  <ip>     demote a client
+#   dvarpala-firewall.sh allow <ip> <dst>...  grant a client its destinations
+#   dvarpala-firewall.sh revoke <ip>          remove everything a client holds
 #   dvarpala-firewall.sh status           show rules, sets and counters
 
 set -uo pipefail
@@ -39,7 +47,7 @@ VPN_SUBNET="${DVARPALA_VPN_SUBNET:-172.30.100.0/24}"
 WAN_IF="${DVARPALA_WAN_IF:-$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')}"
 
 CHAIN="DVARPALA"
-AUTH_SET="dvarpala_auth"
+ACCESS_SET="dvarpala_access"
 OAUTH_SET="dvarpala_oauth"
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -80,8 +88,12 @@ setup() {
     echo "  wan iface:  ${WAN_IF:-<none found>}"
 
     # Sets. Created empty; membership changes as clients authenticate.
-    ipset create "$AUTH_SET"  hash:ip  -exist
-    ipset create "$OAUTH_SET" hash:net -exist
+    # hash:net,net stores a source and a destination together, so one rule and
+    # one lookup answer "may this client reach that host" however many clients
+    # and resources exist. It takes plain addresses as well as ranges, so a
+    # resource may be a single host or a whole subnet.
+    ipset create "$ACCESS_SET" hash:net,net -exist
+    ipset create "$OAUTH_SET"  hash:net   -exist
     ipset flush "$OAUTH_SET"
     while read -r cidr; do
         [[ -n "$cidr" ]] && ipset add "$OAUTH_SET" "$cidr" -exist
@@ -94,9 +106,9 @@ setup() {
     # Established traffic first: replies to permitted requests must return.
     iptables -A "$CHAIN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 
-    # Authenticated clients: allowed onward. What they can actually reach is
-    # governed by the routes their client-connect hook pushed.
-    iptables -A "$CHAIN" -m set --match-set "$AUTH_SET" src -j ACCEPT
+    # Granted destinations, per client. Nothing else about being signed in
+    # opens anything.
+    iptables -A "$CHAIN" -m set --match-set "$ACCESS_SET" src,dst -j ACCEPT
 
     # The walled garden, for everyone else.
     iptables -A "$CHAIN" -d "$PORTAL_IP" -j ACCEPT
@@ -120,36 +132,64 @@ setup() {
 
     sysctl -qw net.ipv4.ip_forward=1
 
-    echo "  done. unauthenticated clients can reach the portal, DNS and OAuth only."
+    echo "  done. everyone reaches the portal, DNS and OAuth; anything more"
+    echo "  must be granted per client."
 }
 
+# allow grants one client the destinations it is entitled to.
+#
+# Called with every destination at once rather than one per invocation: a
+# client is granted its whole set in a single step, so there is no window in
+# which it holds half of them.
 allow() {
     require_root
-    local ip="${1:-}"; [[ -n "$ip" ]] || die "usage: $0 allow <ip>"
-    ipset add "$AUTH_SET" "$ip" -exist || die "could not add $ip"
-    echo "allowed $ip"
+    local ip="${1:-}"; [[ -n "$ip" ]] || die "usage: $0 allow <client-ip> <destination>..."
+    shift
+    [[ $# -gt 0 ]] || die "usage: $0 allow <client-ip> <destination>..."
+
+    local granted=0 dest
+    for dest in "$@"; do
+        if ipset add "$ACCESS_SET" "$ip,$dest" -exist; then
+            granted=$((granted + 1))
+        fi
+    done
+
+    echo "allowed $ip to reach $granted destination(s)"
 }
 
+# revoke removes every destination a client holds.
+#
+# ipset cannot delete by a partial key, so the client's entries are found and
+# removed individually. Missing this would leave a disconnected client's
+# grants in place for whoever is given that tunnel address next.
 revoke() {
     require_root
     local ip="${1:-}"; [[ -n "$ip" ]] || die "usage: $0 revoke <ip>"
-    ipset del "$AUTH_SET" "$ip" -exist 2>/dev/null
+
+    local removed=0 member
+    while read -r member; do
+        [[ -n "$member" ]] || continue
+        ipset del "$ACCESS_SET" "$member" -exist 2>/dev/null && removed=$((removed + 1))
+    done < <(ipset list "$ACCESS_SET" 2>/dev/null |
+             sed -n '/^Members:/,$p' | tail -n +2 |
+             awk -v c="$ip" -F, '$1 == c {print $0}')
+
     # Drop existing flows, or an open connection would survive revocation.
     command -v conntrack >/dev/null && conntrack -D -s "$ip" >/dev/null 2>&1
-    echo "revoked $ip"
+    echo "revoked $ip ($removed destination(s))"
 }
 
 status() {
-    echo "── authenticated clients ──"
-    ipset list "$AUTH_SET" 2>/dev/null | sed -n '/Members/,$p' | tail -n +2 | sed 's/^/  /'
+    echo "── who may reach what (client,destination) ──"
+    ipset list "$ACCESS_SET" 2>/dev/null | sed -n '/Members/,$p' | tail -n +2 | sed 's/^/  /'
     echo "── chain (packets/bytes) ──"
     iptables -L "$CHAIN" -v -n --line-numbers 2>/dev/null | sed 's/^/  /'
 }
 
 case "${1:-}" in
     setup)  setup ;;
-    allow)  allow "${2:-}" ;;
+    allow)  shift; allow "$@" ;;
     revoke) revoke "${2:-}" ;;
     status) status ;;
-    *) echo "usage: $0 {setup|allow <ip>|revoke <ip>|status}"; exit 1 ;;
+    *) echo "usage: $0 {setup|allow <client-ip> <destination>...|revoke <ip>|status}"; exit 1 ;;
 esac

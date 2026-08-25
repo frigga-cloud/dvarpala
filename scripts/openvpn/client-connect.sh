@@ -25,6 +25,23 @@ mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 
+# walled_garden is what a client gets before it has proved anything.
+#
+# It takes the default route deliberately. Withholding routes is not a denial:
+# a phone with its own wifi simply sends everything that way instead, never
+# through the tunnel, so the firewall never sees it and cannot refuse it. That
+# is not a walled garden, it is an unlocked door nobody was told about. Taking
+# the default route means every packet arrives here to be judged.
+#
+# DNS goes with it. Once we carry all their traffic, a client with no resolver
+# cannot look anything up at all - including the sign-in page it is being sent
+# to.
+walled_garden() {
+    echo 'push "redirect-gateway def1 bypass-dhcp"'
+    echo 'push "route 172.30.100.1 255.255.255.255"'
+    echo 'push "dhcp-option DNS 8.8.8.8"'
+}
+
 CLIENT_IP="${ifconfig_pool_remote_ip:-}"
 CN="${common_name:-unknown}"
 
@@ -32,7 +49,7 @@ log "connect: cn=$CN tunnel_ip=$CLIENT_IP real_ip=${trusted_ip:-?}"
 
 if [[ -z "$CLIENT_IP" ]]; then
     log "  no tunnel IP supplied by OpenVPN; granting captive portal only"
-    echo 'push "route 172.30.100.1 255.255.255.255"' > "$CONFIG_FILE"
+    walled_garden > "$CONFIG_FILE"
     exit 0
 fi
 
@@ -49,7 +66,7 @@ if [[ $CURL_STATUS -ne 0 || -z "$RESPONSE" ]]; then
     # management server is down.
     log "  ERROR: could not reach Dvarpala at $API (curl exit $CURL_STATUS)"
     log "  failing closed: captive portal only"
-    echo 'push "route 172.30.100.1 255.255.255.255"' > "$CONFIG_FILE"
+    walled_garden > "$CONFIG_FILE"
     exit 0
 fi
 
@@ -61,19 +78,27 @@ if [[ "$AUTHENTICATED" != "true" ]]; then
         'import json,sys; print(json.load(sys.stdin).get("reason",""))' 2>/dev/null)
     log "  not authenticated: $REASON"
     log "  granting captive portal only"
-    echo 'push "route 172.30.100.1 255.255.255.255"' > "$CONFIG_FILE"
+    walled_garden > "$CONFIG_FILE"
     exit 0
 fi
 
 EMAIL=$(echo "$RESPONSE" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("email",""))' 2>/dev/null)
 
-# Write one push line per route the user is entitled to.
+# Still a full tunnel, so everything is still judged here. What changes on
+# authentication is which destinations the firewall will pass, not whether the
+# traffic reaches it.
 : > "$CONFIG_FILE"
+echo 'push "redirect-gateway def1 bypass-dhcp"' >> "$CONFIG_FILE"
+echo 'push "route 172.30.100.1 255.255.255.255"' >> "$CONFIG_FILE"
+echo 'push "dhcp-option DNS 8.8.8.8"' >> "$CONFIG_FILE"
+
 COUNT=0
+DESTINATIONS=()
 while IFS=$'\t' read -r network netmask resource; do
     [[ -z "$network" ]] && continue
     echo "push \"route $network $netmask\"" >> "$CONFIG_FILE"
+    DESTINATIONS+=("$network")
     log "  route $network $netmask  ($resource)"
     COUNT=$((COUNT + 1))
 done < <(echo "$RESPONSE" | python3 -c '
@@ -82,16 +107,16 @@ for r in json.load(sys.stdin).get("routes", []):
     print("\t".join([r["network"], r["netmask"], r.get("resource", "")]))
 ' 2>/dev/null)
 
-# DNS, so the routed names resolve.
-echo 'push "dhcp-option DNS 8.8.8.8"' >> "$CONFIG_FILE"
-
-# Routes alone are only half of it: the firewall must also stop dropping this
-# client's traffic.
+# The routes tell the client where to send packets; this decides which of them
+# are forwarded. Only the destinations this person was granted are opened -
+# signing in on its own opens nothing.
 if [[ -x "$FIREWALL" ]]; then
-    if "$FIREWALL" allow "$CLIENT_IP" >/dev/null 2>&1; then
-        log "  firewall: $CLIENT_IP promoted out of the walled garden"
+    if [[ ${#DESTINATIONS[@]} -eq 0 ]]; then
+        log "  no destinations granted; portal only"
+    elif "$FIREWALL" allow "$CLIENT_IP" "${DESTINATIONS[@]}" >/dev/null 2>&1; then
+        log "  firewall: opened ${#DESTINATIONS[@]} destination(s) for $CLIENT_IP"
     else
-        log "  WARNING: firewall promotion failed for $CLIENT_IP"
+        log "  WARNING: firewall grant failed for $CLIENT_IP"
     fi
 fi
 
