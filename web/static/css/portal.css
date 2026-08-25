@@ -30,6 +30,12 @@
     --wash-2: #6d28d9;
     --wash-3: #0891b2;
     --lift:   rgba(67, 56, 202, .28);
+
+    /* The advisory box, which picks up the page's own colour rather than
+     * staying indigo everywhere and reading as a leftover from another page. */
+    --note-bg:   #eef2ff;
+    --note-line: #c7d2fe;
+    --note-ink:  #3730a3;
 }
 
 /* An outcome is legible before a word of the page is read, which on a captive
@@ -37,10 +43,12 @@
  * dismissed a second later. */
 body.state-ok   { --wash-1: #10b981; --wash-2: #059669; --wash-3: #047857;
                   --accent: #059669; --accent-dim: #047857;
-                  --lift: rgba(5, 150, 105, .3); }
+                  --lift: rgba(5, 150, 105, .3);
+                  --note-bg: #f0fdf4; --note-line: #bbf7d0; --note-ink: #166534; }
 body.state-bad  { --wash-1: #ef4444; --wash-2: #dc2626; --wash-3: #b91c1c;
                   --accent: #dc2626; --accent-dim: #b91c1c;
-                  --lift: rgba(220, 38, 38, .3); }
+                  --lift: rgba(220, 38, 38, .3);
+                  --note-bg: #fef2f2; --note-line: #fecaca; --note-ink: #991b1b; }
 
 * { box-sizing: border-box; }
 
@@ -201,7 +209,8 @@ button:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow
 .note {
     margin-top: 20px; padding: 12px 14px; border-radius: 10px;
     font-size: 13px; line-height: 1.5;
-    background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
+    background: var(--note-bg); color: var(--note-ink);
+    border: 1px solid var(--note-line);
 }
 
 .alert {
