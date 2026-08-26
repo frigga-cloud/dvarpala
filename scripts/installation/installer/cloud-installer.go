@@ -709,56 +709,104 @@ func setupObjectStorage(config InstallationConfig, vmInfo *VMInfo) error {
 	return cloudService.UploadConfiguration()
 }
 
+// generateOutputFiles writes what the operator needs to keep, and the notes
+// they need to act on.
+//
+// This used to describe an installation that does not exist: a key pair by a
+// name no file is saved under, VPN credentials of "portal/access" that were
+// never a thing, and a browser that opens the sign-in page by itself - which
+// nothing does when a VPN connects, on any operating system. Somebody
+// following it would be stuck at the first step and told it was the fourth.
 func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
-	// Save configuration
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	configPath := filepath.Join(config.OutputDirectory, "installation-config.json")
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+	if err := os.WriteFile(configPath, configData, 0o600); err != nil {
 		return err
 	}
 
-	// Generate connection info
-	connectionInfo := fmt.Sprintf(`Dvarpala Installation Complete
-================================
+	// The key as it was actually written, not as it was planned. These two
+	// have drifted apart before.
+	keyName := filepath.Base(vmInfo.SSHKeyPath)
+	if keyName == "" || keyName == "." {
+		keyName = config.ResourceNames.KeyPairName + ".pem"
+	}
 
-Frigga Resource Names:
-- VPC: %s
-- VM: %s  
-- Storage: %s
-- KeyPair: %s
+	connectionInfo := fmt.Sprintf(`Dvarpala is installed
+=====================
 
-Server Details:
-- Instance ID: %s  
-- Public IP: %s
-- Private IP: %s
+  Server        %s
+  Instance      %s   (private address %s)
+  Administrator %s
+  Provider      %s, %s
 
-Admin Access:
-- Email: %s
-- VPN Config: See %s/admin.ovpn
+Getting on to the machine
+-------------------------
+From the directory holding this file:
 
-Object Storage:
-- Bucket: %s
-- Backup Location: %s/dvarpala/
+    ssh -i %s ubuntu@%s
 
-Next Steps:
-1. Download admin.ovpn from the output directory
-2. Connect to VPN using credentials: portal/access
-3. Browser auto-opens to http://172.30.100.1:8080
-4. Complete authentication via web portal for full access
-5. Configure OAuth providers and generate user certificates
+Worth doing once, so the key path stops mattering. In ~/.ssh/config:
 
-Files Generated:
-- installation-config.json: Full installation configuration
-- admin.ovpn: Admin VPN configuration with auto-open
-- connection-info.txt: This file
-`, config.ResourceNames.VPCName, config.ResourceNames.VMName,
-		config.ResourceNames.BucketName, config.ResourceNames.KeyPairName,
-		vmInfo.InstanceID, vmInfo.PublicIP, vmInfo.PrivateIP,
-		config.Admin.Email, config.OutputDirectory,
-		config.StorageBucket, config.StorageBucket)
+    Host dvarpala
+        HostName %s
+        User ubuntu
+        IdentityFile %s
+        StrictHostKeyChecking accept-new
+
+Then it is just: ssh dvarpala
+
+Everything is managed from the machine, with "dvarpala-cli". Start with
+"dvarpala-cli --help"; the install printed a fuller list.
+
+Before anybody can sign in
+--------------------------
+A fresh server has no way in. Codes by email is the method that works
+without a domain name or a certificate:
+
+    sudo nano /opt/dvarpala/config/environment.yaml    # auth.otp, auth.smtp
+    sudo systemctl edit dvarpala                       # AUTH_SMTP_PASSWORD
+    sudo systemctl restart dvarpala
+    dvarpala-cli mail test you@your-domain
+
+Do not issue VPN profiles until a real message arrives. Until then a
+profile gets somebody as far as the sign-in page and no further.
+
+Then, in this order
+-------------------
+ 1. Register what people should reach, and grant it to a group. Nothing
+    is reachable until it is granted.
+ 2. Issue a profile for each person:
+        dvarpala-cli vpn issue --user someone@example.com
+ 3. Tell them: import the file, connect, then open http://signin
+    Nothing announces a captive portal when a VPN comes up - not on any
+    operating system - so the address has to be passed on.
+ 4. Copy the nightly backups off the machine. They are written to
+    /var/backups/dvarpala and would be lost with it.
+
+The administrator's own profile
+-------------------------------
+admin.ovpn, beside this file, belongs to %s. It contains a private key:
+hand it over directly rather than by email, and do not commit it.
+
+Files here
+----------
+  admin.ovpn               the administrator's VPN profile (private key)
+  %s
+                           the SSH key for this server (private key)
+  installation-config.json what this install was told to build
+  connection-info.txt      this file
+`,
+		vmInfo.PublicIP,
+		vmInfo.InstanceID, vmInfo.PrivateIP,
+		config.Admin.Email,
+		config.Cloud.Provider, config.Cloud.Region,
+		keyName, vmInfo.PublicIP,
+		vmInfo.PublicIP, vmInfo.SSHKeyPath,
+		config.Admin.Email,
+		keyName)
 
 	connectionPath := filepath.Join(config.OutputDirectory, "connection-info.txt")
-	return os.WriteFile(connectionPath, []byte(connectionInfo), 0644)
+	return os.WriteFile(connectionPath, []byte(connectionInfo), 0o600)
 }
 
 func printInstallationSummary(config InstallationConfig, vmInfo *VMInfo) {
@@ -771,8 +819,13 @@ func printInstallationSummary(config InstallationConfig, vmInfo *VMInfo) {
 	if config.BackupEnabled {
 		fmt.Printf("☁️ Backup: %s\n", config.StorageBucket)
 	}
-	fmt.Println("\n✨ Your Dvarpala VPN server is ready to use!")
-	fmt.Printf("📖 See %s/connection-info.txt for next steps\n", config.OutputDirectory)
+	// Not "ready to use". A fresh server has no way for anybody to sign in,
+	// and saying otherwise is how somebody ends up issuing profiles for a
+	// door with no handle on the inside.
+	fmt.Println("\n📖 Read this before going further:")
+	fmt.Printf("   %s/connection-info.txt\n", config.OutputDirectory)
+	fmt.Println("   It covers getting on to the machine, configuring a way to")
+	fmt.Println("   sign in, and what to do in which order.")
 }
 
 func printSSHConnectionInfo(vmInfo *VMInfo) {
