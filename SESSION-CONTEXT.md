@@ -1,9 +1,9 @@
 # Dvarpala — session handoff
 
 Written 2026-08-17. Updated 2026-08-18 after the first real cloud deployment,
-again after testing from a phone as a genuinely separate device, and on
-2026-08-24 after sign-in by emailed code was proven end to end against a real
-mailbox.
+again after testing from a phone, on 2026-08-24 after sign-in by emailed code
+was built, and on 2026-08-26 - the day the whole product ran end to end on a
+server the installer built by itself.
 Read this first, then `DVARPALA-OVERVIEW.md` for the deep technical audit.
 
 ---
@@ -65,8 +65,8 @@ visibility; the user considers that aspirational.
 
 ```
 branch:            dev/foundation
-commits ahead:     49
-pushed:            NO — all 49 exist only on this laptop
+commits ahead:     88
+pushed:            partly — see below
 working tree:      configs/environment.yaml and SESSION-CONTEXT.md, both
                    deliberately uncommitted
 main branch:       still the old pre-review code
@@ -92,8 +92,21 @@ creates groups and resources, grants and revokes access, and issues a `.ovpn` as
 a browser download. Every form carries a CSRF token derived from the session; a
 POST without it is refused (403, verified).
 
-**⚠️ The single biggest risk: nothing is pushed.** Four days of work on one disk.
-The user has been told repeatedly; it is their call. Do not push unasked.
+**⚠️ Pushing needs a pull request, and creating a branch does not.**
+
+A ruleset named "PR Merge Only" has applied to `~ALL` branches since June 2025.
+Pushing to a branch that already exists is refused; creating a new one is not.
+That is why the first push of `dev/foundation` worked and every later one has
+failed.
+
+The working method has been a new branch per batch - `test/brevo` is the most
+recent, and the cloud installer's `defaultRepoRef` is pointed at whichever is
+current so a test box installs today's code. **That pin is a local, uncommitted
+change; do not commit it.** It must return to `main` when the branch merges.
+
+Ask an administrator to exclude `dev/**` from that ruleset, or accept pull
+requests. The user has said no pull requests; those two positions have not been
+reconciled.
 
 **⚠️ `configs/environment.yaml` holds a live Google client secret** and is left
 uncommitted for that reason — the repository is public. It needs rotating, and
@@ -363,7 +376,8 @@ the full connect → login → reconnect → restricted-access → disconnect lo
 
 | Item | Note |
 |---|---|
-| Push the branch | 49 commits on one laptop. Still the highest risk, and it now blocks hand-installs too: `main` has no `scripts/install/`, so a customer cannot `git clone` the installer. |
+| Merge to main | 88 commits. `main` still has no `scripts/install/`, so nothing outside this branch can install Dvarpala at all. Blocked on the branch rule above. |
+| **Make installation easy for customers** | The agreed next piece of work. Today's install still needs the repo, Go, and AWS credentials on the operator's own machine. The README advertises a one-line `curl \| bash` install whose URL 404s, and that pipeline exits 0 when the download fails - so a customer following it gets no install and no error. |
 | **Rotate the Google app password** | A Google Workspace app password for `solutions@frigga.cloud` was pasted into a chat transcript on 24 Aug to prove delivery. It still works. Revoke it at `myaccount.google.com/apppasswords`, issue a fresh one, and keep it only in `AUTH_SMTP_PASSWORD`. |
 | **Mail is sent from a person's own account** | Codes currently leave as `solutions@frigga.cloud`. A `noreply@frigga.cloud` Workspace account is the production answer: today, the day that person's password changes, nobody can sign in to the VPN. |
 | **Decide the split tunnel** | See §9. A product decision, then two lines. Nothing else on this list is blocked on the user like this one, and it is now the last thing between this and something a stranger could be handed. Needs a live EC2 box — it is iptables and routing, untestable locally. |
@@ -383,10 +397,12 @@ the full connect → login → reconnect → restricted-access → disconnect lo
 | `permission access <email>` exits 0 for a user that does not exist | It prints the parent command's help instead of running, so a check returns success having checked nothing. |
 | 20 template files | All 0 bytes. |
 
-**Roughly 90%** toward something a customer could run. What moved it on 24 Aug
-was not features but operability: the trail can be read, sessions can be seen
-and ended, mail failures name their own fix, and there is a way back in when
-the only login method breaks.
+**Roughly 90%** toward something a customer could run - and the remaining tenth
+is almost entirely about installation, not about the product. On 26 Aug the
+whole journey ran on a server the installer built by itself: connect, walled
+garden, a code by email, sign in, reach one granted private address and be
+refused another. What is left is making that installation something a stranger
+can perform.
 
 ## 9. The first real deployment — 18 August
 
@@ -520,6 +536,103 @@ as §9's finding. Styling is now served from the portal itself.
 
 The page also builds itself from `authSvc.Providers()`, so the three buttons
 that led nowhere are gone.
+
+---
+
+## 9b. The whole thing worked - 26 August
+
+On a server the cloud installer built unaided, in Mumbai, from a branch on
+GitHub. Every step below is a thing that had never worked before that day.
+
+    connect                     tunnel up, no access
+    http://signin               the sign-in page, by a name
+    enter email                 a real code, by email, through Brevo
+    enter code                  signed in; tunnel restarts by itself
+    ping 172.30.0.12            reachable - a private address that was granted
+    ping 172.30.0.1             refused - same network, not granted
+
+`session list` showed `SIGNED IN VIA: otp`, and the hook log showed
+`pushed 1 route(s)` against the resource that had been granted. Eighteen
+earlier connects had pushed none.
+
+### What changed to get there
+
+**The firewall decides destinations, not identity.** It held a list of who had
+signed in and accepted everything from them; routes were the only thing keeping
+anybody to their own resources, and a route is an instruction to the client's
+own machine. Adding one by hand reached an ungranted server in three packets,
+and nothing recorded it. It now holds `(client, destination)` pairs. Signing in
+opens nothing by itself.
+
+**A session is pinned to its certificate.** Sessions are keyed on tunnel
+address, and OpenVPN reuses those, so for the two-minute grace window the next
+client to receive an address inherited whatever the last holder earned. The
+session records who signed in and OpenVPN reports whose certificate connected;
+those two facts now meet.
+
+**Mail goes through Brevo.** Google Workspace refuses an SMTP sign-in from a
+datacenter address and reports it as bad credentials - proven by the same
+password being accepted from a laptop and refused from the server minutes
+apart. Brevo has no such heuristic. `BrevoMailer` sits alongside `SMTPMailer`;
+SMTP is still the default and works with any mail server.
+
+**Credentials live in `/etc/dvarpala/dvarpala.env`**, read by systemd and by
+the CLI. A key set with `systemctl edit` reaches the service and nothing else,
+so `dvarpala-cli mail test` reported no mail service on a server that was
+sending mail - the one command whose purpose is to check exactly that.
+
+**`dvarpala-cli` is on the PATH.** Every message the installer printed already
+called it that; none of them worked.
+
+**The resolver.** dnsmasq on the tunnel answers `signin` with the portal, and
+DNS to anywhere else is now refused - it had been a two-way channel out of the
+walled garden.
+
+**Deactivation is reversible.** `user deactivate` had no counterpart, and
+break-glass deliberately refuses an inactive account. Deactivating yourself
+meant editing the database by hand.
+
+### Decisions taken
+
+**Administrators use the address, not the name.** `signin` is answered by this
+server's resolver, which a client is given only inside the walled garden. After
+signing in they keep their own resolver - their personal traffic is theirs -
+so the name stops resolving at the point an administrator wants it.
+`http://172.30.100.1:8080/admin` works in both states. Considered and rejected:
+pushing our resolver after sign-in, which would route everybody's personal
+lookups through the company server.
+
+**A full tunnel before sign-in, a split tunnel after.** All traffic is carried
+while unidentified, so the walled garden is a restriction rather than a
+suggestion. Once signed in the default route is withdrawn and only the
+company's addresses are carried. The reconnect that applies this is triggered
+by the server, three seconds after signing in - long enough for the browser to
+receive its cookie and the page saying it worked.
+
+**HTTPS cannot be redirected to the portal, on any platform.** TLS exists to
+prevent it. Blocked TCP is now refused with a reset so a browser fails in a
+second rather than hanging for a minute.
+
+**No operating system announces a captive portal when a VPN connects.** Not
+macOS, not iOS, not Android - verified: the phone never made the check at all.
+The check runs on joining a network, and a VPN is not a network join. The
+address has to be communicated.
+
+### The installer, which had never been run end to end
+
+Fourteen defects found and fixed in two days, every one invisible until it met
+real infrastructure: AWS errors reduced to `exit status 254`; a security group
+found by a name it was never created with; racing its own boot script and
+blaming apt; a VPC leaked per failed run until the account hit its limit; the
+`--region` flag ignored in interactive mode; ports 8080 and 443 opened to the
+internet; a successful install reported as a crash; a health check against a
+port that had been closed; five minutes retrying a download that published a
+private key on a public web root; the admin profile written to the wrong
+directory; dnsmasq installed but never started; SSH instructions relative to
+the wrong directory.
+
+`connection-info.txt` is now seven numbered steps rather than a description of
+an installation that did not exist.
 
 ---
 
