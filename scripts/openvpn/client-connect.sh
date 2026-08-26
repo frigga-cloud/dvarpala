@@ -141,23 +141,51 @@ EMAIL=$(echo "$RESPONSE" | python3 -c \
 # carried from here on.
 work_only > "$CONFIG_FILE"
 
+# Each route is read twice over: as a pair for the client's routing table,
+# which is what OpenVPN wants, and as a range for the firewall, which is what
+# ipset wants.
+#
+# The two must agree. Handing the firewall a bare 10.0.5.0 where the route
+# covers 10.0.5.0/24 opens the name of the range and none of the machines in
+# it - the client sends all of them down the tunnel and every packet is
+# dropped. That reads as a broken network rather than a missing permission,
+# which is the worst way for a permission to fail.
 COUNT=0
-while IFS=$'\t' read -r network netmask resource; do
+DESTINATIONS=()
+while IFS=$'\t' read -r network netmask cidr resource; do
     [[ -z "$network" ]] && continue
     echo "push \"route $network $netmask\"" >> "$CONFIG_FILE"
-    log "  route $network $netmask  ($resource)"
+    DESTINATIONS+=("$cidr")
+    log "  route $network $netmask  -> firewall $cidr  ($resource)"
     COUNT=$((COUNT + 1))
 done < <(echo "$RESPONSE" | python3 -c '
-import json, sys
+import ipaddress, json, sys
+
 for r in json.load(sys.stdin).get("routes", []):
-    print("\t".join([r["network"], r["netmask"], r.get("resource", "")]))
+    network = r["network"]
+    netmask = r["netmask"]
+    try:
+        # strict=False so a host address with a wider mask is accepted rather
+        # than rejected: the operator meant the range it sits in.
+        cidr = ipaddress.IPv4Network(f"{network}/{netmask}", strict=False).with_prefixlen
+    except ValueError:
+        # Unparseable: skip it rather than grant something unintended.
+        continue
+    print("\t".join([network, netmask, cidr, r.get("resource", "")]))
 ' 2>/dev/null)
 
-# Routes alone are only half of it: the firewall must also stop dropping this
-# client's traffic.
+# The routes tell the client where to send packets; this decides which of them
+# are forwarded. Only the destinations this person was granted are opened -
+# signing in on its own opens nothing.
 if [[ -x "$FIREWALL" ]]; then
-    if "$FIREWALL" allow "$CLIENT_IP" >/dev/null 2>&1; then
-        log "  firewall: $CLIENT_IP promoted out of the walled garden"
+    if [[ ${#DESTINATIONS[@]} -eq 0 ]]; then
+        # Signed in and entitled to nothing. Still marked as signed in, so the
+        # portal stops intercepting their web requests and they are told that
+        # rather than being sent round to the sign-in page for ever.
+        "$FIREWALL" allow "$CLIENT_IP" >/dev/null 2>&1
+        log "  no destinations granted; signed in but with nothing to reach"
+    elif "$FIREWALL" allow "$CLIENT_IP" "${DESTINATIONS[@]}" >/dev/null 2>&1; then
+        log "  firewall: opened ${#DESTINATIONS[@]} destination(s) for $CLIENT_IP"
     else
         log "  WARNING: firewall promotion failed for $CLIENT_IP"
     fi

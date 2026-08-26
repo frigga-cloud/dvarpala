@@ -11,7 +11,7 @@
 # One ipset holds the tunnel IPs of authenticated clients. Everything arriving
 # on a tun interface passes through one chain:
 #
-#   authenticated source        -> ACCEPT   (their routes decide reachability)
+#   client -> a destination granted to it -> ACCEPT
 #   destined for the portal     -> ACCEPT
 #   DNS, to this server only    -> ACCEPT   (so anything can be resolved at all)
 #   destined for an OAuth host  -> ACCEPT   (so people can actually sign in)
@@ -29,8 +29,8 @@
 #
 # Usage:
 #   dvarpala-firewall.sh setup            create chains, sets and base rules
-#   dvarpala-firewall.sh allow   <ip>     promote a client (authenticated)
-#   dvarpala-firewall.sh revoke  <ip>     demote a client
+#   dvarpala-firewall.sh allow <ip> <dst>...  grant a client its destinations
+#   dvarpala-firewall.sh revoke <ip>          remove everything a client holds
 #   dvarpala-firewall.sh status           show rules, sets and counters
 
 set -uo pipefail
@@ -42,7 +42,8 @@ WAN_IF="${DVARPALA_WAN_IF:-$(ip route show default 2>/dev/null | awk '/default/{
 
 CHAIN="DVARPALA"
 NAT_CHAIN="DVARPALA_PORTAL"
-AUTH_SET="dvarpala_auth"
+ACCESS_SET="dvarpala_access"
+SIGNEDIN_SET="dvarpala_signedin"
 OAUTH_SET="dvarpala_oauth"
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -95,8 +96,10 @@ portal_interception() {
     iptables -t nat -N "$NAT_CHAIN" 2>/dev/null || true
     iptables -t nat -F "$NAT_CHAIN"
 
-    # Signed in: leave their traffic alone.
-    iptables -t nat -A "$NAT_CHAIN" -m set --match-set "$AUTH_SET" src -j RETURN
+    # Signed in: their web traffic is their own and is not rewritten. Without
+    # this, an internal dashboard on port 80 would be answered by the sign-in
+    # page instead of by the dashboard.
+    iptables -t nat -A "$NAT_CHAIN" -m set --match-set "$SIGNEDIN_SET" src -j RETURN
 
     # Everyone else asking for a web page gets the sign-in page - including
     # somebody who asked for the portal itself.
@@ -126,7 +129,18 @@ setup() {
     echo "  wan iface:  ${WAN_IF:-<none found>}"
 
     # Sets. Created empty; membership changes as clients authenticate.
-    ipset create "$AUTH_SET"  hash:ip  -exist
+    # hash:net,net holds a source and a destination together, so one rule and
+    # one lookup answer "may this client reach that host" however many clients
+    # and resources there are. It takes plain addresses as well as ranges, so
+    # a resource may be one machine or a whole subnet.
+    ipset create "$ACCESS_SET" hash:net,net -exist
+
+    # A plain list of clients who have signed in, used for one thing only:
+    # deciding whether to rewrite a web request to the sign-in page. That
+    # question is about the client alone, and a pair cannot answer it.
+    #
+    # It grants nothing. Being in it does not open a single destination.
+    ipset create "$SIGNEDIN_SET" hash:ip -exist
     ipset create "$OAUTH_SET" hash:net -exist
     ipset flush "$OAUTH_SET"
     while read -r cidr; do
@@ -140,9 +154,19 @@ setup() {
     # Established traffic first: replies to permitted requests must return.
     iptables -A "$CHAIN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 
-    # Authenticated clients: allowed onward. What they can actually reach is
-    # governed by the routes their client-connect hook pushed.
-    iptables -A "$CHAIN" -m set --match-set "$AUTH_SET" src -j ACCEPT
+    # Granted destinations, per client.
+    #
+    # Note what is absent: nothing accepts traffic merely because it comes
+    # from somebody signed in. Authentication decides whether you have any
+    # destinations at all; it does not decide where you may go.
+    #
+    # It used to be the other way round - one rule accepted everything from an
+    # authenticated source, leaving the pushed routes as the only thing
+    # keeping anybody to their own resources. Routes are instructions to the
+    # client's own machine. Adding one by hand was enough to reach a server
+    # that had never been granted, and nothing recorded it. Demonstrated on a
+    # live server, in three packets.
+    iptables -A "$CHAIN" -m set --match-set "$ACCESS_SET" src,dst -j ACCEPT
 
     # The walled garden, for everyone else.
     iptables -A "$CHAIN" -d "$PORTAL_IP" -j ACCEPT
@@ -215,35 +239,86 @@ setup() {
     echo "  anything else is refused."
 }
 
+# allow grants one client the destinations it is entitled to.
+#
+# Every destination is given at once rather than one call each, so there is no
+# moment in which a client holds half of what it was granted.
+#
+# A destination may be a single address or a range - 10.0.5.20 or 10.0.5.0/24.
+# The caller must send the range as it is, because a bare address is read as
+# one host: granting 10.0.5.0 where 10.0.5.0/24 was meant opens the name of the
+# range and none of the machines in it, while the client is still told to send
+# all of them down the tunnel. Every packet would be dropped, and it would look
+# like a broken network rather than a missing permission.
 allow() {
     require_root
-    local ip="${1:-}"; [[ -n "$ip" ]] || die "usage: $0 allow <ip>"
-    ipset add "$AUTH_SET" "$ip" -exist || die "could not add $ip"
-    echo "allowed $ip"
+    local ip="${1:-}"
+    [[ -n "$ip" ]] || die "usage: $0 allow <client-ip> [destination]..."
+    shift
+
+    # No destinations is allowed, and means exactly what it says: this person
+    # has signed in and is entitled to nothing. They are marked as signed in
+    # so the portal stops answering their web requests with the sign-in page -
+    # being sent back to a page you have already completed is worse than being
+    # told plainly that you have no access.
+    local granted=0 dest
+    for dest in "$@"; do
+        [[ -n "$dest" ]] || continue
+        if ipset add "$ACCESS_SET" "$ip,$dest" -exist; then
+            granted=$((granted + 1))
+        else
+            echo "warning: could not grant $ip -> $dest" >&2
+        fi
+    done
+
+    # Marks them as signed in, which exempts their web traffic from being
+    # rewritten to the sign-in page. It opens nothing on its own.
+    ipset add "$SIGNEDIN_SET" "$ip" -exist
+
+    echo "allowed $ip to reach $granted destination(s)"
 }
 
+# revoke removes everything a client holds.
+#
+# ipset cannot delete by half a key, so the client's entries are found and
+# removed one at a time. Missing any would leave a disconnected client's
+# grants in place for whoever is given that tunnel address next.
 revoke() {
     require_root
     local ip="${1:-}"; [[ -n "$ip" ]] || die "usage: $0 revoke <ip>"
-    ipset del "$AUTH_SET" "$ip" -exist 2>/dev/null
+
+    local removed=0 member
+    while read -r member; do
+        [[ -n "$member" ]] || continue
+        if ipset del "$ACCESS_SET" "$member" -exist 2>/dev/null; then
+            removed=$((removed + 1))
+        fi
+    done < <(ipset list "$ACCESS_SET" 2>/dev/null |
+             sed -n '/^Members:/,$p' | tail -n +2 |
+             awk -F, -v c="$ip" '$1 == c {print $0}')
+
+    ipset del "$SIGNEDIN_SET" "$ip" -exist 2>/dev/null
+
     # Drop existing flows, or an open connection would survive revocation.
     command -v conntrack >/dev/null && conntrack -D -s "$ip" >/dev/null 2>&1
-    echo "revoked $ip"
+    echo "revoked $ip ($removed destination(s))"
 }
 
 status() {
     echo "── portal interception (signed-out web requests) ──"
     iptables -t nat -L "$NAT_CHAIN" -v -n --line-numbers 2>/dev/null | sed 's/^/  /'
-    echo "── authenticated clients ──"
-    ipset list "$AUTH_SET" 2>/dev/null | sed -n '/Members/,$p' | tail -n +2 | sed 's/^/  /'
+    echo "── who may reach what (client,destination) ──"
+    ipset list "$ACCESS_SET" 2>/dev/null | sed -n '/Members/,$p' | tail -n +2 | sed 's/^/  /'
+    echo "── signed in (exempt from portal interception; grants nothing) ──"
+    ipset list "$SIGNEDIN_SET" 2>/dev/null | sed -n '/Members/,$p' | tail -n +2 | sed 's/^/  /'
     echo "── chain (packets/bytes) ──"
     iptables -L "$CHAIN" -v -n --line-numbers 2>/dev/null | sed 's/^/  /'
 }
 
 case "${1:-}" in
     setup)  setup ;;
-    allow)  allow "${2:-}" ;;
+    allow)  shift; allow "$@" ;;
     revoke) revoke "${2:-}" ;;
     status) status ;;
-    *) echo "usage: $0 {setup|allow <ip>|revoke <ip>|status}"; exit 1 ;;
+    *) echo "usage: $0 {setup|allow <client-ip> <destination>...|revoke <ip>|status}"; exit 1 ;;
 esac
