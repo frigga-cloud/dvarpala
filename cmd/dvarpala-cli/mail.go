@@ -43,37 +43,37 @@ func mailTestCmd() *cobra.Command {
 				return fmt.Errorf("loading config from %s: %w", configPath, err)
 			}
 
-			s := cfg.Auth.SMTP
-			if s.Host == "" {
-				return fmt.Errorf("no mail server is configured.\n\n" +
-					"Set auth.smtp.host in the config file, or AUTH_SMTP_HOST in the\n" +
-					"environment. Without it, code sign-in only works in debug mode,\n" +
-					"where codes are written to the server log instead of being sent.")
+			mailer, describedAs, err := auth.NewMailer(auth.MailerSettings{
+				BrevoAPIKey:   cfg.Auth.Brevo.APIKey,
+				BrevoFrom:     cfg.Auth.Brevo.From,
+				BrevoFromName: cfg.Auth.Brevo.FromName,
+				SMTPHost:      cfg.Auth.SMTP.Host,
+				SMTPPort:      cfg.Auth.SMTP.Port,
+				SMTPUsername:  cfg.Auth.SMTP.Username,
+				SMTPPassword:  cfg.Auth.SMTP.Password,
+				SMTPFrom:      cfg.Auth.SMTP.From,
+				SMTPFromName:  cfg.Auth.SMTP.FromName,
+				ServerMode:    cfg.Server.Mode,
+			})
+			if err != nil {
+				return fmt.Errorf("%w.\n\n"+
+					"Set auth.brevo.api_key, or auth.smtp.host, in the config file.\n"+
+					"Keep the credential in the environment - BREVO_API_KEY or\n"+
+					"AUTH_SMTP_PASSWORD - rather than in the file", err)
 			}
 
-			port := s.Port
-			if port == 0 {
-				port = 587
+			// The same choice the server makes, from the same function, so
+			// this cannot pass while the real path fails. It used to build an
+			// SMTP mailer whatever the deployment was configured to use.
+			if _, viaLog := mailer.(auth.LogMailer); viaLog {
+				fmt.Println("This server writes codes to its own log rather than")
+				fmt.Println("sending them, which is allowed only in debug mode.")
+				fmt.Println("There is nothing to test until a mail service is set up.")
+				return nil
 			}
 
-			fmt.Printf("Sending to     %s\n", to)
-			fmt.Printf("Through        %s:%d\n", s.Host, port)
-			fmt.Printf("As             %s\n", s.From)
-			if s.Username != "" {
-				fmt.Printf("Signing in as  %s\n", s.Username)
-			} else {
-				fmt.Printf("Signing in as  (no credentials configured)\n")
-			}
-			fmt.Println()
-
-			mailer := &auth.SMTPMailer{
-				Host:     s.Host,
-				Port:     port,
-				Username: s.Username,
-				Password: s.Password,
-				From:     s.From,
-				FromName: s.FromName,
-			}
+			fmt.Printf("Sending to  %s\n", to)
+			fmt.Printf("Through     %s\n\n", describedAs)
 
 			// A recognisable stand-in. Not a real code: nothing here creates a
 			// login attempt, so it could not be used to sign in even if it
@@ -88,8 +88,8 @@ func mailTestCmd() *cobra.Command {
 				return fmt.Errorf("mail was not sent")
 			}
 
-			fmt.Printf("Accepted by %s in %s.\n\n", s.Host, took)
-			fmt.Println("The server has taken responsibility for the message. Check the")
+			fmt.Printf("Accepted in %s.\n\n", took)
+			fmt.Println("The service has taken responsibility for the message. Check the")
 			fmt.Println("inbox, and the spam folder - a message accepted here can still")
 			fmt.Println("be filtered at the far end.")
 			return nil

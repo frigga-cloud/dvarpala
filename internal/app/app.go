@@ -77,25 +77,26 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	// codes to its own log.
 	var otpStore *auth.OTPStore
 	if cfg.Auth.OTP.Enabled {
-		var mailer auth.Mailer
-		switch {
-		case cfg.Auth.SMTP.Host != "":
-			mailer = &auth.SMTPMailer{
-				Host:     cfg.Auth.SMTP.Host,
-				Port:     cfg.Auth.SMTP.Port,
-				Username: cfg.Auth.SMTP.Username,
-				Password: cfg.Auth.SMTP.Password,
-				From:     cfg.Auth.SMTP.From,
-				FromName: cfg.Auth.SMTP.FromName,
-			}
-			log.Printf("code sign-in enabled, sending through %s", cfg.Auth.SMTP.Host)
-		default:
-			logMailer := auth.LogMailer{}
-			if err := logMailer.Guard(cfg.Server.Mode); err != nil {
-				return nil, fmt.Errorf("code sign-in is enabled but no mail server is configured: %w", err)
-			}
-			mailer = logMailer
-			log.Println("WARNING: code sign-in is writing codes to this log (server.mode=debug, no mail server)")
+		mailer, describedAs, err := auth.NewMailer(auth.MailerSettings{
+			BrevoAPIKey:   cfg.Auth.Brevo.APIKey,
+			BrevoFrom:     cfg.Auth.Brevo.From,
+			BrevoFromName: cfg.Auth.Brevo.FromName,
+			SMTPHost:      cfg.Auth.SMTP.Host,
+			SMTPPort:      cfg.Auth.SMTP.Port,
+			SMTPUsername:  cfg.Auth.SMTP.Username,
+			SMTPPassword:  cfg.Auth.SMTP.Password,
+			SMTPFrom:      cfg.Auth.SMTP.From,
+			SMTPFromName:  cfg.Auth.SMTP.FromName,
+			ServerMode:    cfg.Server.Mode,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("code sign-in is enabled but %w", err)
+		}
+
+		if _, viaLog := mailer.(auth.LogMailer); viaLog {
+			log.Printf("WARNING: code sign-in is writing codes to %s", describedAs)
+		} else {
+			log.Printf("code sign-in enabled, sending through %s", describedAs)
 		}
 
 		otpStore = auth.NewOTPStore(redisClient, mailer)

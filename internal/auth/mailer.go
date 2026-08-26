@@ -252,20 +252,12 @@ func (m *SMTPMailer) compose(to, code string) ([]byte, error) {
 		"X-Auto-Response-Suppress: All",
 	}
 
-	body := []string{
-		fmt.Sprintf("Your sign-in code is %s", code),
-		"",
-		"It expires in five minutes and can be used once.",
-		"",
-		"If you did not ask to sign in, ignore this message - somebody",
-		"typed your address by mistake, and nothing has happened to your",
-		"account.",
-		"",
-		"Never share this code. Dvarpala will never ask you for it.",
-	}
+	// The wording lives in one place, so that every way of sending a code
+	// says the same thing. SMTP wants CRLF line endings.
+	body := strings.ReplaceAll(codeMessage(code), "\n", "\r\n")
 
 	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" +
-		strings.Join(body, "\r\n") + "\r\n"), nil
+		body + "\r\n"), nil
 }
 
 // messageID returns a unique identifier for one message.
@@ -371,4 +363,71 @@ func (p *SMTPProbe) Probe() error {
 	}
 
 	return c.Quit()
+}
+
+// MailerSettings is everything a deployment can say about sending mail.
+type MailerSettings struct {
+	// Brevo, when an API key is configured.
+	BrevoAPIKey   string
+	BrevoFrom     string
+	BrevoFromName string
+
+	// An ordinary mail server, when a host is configured.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPFromName string
+
+	// ServerMode gates the fallback that writes codes to the log.
+	ServerMode string
+}
+
+// NewMailer picks how this deployment sends mail, and says so.
+//
+// One function rather than two, because the server and the CLI must agree.
+// They did not before: the server chose, and "dvarpala-cli mail test" built an
+// SMTP mailer regardless - so a Brevo deployment would have had its delivery
+// check fail while the real path worked, or worse, pass while the real path
+// did not.
+//
+// The order is deliberate. An explicit API key means somebody chose Brevo; a
+// mail server means they chose that; the log is what remains, and only in
+// debug mode, because anybody who can read the log could then sign in as
+// anybody.
+func NewMailer(s MailerSettings) (Mailer, string, error) {
+	if key := strings.TrimSpace(s.BrevoAPIKey); key != "" {
+		from := s.BrevoFrom
+		if from == "" {
+			from = s.SMTPFrom
+		}
+		name := s.BrevoFromName
+		if name == "" {
+			name = s.SMTPFromName
+		}
+		if from == "" {
+			return nil, "", errors.New("brevo is configured but no from address is set")
+		}
+		return &BrevoMailer{APIKey: key, From: from, FromName: name},
+			fmt.Sprintf("Brevo, as %s", from), nil
+	}
+
+	if host := strings.TrimSpace(s.SMTPHost); host != "" {
+		return &SMTPMailer{
+				Host:     host,
+				Port:     s.SMTPPort,
+				Username: s.SMTPUsername,
+				Password: s.SMTPPassword,
+				From:     s.SMTPFrom,
+				FromName: s.SMTPFromName,
+			},
+			fmt.Sprintf("%s, as %s", host, s.SMTPFrom), nil
+	}
+
+	log := LogMailer{}
+	if err := log.Guard(s.ServerMode); err != nil {
+		return nil, "", fmt.Errorf("no way to send mail is configured: %w", err)
+	}
+	return log, "this server's own log (no mail service configured)", nil
 }

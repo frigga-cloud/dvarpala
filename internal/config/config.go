@@ -55,12 +55,13 @@ type RedisConfig struct {
 }
 
 type AuthConfig struct {
-	SessionDuration      int        `mapstructure:"session_duration"`
-	CaptivePortalTimeout int        `mapstructure:"captive_portal_timeout"`
-	JWTSecret            string     `mapstructure:"jwt_secret"`
-	AllowedDomains       []string   `mapstructure:"allowed_domains"`
-	OTP                  OTPConfig  `mapstructure:"otp"`
-	SMTP                 SMTPConfig `mapstructure:"smtp"`
+	SessionDuration      int         `mapstructure:"session_duration"`
+	CaptivePortalTimeout int         `mapstructure:"captive_portal_timeout"`
+	JWTSecret            string      `mapstructure:"jwt_secret"`
+	AllowedDomains       []string    `mapstructure:"allowed_domains"`
+	OTP                  OTPConfig   `mapstructure:"otp"`
+	SMTP                 SMTPConfig  `mapstructure:"smtp"`
+	Brevo                BrevoConfig `mapstructure:"brevo"`
 }
 
 // OTPConfig controls signing in with a code sent by email.
@@ -77,6 +78,25 @@ type SMTPConfig struct {
 	Port     int    `mapstructure:"port"`
 	Username string `mapstructure:"username"`
 	Password string `mapstructure:"password"`
+	From     string `mapstructure:"from"`
+	FromName string `mapstructure:"from_name"`
+}
+
+// BrevoConfig sends codes through Brevo's HTTP interface rather than SMTP.
+//
+// An alternative to auth.smtp, not a replacement: SMTP works with whatever
+// mail server an organisation already has. This is here because Brevo issues
+// two credentials that are not interchangeable - an API key for this and a
+// separate SMTP key - and because it needs no mail ports, which a cloud
+// provider may block and a mail server may judge you for using.
+//
+// Set api_key and this is used in preference to auth.smtp.
+type BrevoConfig struct {
+	// APIKey begins "xkeysib-". Keep it out of this file and in the
+	// environment, as BREVO_API_KEY.
+	APIKey string `mapstructure:"api_key"`
+
+	// From must be a sender Brevo has verified.
 	From     string `mapstructure:"from"`
 	FromName string `mapstructure:"from_name"`
 }
@@ -202,6 +222,9 @@ func loadEnvVars() {
 	viper.BindEnv("auth.smtp.password", "AUTH_SMTP_PASSWORD")
 	viper.BindEnv("auth.smtp.from", "AUTH_SMTP_FROM")
 	viper.BindEnv("auth.smtp.from_name", "AUTH_SMTP_FROM_NAME")
+	viper.BindEnv("auth.brevo.api_key", "BREVO_API_KEY")
+	viper.BindEnv("auth.brevo.from", "BREVO_SENDER_EMAIL")
+	viper.BindEnv("auth.brevo.from_name", "BREVO_SENDER_NAME")
 
 	// OAuth - Google
 	viper.BindEnv("oauth.google.client_id", "OAUTH_GOOGLE_CLIENT_ID")

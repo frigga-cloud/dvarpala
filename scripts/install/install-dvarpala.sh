@@ -311,6 +311,27 @@ auth:
     from: ""
     from_name: "Dvarpala"
 
+  # Brevo, as an alternative to the mail server above.
+  #
+  # Used in preference to auth.smtp when api_key is set. It needs no mail
+  # ports, which a cloud provider may block outright, and it does not judge
+  # where the connection came from - a mail server built for people will
+  # refuse a datacenter address while accepting the same credentials from a
+  # laptop, and report it as a bad password.
+  #
+  # Two keys exist and they are not interchangeable. This wants the API key,
+  # beginning "xkeysib-", not the SMTP key. Keep it in the environment:
+  #
+  #     systemctl edit dvarpala
+  #     [Service]
+  #     Environment="BREVO_API_KEY=xkeysib-..."
+  #
+  # The from address must be a sender Brevo has verified.
+  brevo:
+    api_key: ""         # leave empty; use BREVO_API_KEY
+    from: ""
+    from_name: "Dvarpala"
+
 oauth:
   google:
     client_id: ""
