@@ -23,6 +23,14 @@ var (
 // stateTTL is how long a login attempt may sit unfinished.
 const stateTTL = 10 * time.Minute
 
+// reconnectDelay is how long to leave a newly signed-in client's tunnel alone
+// before restarting it.
+//
+// Long enough for the browser to receive the cookie and load the page that
+// says it worked - two round trips over the tunnel that is about to be cut.
+// Short enough that nobody wonders whether their access is coming.
+const reconnectDelay = 3 * time.Second
+
 // consumeStateScript is GETDEL, written out. GETDEL needs Redis 6.2, and
 // Ubuntu 22.04 ships 6.0, so every apt-installed server would fail to log
 // anyone in. A script is atomic on any Redis that supports EVAL.
@@ -80,6 +88,20 @@ func NewService(providers *Registry, sessions *SessionService, svc *services.Ser
 
 // Providers exposes the enabled providers, for rendering the sign-in page.
 func (s *Service) Providers() []Provider { return s.providers.Enabled() }
+
+// ActiveSessions lists everyone signed in right now.
+//
+// The session store is deliberately not exported, because a caller holding it
+// could mint or revoke a session without the checks this service performs.
+// Reading who is present carries no such risk, and the console needs it to
+// answer the question an administrator actually asks during an incident: who
+// is on the network at this moment.
+func (s *Service) ActiveSessions(ctx context.Context) ([]ActiveSession, error) {
+	return s.sessions.Active(ctx)
+}
+
+// SessionTTL reports how long a session lasts in this deployment.
+func (s *Service) SessionTTL() time.Duration { return s.sessions.TTL() }
 
 // Begin starts a login and returns the URL to send the browser to.
 //
@@ -179,13 +201,24 @@ func (s *Service) Complete(ctx context.Context, providerName, code, state, clien
 	_ = s.users.RecordLogin(ctx, user.ID)
 
 	// Close the walled-garden tunnel they signed in over, so their client
-	// reconnects and picks up the routes this login has just earned. Never
-	// fatal: the login succeeded either way, and the fallback is the manual
-	// reconnect that was always required.
+	// reconnects and picks up the routes this login has just earned.
+	//
+	// Shortly, and not now. The browser is still being answered over that
+	// tunnel: it has yet to receive the cookie or follow the redirect to the
+	// page saying it worked. Killing the tunnel in the middle of that lost
+	// both, and the person was shown a failure until they refreshed - having
+	// in fact signed in successfully.
+	//
+	// A background context, because the request's own is cancelled the moment
+	// the response is done, which is before this runs.
 	if s.reconnect != nil {
-		if _, err := s.reconnect.Reconnect(ctx, user.Email); err != nil {
-			log.Printf("vpn: could not prompt %s to reconnect: %v", user.Email, err)
-		}
+		email := user.Email
+		go func() {
+			time.Sleep(reconnectDelay)
+			if _, err := s.reconnect.Reconnect(context.Background(), email); err != nil {
+				log.Printf("vpn: could not prompt %s to reconnect: %v", email, err)
+			}
+		}()
 	}
 
 	s.audit.Log(ctx, services.Entry{

@@ -28,15 +28,23 @@
            resources granted to you are reachable &mdash; everything else stays
            closed, and access ends when you disconnect.</p>
 
+        <div class="note" id="applying">
+            <strong>Applying your access&hellip;</strong><br>
+            Your VPN will drop and come back on its own in a moment. That
+            reconnection is what puts your permissions in place &mdash; nothing
+            is wrong, and there is nothing to do.
+        </div>
+
+        <div class="note" id="ready" style="display:none">
+            Your access is in place. Only the resources granted to you are
+            reachable through the VPN; everything else goes over your own
+            connection as usual.
+        </div>
+
         {{if .admin}}
         <a class="btn" href="/admin">Open the admin console</a>
         {{end}}
         <a class="btn btn-secondary" href="/auth/logout">Sign out</a>
-
-        <div class="note">
-            If a resource still will not open, disconnect and reconnect once.
-            Your permissions are applied when the tunnel comes up.
-        </div>
 
         <div class="meta">
             <strong>Signed in as</strong> {{.username}}<br>
@@ -49,5 +57,29 @@
     <p class="foot">Secured by Dvarpala</p>
   </div>
 </div>
+
+<script>
+/*
+ * The tunnel is deliberately restarted a few seconds after signing in, and
+ * that reconnection is how the routes this login earned are applied.
+ *
+ * Saying so matters. Without it, the connection dropping immediately after a
+ * page announcing success reads as the success being false - which is exactly
+ * how it looked before: signed in, then apparently not, until a refresh.
+ */
+(function () {
+    'use strict';
+
+    var applying = document.getElementById('applying');
+    var ready = document.getElementById('ready');
+
+    // Comfortably past the restart, which begins three seconds after signing
+    // in and takes a few more to come back.
+    window.setTimeout(function () {
+        if (applying) { applying.style.display = 'none'; }
+        if (ready) { ready.style.display = 'block'; }
+    }, 9000);
+})();
+</script>
 </body>
 </html>
