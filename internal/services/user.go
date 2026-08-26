@@ -180,6 +180,46 @@ func (s *UserService) DeactivateUser(ctx context.Context, email string) error {
 	return nil
 }
 
+// ActivateUser returns a deactivated account to service.
+//
+// Deactivation was a one-way door until this existed: there was a command to
+// close an account and none to reopen it, so an administrator who deactivated
+// themselves by mistake locked themselves out of their own system with no way
+// back that did not involve editing the database by hand. Break-glass is no
+// help either - it deliberately refuses an account that is not active, since
+// it exists to get past broken mail rather than past a decision somebody made.
+//
+// It does not restore anything else. Group membership, permissions and issued
+// certificates were never removed, so the account comes back as it was.
+func (s *UserService) ActivateUser(ctx context.Context, email string) error {
+	user, err := s.GetUserByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+
+	if user.Status == models.UserStatusActive {
+		return nil // already in service; nothing to record
+	}
+	was := user.Status
+
+	if err := s.db.WithContext(ctx).Model(user).
+		Update("status", models.UserStatusActive).Error; err != nil {
+		return fmt.Errorf("activating user: %w", err)
+	}
+
+	s.audit.Log(ctx, Entry{
+		UserID:       &user.ID,
+		Action:       "user_activated",
+		ResourceType: "user",
+		ResourceID:   &user.ID,
+		Details: map[string]interface{}{
+			"email": user.Email, "was": string(was),
+		},
+	})
+
+	return nil
+}
+
 // RecordLogin stamps the user's last_login time.
 func (s *UserService) RecordLogin(ctx context.Context, userID uint) error {
 	now := time.Now()

@@ -18,7 +18,7 @@ func userCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(userCreateCmd(), userListCmd(), userShowCmd(),
-		userAccessCmd(), userDeactivateCmd())
+		userAccessCmd(), userDeactivateCmd(), userActivateCmd())
 	return cmd
 }
 
@@ -151,7 +151,41 @@ func userDeactivateCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Deactivated %s\n", args[0])
-			fmt.Println("Note: existing VPN sessions are not terminated (phase 4).")
+			fmt.Println("They cannot sign in again. Any tunnel they were holding")
+			fmt.Println("has been closed, but a browser session already open lasts")
+			fmt.Println("until it expires - end it with: dvarpala-cli session end <tunnel-ip>")
+			fmt.Println()
+			fmt.Println("To reverse this:  dvarpala-cli user activate " + args[0])
+			return nil
+		},
+	}
+}
+
+// userActivateCmd reopens an account.
+//
+// Deactivation had no counterpart until this existed. An administrator who
+// deactivated themselves by mistake was locked out of their own system, and
+// break-glass is deliberately no help - it refuses an inactive account,
+// because it exists to get past broken mail rather than past a decision.
+// The only way back was editing the database by hand.
+func userActivateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "activate <email>",
+		Short: "Return a deactivated user to service",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openServices()
+			if err != nil {
+				return err
+			}
+
+			if err := svc.Users.ActivateUser(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+
+			fmt.Printf("Activated %s\n", args[0])
+			fmt.Println("Their groups, permissions and VPN profile were never removed,")
+			fmt.Println("so the account is back as it was.")
 			return nil
 		},
 	}
