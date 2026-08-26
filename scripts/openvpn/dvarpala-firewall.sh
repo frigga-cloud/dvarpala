@@ -15,6 +15,7 @@
 #   destined for the portal     -> ACCEPT
 #   DNS                         -> ACCEPT   (needed to resolve the OAuth hosts)
 #   destined for an OAuth host  -> ACCEPT   (so people can actually sign in)
+#   anything else, over TCP     -> REJECT  (so a browser fails at once)
 #   anything else               -> DROP
 #
 # Why an ipset rather than per-client rules:
@@ -87,8 +88,9 @@ EOF
 # decides to show its "sign in to network" panel.
 #
 # Only port 80. An HTTPS request cannot be answered by anyone but the site it
-# was addressed to - that is the point of it - so those are left to the DROP
-# in the filter chain. Every captive portal behaves this way.
+# was addressed to - that is the point of it - so those are refused by the
+# filter chain instead, with a reset so the browser says so straight away.
+# Every captive portal behaves this way.
 portal_interception() {
     iptables -t nat -N "$NAT_CHAIN" 2>/dev/null || true
     iptables -t nat -F "$NAT_CHAIN"
@@ -143,6 +145,22 @@ setup() {
 
     # Log a sample of refusals, then refuse.
     iptables -A "$CHAIN" -m limit --limit 1/min -j LOG --log-prefix "[dvarpala-blocked] "
+
+    # Refuse a connection outright rather than letting it hang.
+    #
+    # An HTTPS request cannot be answered by anybody but the site it was
+    # addressed to - that is what TLS is for - so it cannot be turned into the
+    # sign-in page the way a plain HTTP one is. Since nearly every site is
+    # HTTPS now, that is what most people meet first.
+    #
+    # Dropping it silently leaves the browser waiting a minute before saying
+    # the site took too long, which reads as a broken network. A reset tells
+    # it at once: the browser reports a refused connection within a second,
+    # and any captive-portal check the operating system makes reaches its
+    # verdict immediately instead of timing out.
+    iptables -A "$CHAIN" -p tcp -j REJECT --reject-with tcp-reset
+
+    # Anything that is not TCP has no way of being told, so it is dropped.
     iptables -A "$CHAIN" -j DROP
 
     # Send tunnel traffic through the chain, exactly once.
@@ -168,7 +186,7 @@ setup() {
 
     echo "  done. every client takes the default route, so all of their traffic"
     echo "  arrives here. Signed out, a web request is answered by the portal;"
-    echo "  anything else is dropped."
+    echo "  anything else is refused."
 }
 
 allow() {
