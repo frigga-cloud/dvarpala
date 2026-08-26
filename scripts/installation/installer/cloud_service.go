@@ -25,6 +25,11 @@ type InstanceConfig struct {
 	DiskSizeGB   int
 	AdminEmail   string
 	AdminName    string
+
+	// OutputDir is where the operator's copy of admin.ovpn is written. It
+	// holds a private key, so it belongs beside the SSH key rather than in
+	// whatever directory the installer was started from.
+	OutputDir string
 }
 
 // NewCloudService creates a new cloud service
@@ -66,6 +71,7 @@ func (cs *CloudService) CreateVM(vpcID string) (*VMInfo, error) {
 		DiskSizeGB:   cs.config.VMConfig.DiskSize,
 		AdminEmail:   cs.config.Admin.Email,
 		AdminName:    cs.config.Admin.FullName,
+		OutputDir:    cs.config.OutputDirectory,
 	}
 
 	return cs.provider.CreateVM(vpcID, instanceConfig)

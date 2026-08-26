@@ -407,7 +407,23 @@ UNIT
 
     systemctl daemon-reload
     systemctl enable dnsmasq >/dev/null 2>&1 || true
-    ok "dnsmasq serving the tunnel; http://signin reaches the portal"
+
+    # Start it now, and only now.
+    #
+    # Installing the package starts it immediately, while systemd-resolved is
+    # still holding port 53 - so that first attempt fails with "Address
+    # already in use" and systemd remembers the failure. Enabling a unit does
+    # not start it, and does not clear that. Without this the resolver is dead
+    # from the moment it is installed until somebody restarts it by hand, and
+    # the install reports success.
+    systemctl reset-failed dnsmasq >/dev/null 2>&1 || true
+    if systemctl restart dnsmasq >/dev/null 2>&1 && systemctl is-active --quiet dnsmasq; then
+        ok "dnsmasq serving the tunnel; http://signin reaches the portal"
+    else
+        warn "dnsmasq is installed but did not start:"
+        journalctl -u dnsmasq -n 5 --no-pager | sed 's/^/      /'
+        warn "clients will have no resolver inside the walled garden"
+    fi
 else
     warn "dnsmasq could not be installed; clients will be given a public resolver"
     warn "and DNS will remain open out of the walled garden"
