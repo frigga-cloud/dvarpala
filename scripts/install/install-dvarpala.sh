@@ -179,7 +179,13 @@ log "Building Dvarpala"
 cd "$SOURCE_DIR"
 go build -o "$DVARPALA_DIR/bin/dvarpala-server" ./cmd/dvarpala-server
 go build -o "$DVARPALA_DIR/bin/dvarpala-cli"    ./cmd/dvarpala-cli
-ok "dvarpala-server, dvarpala-cli"
+
+# On the PATH, as the name every message here uses. The binary itself needs a
+# config path and the service user on every invocation; the wrapper supplies
+# both so that "dvarpala-cli user list" is a command that exists.
+install -m 755 "$SOURCE_DIR/scripts/install/dvarpala-cli-wrapper.sh" /usr/local/bin/dvarpala-cli
+
+ok "dvarpala-server, dvarpala-cli (on the PATH)"
 
 # The portal templates and static assets are loaded from disk at runtime.
 cp -r "$SOURCE_DIR/web/." "$DVARPALA_DIR/web/"
@@ -707,8 +713,8 @@ cat <<SUMMARY
   Portal        http://$SERVER_HOST:8080
   VPN           $SERVER_HOST:1194/udp
   Config        $CONFIG_DIR/environment.yaml
-  Manage        sudo -u $DVARPALA_USER $DVARPALA_DIR/bin/dvarpala-cli \\
-                  --config $CONFIG_DIR/environment.yaml user list
+  Manage        dvarpala-cli user list
+                dvarpala-cli --help    (audit, session, vpn, mail, admin)
 
 SUMMARY
 
