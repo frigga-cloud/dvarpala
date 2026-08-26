@@ -296,9 +296,8 @@ auth:
   # The password must be an app password, not an account password. Keep it
   # out of this file and in the environment instead:
   #
-  #     systemctl edit dvarpala
-  #     [Service]
-  #     Environment="AUTH_SMTP_PASSWORD=..."
+  #     sudo nano /etc/dvarpala/dvarpala.env
+  #     AUTH_SMTP_PASSWORD=...
   #
   # Then check delivery before anyone depends on it:
   #
@@ -322,9 +321,8 @@ auth:
   # Two keys exist and they are not interchangeable. This wants the API key,
   # beginning "xkeysib-", not the SMTP key. Keep it in the environment:
   #
-  #     systemctl edit dvarpala
-  #     [Service]
-  #     Environment="BREVO_API_KEY=xkeysib-..."
+  #     sudo nano /etc/dvarpala/dvarpala.env
+  #     BREVO_API_KEY=xkeysib-...
   #
   # The from address must be a sender Brevo has verified.
   brevo:
@@ -507,6 +505,36 @@ chmod 700 "$CERT_DIR"
 
 # ── 11. systemd ──────────────────────────────────────────────────────────────
 
+# The one file credentials go in. Root writes it, the service user reads it,
+# and nobody else can.
+install -d -m 750 -o root -g "$DVARPALA_USER" /etc/dvarpala
+if [[ ! -f /etc/dvarpala/dvarpala.env ]]; then
+    cat > /etc/dvarpala/dvarpala.env <<'ENVFILE'
+# Dvarpala credentials.
+#
+# Read by the server and by dvarpala-cli, so both see the same values.
+# Everything here is a secret; nothing here belongs in environment.yaml,
+# which is copied about, ends up in backups, and gets pasted into messages
+# when something goes wrong.
+#
+# Uncomment and fill in whichever applies, then:
+#     sudo systemctl restart dvarpala
+#     dvarpala-cli mail test you@your-domain
+
+# Sending through Brevo. The API key, beginning xkeysib- - not the SMTP key.
+#BREVO_API_KEY=
+
+# Sending through an ordinary mail server.
+#AUTH_SMTP_PASSWORD=
+
+# Signing session tokens. Generated at install; changing it signs everybody out.
+ENVFILE
+    printf 'AUTH_JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> /etc/dvarpala/dvarpala.env
+    chown root:"$DVARPALA_USER" /etc/dvarpala/dvarpala.env
+    chmod 640 /etc/dvarpala/dvarpala.env
+    ok "/etc/dvarpala/dvarpala.env for credentials"
+fi
+
 log "Creating systemd service"
 cat > /etc/systemd/system/dvarpala.service <<UNIT
 [Unit]
@@ -518,6 +546,16 @@ Requires=postgresql.service redis-server.service
 Type=simple
 User=$DVARPALA_USER
 WorkingDirectory=$DVARPALA_DIR
+
+# Credentials, kept out of the settings file. The leading "-" means an absent
+# file is not an error, so a server with no mail service still starts.
+#
+# The CLI reads the same file, which is the point of having one: a key set
+# only in this unit reaches the service and nothing else, and "dvarpala-cli
+# mail test" then reports that no mail service is configured on a server that
+# is sending mail perfectly well.
+EnvironmentFile=-/etc/dvarpala/dvarpala.env
+
 ExecStart=$DVARPALA_DIR/bin/dvarpala-server --config $CONFIG_DIR/environment.yaml
 Restart=always
 RestartSec=10
@@ -813,8 +851,8 @@ cat <<SUMMARY
 
     Codes by email  - works over plain HTTP, so it needs nothing else.
                       Set auth.otp.enabled: true and fill in auth.smtp,
-                      putting the password in AUTH_SMTP_PASSWORD rather than
-                      the file. Then: systemctl restart dvarpala
+                      putting the password in /etc/dvarpala/dvarpala.env
+                      rather than the file. Then: systemctl restart dvarpala
                       Check it:  dvarpala-cli mail test you@your-domain
 
     Google          - needs a domain name and HTTPS. Google refuses plain

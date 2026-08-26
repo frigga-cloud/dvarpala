@@ -398,13 +398,16 @@ type MailerSettings struct {
 // anybody.
 func NewMailer(s MailerSettings) (Mailer, string, error) {
 	if key := strings.TrimSpace(s.BrevoAPIKey); key != "" {
-		from := s.BrevoFrom
+		// Trimmed, because a stray space either side of an address in a YAML
+		// file is easy to leave behind and produces a refusal that talks
+		// about credentials rather than about the address.
+		from := strings.TrimSpace(s.BrevoFrom)
 		if from == "" {
-			from = s.SMTPFrom
+			from = strings.TrimSpace(s.SMTPFrom)
 		}
-		name := s.BrevoFromName
+		name := strings.TrimSpace(s.BrevoFromName)
 		if name == "" {
-			name = s.SMTPFromName
+			name = strings.TrimSpace(s.SMTPFromName)
 		}
 		if from == "" {
 			return nil, "", errors.New("brevo is configured but no from address is set")
@@ -414,15 +417,16 @@ func NewMailer(s MailerSettings) (Mailer, string, error) {
 	}
 
 	if host := strings.TrimSpace(s.SMTPHost); host != "" {
+		from := strings.TrimSpace(s.SMTPFrom)
 		return &SMTPMailer{
 				Host:     host,
 				Port:     s.SMTPPort,
-				Username: s.SMTPUsername,
+				Username: strings.TrimSpace(s.SMTPUsername),
 				Password: s.SMTPPassword,
-				From:     s.SMTPFrom,
-				FromName: s.SMTPFromName,
+				From:     from,
+				FromName: strings.TrimSpace(s.SMTPFromName),
 			},
-			fmt.Sprintf("%s, as %s", host, s.SMTPFrom), nil
+			fmt.Sprintf("%s, as %s", host, from), nil
 	}
 
 	log := LogMailer{}

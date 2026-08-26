@@ -214,3 +214,35 @@ func TestTheMailerChosenMatchesWhatWasConfigured(t *testing.T) {
 func typeName(v interface{}) string {
 	return reflect.TypeOf(v).String()
 }
+
+// A stray space either side of an address in a YAML file is easy to leave
+// behind, and it produces a refusal that talks about credentials rather than
+// about the address - which sends somebody looking in entirely the wrong
+// place. Seen in a real deployment.
+func TestSurroundingSpaceInAnAddressIsIgnored(t *testing.T) {
+	m, described, err := NewMailer(MailerSettings{
+		BrevoAPIKey:   " xkeysib-key ",
+		BrevoFrom:     " noreply@example.com ",
+		BrevoFromName: " Frigga Accounts ",
+	})
+	if err != nil {
+		t.Fatalf("choosing: %v", err)
+	}
+
+	b, ok := m.(*BrevoMailer)
+	if !ok {
+		t.Fatalf("chose %T", m)
+	}
+	if b.From != "noreply@example.com" {
+		t.Errorf("from is %q", b.From)
+	}
+	if b.FromName != "Frigga Accounts" {
+		t.Errorf("from name is %q", b.FromName)
+	}
+	if b.APIKey != "xkeysib-key" {
+		t.Errorf("api key is %q", b.APIKey)
+	}
+	if strings.Contains(described, "  ") {
+		t.Errorf("the log line would read oddly: %q", described)
+	}
+}

@@ -790,27 +790,30 @@ Then fill in ONE of the two ways of sending mail, just below it.
 Save and close: Ctrl+O, Enter, Ctrl+X.
 
 
-STEP 3 - put the password somewhere it will not be copied about
----------------------------------------------------------------
+STEP 3 - put the password in the credentials file
+-------------------------------------------------
 Passwords do not go in the settings file. That file is read by several
 programs, ends up in backups, and gets pasted into messages when
-something goes wrong. This one is readable only by root:
+something goes wrong. There is a separate file only root can write and
+only Dvarpala can read:
 
-    sudo systemctl edit dvarpala
+    sudo nano /etc/dvarpala/dvarpala.env
 
-An editor opens with a large empty space at the top. Type into it:
+Find the line for whichever you chose, remove the # in front of it, and
+put the key after the = sign:
 
-    [Service]
-    Environment="BREVO_API_KEY=your-key-here"
+    BREVO_API_KEY=xkeysib-...
 
   (for an ordinary mail server, use AUTH_SMTP_PASSWORD instead)
 
 Save and close: Ctrl+O, Enter, Ctrl+X.
 
+Both the server and dvarpala-cli read this file, so the check in the
+next step tests the same credentials the server itself uses.
+
 
 STEP 4 - apply it, and check
 ----------------------------
-    sudo systemctl daemon-reload
     sudo systemctl restart dvarpala
     sudo journalctl -u dvarpala -n 20 | grep -i "code sign-in"
 

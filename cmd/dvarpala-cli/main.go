@@ -16,6 +16,10 @@ import (
 var configPath string
 
 func main() {
+	// Before anything reads configuration: the credentials live in a file
+	// systemd loads for the service, and the CLI must see the same ones.
+	loadSecrets()
+
 	rootCmd := &cobra.Command{
 		Use:   "dvarpala-cli",
 		Short: "Dvarpala VPN management CLI",
