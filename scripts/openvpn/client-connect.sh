@@ -86,7 +86,14 @@ fi
 [[ -x "$FIREWALL" ]] && "$FIREWALL" revoke "$CLIENT_IP" >/dev/null 2>&1
 
 # Ask Dvarpala what this client may reach.
-RESPONSE=$(curl -sf --max-time 5 "$API/api/internal/vpn/access/$CLIENT_IP" 2>/dev/null)
+# The certificate's common name travels with the request. A session is stored
+# against the tunnel address, and tunnel addresses are reused: without this,
+# whoever is handed this address next inherits whatever the last holder had
+# earned, for as long as the disconnect grace period lasts.
+CN_ARG=$(printf '%s' "$CN" | sed 's/[^a-zA-Z0-9@._-]/_/g')
+
+RESPONSE=$(curl -sf --max-time 5 \
+    "$API/api/internal/vpn/access/$CLIENT_IP?cn=$CN_ARG" 2>/dev/null)
 CURL_STATUS=$?
 
 if [[ $CURL_STATUS -ne 0 || -z "$RESPONSE" ]]; then

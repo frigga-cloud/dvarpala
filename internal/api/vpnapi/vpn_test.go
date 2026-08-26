@@ -69,3 +69,36 @@ func TestForwardedHeadersCannotForgeLoopback(t *testing.T) {
 		}
 	}
 }
+
+// A session is stored against a tunnel address, and OpenVPN hands those
+// addresses out again. Without checking the certificate, the next person to
+// receive an address inherits whatever the last holder had earned - for as
+// long as the disconnect grace period lasts.
+func TestACertificateMustMatchTheSessionAtThatAddress(t *testing.T) {
+	cases := []struct {
+		name       string
+		commonName string
+		email      string
+		want       bool
+	}{
+		{"the same person", "sam@acme.com", "sam@acme.com", true},
+		{"case differs, still the same person", "SAM@acme.com", "sam@acme.com", true},
+		{"spacing differs", " sam@acme.com ", "sam@acme.com", true},
+		{"somebody else entirely", "mallory@acme.com", "sam@acme.com", false},
+		{"a lookalike", "sam@acme.com.evil.net", "sam@acme.com", false},
+		{"a prefix of the real name", "sam", "sam@acme.com", false},
+
+		// An older hook sends no name. Refusing would lock every client out of
+		// a server whose hooks had not been updated with it.
+		{"no name sent at all", "", "sam@acme.com", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sameIdentity(tc.commonName, tc.email); got != tc.want {
+				t.Fatalf("sameIdentity(%q, %q) = %v, want %v",
+					tc.commonName, tc.email, got, tc.want)
+			}
+		})
+	}
+}

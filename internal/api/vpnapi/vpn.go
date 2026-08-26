@@ -92,6 +92,7 @@ type AccessResponse struct {
 // the captive portal.
 func (h *Handler) Access(c *gin.Context) {
 	clientIP := c.Param("clientip")
+	commonName := c.Query("cn")
 
 	sess, err := h.auth.SessionForClientIP(c.Request.Context(), clientIP)
 	if errors.Is(err, auth.ErrNoSession) {
@@ -105,6 +106,34 @@ func (h *Handler) Access(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, AccessResponse{
 			Authenticated: false, Routes: []Route{}, Reason: err.Error(),
+		})
+		return
+	}
+
+	// A session is stored against a tunnel address, and tunnel addresses are
+	// handed out again as clients come and go. Whoever receives one next would
+	// otherwise inherit whatever the previous holder had earned, for as long
+	// as the disconnect grace period lasts.
+	//
+	// The certificate settles it: the session records who signed in, and
+	// OpenVPN reports whose certificate this connection presented. Until now
+	// those two facts never met.
+	if !sameIdentity(commonName, sess.Email) {
+		h.audit.Log(c.Request.Context(), services.Entry{
+			UserID:       &sess.UserID,
+			Action:       "vpn_access_denied",
+			ResourceType: "vpn_session",
+			IPAddress:    clientIP,
+			Details: map[string]interface{}{
+				"reason":       "certificate does not match the session at this address",
+				"session_for":  sess.Email,
+				"connected_as": commonName,
+			},
+		})
+
+		c.JSON(http.StatusOK, AccessResponse{
+			Authenticated: false, Routes: []Route{},
+			Reason: "the session at this address belongs to somebody else",
 		})
 		return
 	}
@@ -270,4 +299,21 @@ func splitCIDR(addr string) (network, netmask string) {
 		return parts[0], m
 	}
 	return parts[0], "255.255.255.255"
+}
+
+// sameIdentity reports whether a connecting certificate belongs to the person
+// whose session is stored at this address.
+//
+// An absent name is accepted. The hook has only sent one since this check
+// existed, and refusing without it would lock every client out of a server
+// whose hooks had not been updated alongside it - an upgrade that half
+// succeeds should not deny everybody access. The endpoint is served only to
+// this machine, so the caller is the hook rather than anyone who could choose
+// to leave the name out.
+func sameIdentity(commonName, email string) bool {
+	name := strings.TrimSpace(commonName)
+	if name == "" {
+		return true
+	}
+	return strings.EqualFold(name, strings.TrimSpace(email))
 }
