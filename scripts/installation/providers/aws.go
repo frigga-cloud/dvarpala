@@ -462,8 +462,65 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 	instanceInfo.KeyPairName = keyPairName
 	instanceInfo.SecurityGroupID = vpcInfo.SecurityGroupID
 
+	// Give it an address that will not change underneath it.
+	if fixed, err := aws.attachElasticIP(instanceID, vmName); err != nil {
+		// Not fatal. A working server on a changeable address is better than
+		// no server, and the operator is told plainly what it means.
+		fmt.Printf("⚠️  Could not attach a fixed address: %v\n", err)
+		fmt.Printf("   The server works, but its address changes if it is ever\n")
+		fmt.Printf("   stopped and started, and every issued .ovpn names that\n")
+		fmt.Printf("   address. Attach an Elastic IP by hand before issuing any.\n")
+	} else {
+		instanceInfo.PublicIP = fixed
+	}
+
 	fmt.Printf("✅ Instance launched: %s (IP: %s)\n", instanceID, instanceInfo.PublicIP)
 	return instanceInfo, nil
+}
+
+// attachElasticIP gives the instance an address that survives a stop.
+//
+// An ordinary EC2 public address is not the machine's own: stop and start the
+// instance and it is handed a different one. Every .ovpn this install issues
+// names the address in its "remote" line, and OpenVPN resolves that on each
+// connect - so a single stop leaves every client pointing at somewhere that is
+// not the server, with no error anybody can act on. Recovering means reissuing
+// a profile to every person who has one.
+//
+// The address stays with the account after the instance is terminated, and AWS
+// charges for one that is not in use, so it is tagged for the cleanup to find.
+func (aws *AWSProvider) attachElasticIP(instanceID, vmName string) (string, error) {
+	fmt.Println("📌 Allocating a fixed public address")
+
+	out, err := awsOutput(exec.Command("aws", "ec2", "allocate-address",
+		"--domain", "vpc",
+		"--tag-specifications", fmt.Sprintf(
+			"ResourceType=elastic-ip,Tags=[{Key=Name,Value=%s-ip},{Key=Project,Value=dvarpala},{Key=ManagedBy,Value=frigga-labs}]",
+			vmName),
+		"--query", "[AllocationId,PublicIp]",
+		"--output", "text"))
+	if err != nil {
+		return "", fmt.Errorf("allocating: %w", err)
+	}
+
+	fields := strings.Fields(string(out))
+	if len(fields) != 2 {
+		return "", fmt.Errorf("unexpected reply from allocate-address: %q", strings.TrimSpace(string(out)))
+	}
+	allocationID, publicIP := fields[0], fields[1]
+
+	if _, err := awsOutput(exec.Command("aws", "ec2", "associate-address",
+		"--instance-id", instanceID,
+		"--allocation-id", allocationID)); err != nil {
+		// Release it rather than leaving a charged-for address attached to
+		// nothing and belonging to nobody.
+		exec.Command("aws", "ec2", "release-address", "--allocation-id", allocationID).Run()
+		return "", fmt.Errorf("associating %s: %w", publicIP, err)
+	}
+
+	fmt.Printf("✅ Fixed address %s (%s) - it stays with this server across restarts\n",
+		publicIP, allocationID)
+	return publicIP, nil
 }
 
 func (aws *AWSProvider) getLatestUbuntuAMI() (string, error) {
@@ -583,6 +640,22 @@ func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, c
 		fmt.Printf("   Fetch it later with:\n     scp -i %s ubuntu@%s:/tmp/admin.ovpn .\n",
 			keyPath, instanceInfo.PublicIP)
 	}
+
+	// Everything this run created is tagged, so it can be found again. Said
+	// here because nothing else says it: the installer has no teardown, and
+	// an Elastic IP is charged for whether or not anything is using it.
+	fmt.Println()
+	fmt.Println("📋 What this created, and how to remove it:")
+	fmt.Printf("     aws ec2 describe-instances --region %s \\\n", aws.Region)
+	fmt.Println("       --filters Name=tag:Project,Values=dvarpala \\")
+	fmt.Println("       --query 'Reservations[].Instances[].[InstanceId,State.Name,PublicIpAddress]' --output table")
+	fmt.Printf("     aws ec2 describe-addresses --region %s \\\n", aws.Region)
+	fmt.Println("       --filters Name=tag:Project,Values=dvarpala \\")
+	fmt.Println("       --query 'Addresses[].[PublicIp,AllocationId,InstanceId]' --output table")
+	fmt.Println()
+	fmt.Println("   Terminating the instance does NOT release its address, and an")
+	fmt.Println("   address that belongs to nobody is still charged for. Release it")
+	fmt.Println("   with: aws ec2 release-address --allocation-id <id>")
 
 	if needsSignIn {
 		// Said plainly, because a machine nobody can sign in to is not
