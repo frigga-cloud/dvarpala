@@ -98,10 +98,17 @@ portal_interception() {
     # Signed in: leave their traffic alone.
     iptables -t nat -A "$NAT_CHAIN" -m set --match-set "$AUTH_SET" src -j RETURN
 
-    # Already talking to the portal: nothing to rewrite.
-    iptables -t nat -A "$NAT_CHAIN" -d "$PORTAL_IP" -j RETURN
-
-    # Everyone else asking for a web page gets the sign-in page.
+    # Everyone else asking for a web page gets the sign-in page - including
+    # somebody who asked for the portal itself.
+    #
+    # There used to be a rule above this returning anything addressed to the
+    # portal, on the reasoning that it needed no rewriting. It never did
+    # protect anything: this chain is only entered for port 80, and the portal
+    # listens on 8080, so its own traffic never arrives here. What it did do
+    # was break the one address people are given. Told to open http://signin,
+    # a browser asks for port 80 on this machine, that rule sent it through
+    # untouched, and nothing was listening - so the address that exists to be
+    # memorable was the one address that did not work.
     iptables -t nat -A "$NAT_CHAIN" -p tcp --dport 80 \
         -j DNAT --to-destination "$PORTAL_IP:$PORTAL_PORT"
 
