@@ -413,6 +413,50 @@ else
     warn "and DNS will remain open out of the walled garden"
 fi
 
+# ── 9b. nightly backup ───────────────────────────────────────────────────────
+#
+# Two things on this machine cannot be recreated. The certificate authority,
+# because every .ovpn ever issued carries its certificate and will trust no
+# other - losing it means every person needs a new file before anybody can
+# connect again. And the database, which holds who exists, what they may
+# reach, and the audit trail. Certificates can at least be reissued; an audit
+# trail cannot.
+
+log "Scheduling the nightly backup"
+install -m 700 "$SOURCE_DIR/scripts/install/dvarpala-backup.sh" /usr/local/bin/dvarpala-backup.sh
+
+cat > /etc/systemd/system/dvarpala-backup.service <<'UNIT'
+[Unit]
+Description=Back up the Dvarpala certificate authority and database
+Documentation=file:///usr/local/bin/dvarpala-backup.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dvarpala-backup.sh
+UNIT
+
+cat > /etc/systemd/system/dvarpala-backup.timer <<'UNIT'
+[Unit]
+Description=Nightly Dvarpala backup
+
+[Timer]
+# Small hours, with a random delay so a fleet of these does not all wake at
+# once. Persistent, so a machine that was off at 03:00 backs up when it
+# returns rather than skipping a day in silence.
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now dvarpala-backup.timer >/dev/null 2>&1
+ok "nightly at 03:00, kept for 14 days, in /var/backups/dvarpala"
+warn "those copies live on this machine. Take them off it as well, or losing"
+warn "the machine loses the backups with it."
+
 # ── 10. ownership ────────────────────────────────────────────────────────────
 
 chown -R "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR" /var/log/dvarpala
