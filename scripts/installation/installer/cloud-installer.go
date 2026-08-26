@@ -742,49 +742,142 @@ func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
   Administrator %s
   Provider      %s, %s
 
-Getting on to the machine
--------------------------
-From the directory the installer was run in:
+STEP 1 - get on to the machine
+-----------------------------
+Run this from the directory you ran the installer in:
 
     ssh -i %s ubuntu@%s
 
-Worth doing once, so the key path stops mattering. In ~/.ssh/config:
+Everything from here on is typed on the machine, not on your own
+computer. Your prompt changes to ubuntu@ip-... once you are there.
+
+
+STEP 2 - choose how people will sign in
+---------------------------------------
+Nobody can sign in yet. Until this is done, anyone who connects reaches
+the sign-in page and nothing else.
+
+Codes sent by email is the method that needs no domain name and no
+certificate. Open the settings:
+
+    sudo nano /opt/dvarpala/config/environment.yaml
+
+Find the "otp:" section (in nano: Ctrl+W, type otp:, Enter) and turn it
+on:
+
+    otp:
+      enabled: true
+
+Then fill in ONE of the two ways of sending mail, just below it.
+
+  Through Brevo, or a similar service. No mail ports, and it does not
+  mind being used from a server:
+
+    brevo:
+      api_key: ""                      <- leave empty, see step 3
+      from: noreply@your-domain        <- must be verified with them
+      from_name: "Your Company"
+
+  Or through an ordinary mail server, if you have one:
+
+    smtp:
+      host: smtp.your-provider
+      port: 587
+      username: <the login they gave you>
+      password: ""                     <- leave empty, see step 3
+      from: noreply@your-domain
+
+Save and close: Ctrl+O, Enter, Ctrl+X.
+
+
+STEP 3 - put the password somewhere it will not be copied about
+---------------------------------------------------------------
+Passwords do not go in the settings file. That file is read by several
+programs, ends up in backups, and gets pasted into messages when
+something goes wrong. This one is readable only by root:
+
+    sudo systemctl edit dvarpala
+
+An editor opens with a large empty space at the top. Type into it:
+
+    [Service]
+    Environment="BREVO_API_KEY=your-key-here"
+
+  (for an ordinary mail server, use AUTH_SMTP_PASSWORD instead)
+
+Save and close: Ctrl+O, Enter, Ctrl+X.
+
+
+STEP 4 - apply it, and check
+----------------------------
+    sudo systemctl daemon-reload
+    sudo systemctl restart dvarpala
+    sudo journalctl -u dvarpala -n 20 | grep -i "code sign-in"
+
+You want a line saying it is sending through whatever you configured.
+If it says it is writing codes to its own log, the key did not reach
+it - go back to step 3.
+
+Then send yourself a real message:
+
+    dvarpala-cli mail test you@your-domain
+
+Do not go further until that email arrives. A VPN profile issued now
+gets somebody as far as the sign-in page and no further.
+
+
+STEP 5 - decide what people may reach
+-------------------------------------
+Nothing is reachable until it is granted. A resource is anything with
+an address this machine itself can reach.
+
+    dvarpala-cli resource create --name wiki --type service --ip 10.0.5.20
+    dvarpala-cli group create --name staff --description "Staff"
+    dvarpala-cli permission grant --group staff --resource wiki --type read
+    dvarpala-cli group assign --user someone@your-domain --group staff
+
+
+STEP 6 - give people a profile
+------------------------------
+    dvarpala-cli user create --email someone@your-domain --name "Their Name"
+    dvarpala-cli vpn issue --user someone@your-domain --output them.ovpn
+
+The file contains a private key. Hand it over directly rather than by
+email, and delete your copy afterwards.
+
+Tell them: import it into an OpenVPN client, connect, then open
+
+    http://signin
+
+No operating system announces a captive portal when a VPN comes up, so
+that address has to be passed on. Any http:// address also works - they
+will be redirected.
+
+
+STEP 7 - keep a copy of the backups
+-----------------------------------
+Written nightly to /var/backups/dvarpala on the machine, which is no
+protection if the machine is lost. Copy them somewhere else:
+
+    scp -i %s ubuntu@%s:/var/backups/dvarpala/\* .
+
+They hold the certificate authority and the database. Without the
+authority, every profile ever issued stops working and everybody needs
+a new one.
+
+
+Optional - a shortcut for connecting
+------------------------------------
+So you can type "ssh dvarpala" instead of the whole command. On your own
+computer, not the machine, add this to ~/.ssh/config (create it if it
+does not exist):
 
     Host dvarpala
         HostName %s
         User ubuntu
         IdentityFile %s
-        StrictHostKeyChecking accept-new
 
-Then it is just: ssh dvarpala
-
-Everything is managed from the machine, with "dvarpala-cli". Start with
-"dvarpala-cli --help"; the install printed a fuller list.
-
-Before anybody can sign in
---------------------------
-A fresh server has no way in. Codes by email is the method that works
-without a domain name or a certificate:
-
-    sudo nano /opt/dvarpala/config/environment.yaml    # auth.otp, auth.smtp
-    sudo systemctl edit dvarpala                       # AUTH_SMTP_PASSWORD
-    sudo systemctl restart dvarpala
-    dvarpala-cli mail test you@your-domain
-
-Do not issue VPN profiles until a real message arrives. Until then a
-profile gets somebody as far as the sign-in page and no further.
-
-Then, in this order
--------------------
- 1. Register what people should reach, and grant it to a group. Nothing
-    is reachable until it is granted.
- 2. Issue a profile for each person:
-        dvarpala-cli vpn issue --user someone@example.com
- 3. Tell them: import the file, connect, then open http://signin
-    Nothing announces a captive portal when a VPN comes up - not on any
-    operating system - so the address has to be passed on.
- 4. Copy the nightly backups off the machine. They are written to
-    /var/backups/dvarpala and would be lost with it.
+Nothing depends on this. It only saves typing.
 
 The administrator's own profile
 -------------------------------
@@ -803,6 +896,7 @@ Files here
 		vmInfo.InstanceID, vmInfo.PrivateIP,
 		config.Admin.Email,
 		config.Cloud.Provider, config.Cloud.Region,
+		keyPath, vmInfo.PublicIP,
 		keyPath, vmInfo.PublicIP,
 		vmInfo.PublicIP, absoluteish(keyPath),
 		config.Admin.Email,
