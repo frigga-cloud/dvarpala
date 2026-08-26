@@ -100,11 +100,33 @@ func mailTestCmd() *cobra.Command {
 // hintFor turns a mail server's refusal into the thing to go and do about it.
 func hintFor(err error) string {
 	switch msg := err.Error(); {
+	case contains(msg, "brevo") && contains(msg, "535", "authentication failed"):
+		// Brevo issues two credentials and only one of them works here. The
+		// API key (xkeysib-...) is for its HTTP interface; SMTP wants the
+		// separate SMTP key (xsmtpsib-...), from the same page.
+		return "Brevo rejected the credentials.\n" +
+			"It issues two different keys and they are not interchangeable: the\n" +
+			"API key begins xkeysib- and is for its HTTP interface, while SMTP\n" +
+			"needs the SMTP key, which begins xsmtpsib-. Both are under\n" +
+			"SMTP & API in the dashboard. The login is the one shown there,\n" +
+			"often ending @smtp-brevo.com rather than your own address."
+
+	case contains(msg, "gmail", "google") && contains(msg, "535", "Username and Password not accepted"):
+		return "Google rejected the credentials.\n" +
+			"Programs cannot use an ordinary account password - generate an app\n" +
+			"password at myaccount.google.com/apppasswords and put it in\n" +
+			"AUTH_SMTP_PASSWORD.\n\n" +
+			"If the app password is definitely right, Google may be refusing the\n" +
+			"machine rather than the password: it blocks sign-ins from addresses\n" +
+			"it does not recognise, which includes most cloud servers, and reports\n" +
+			"that as bad credentials. Test the same password from a laptop - if it\n" +
+			"works there and not here, that is what has happened."
+
 	case contains(msg, "535", "Username and Password not accepted", "authentication failed"):
 		return "The mail server rejected the credentials.\n" +
-			"For Google Workspace this usually means an ordinary account password\n" +
-			"was used. Programs need an app password instead - generate one at\n" +
-			"myaccount.google.com/apppasswords and put it in AUTH_SMTP_PASSWORD."
+			"Check the username is the one the provider gave for SMTP, which is\n" +
+			"often not the address you send from, and that the password is an\n" +
+			"application or SMTP key rather than an account password."
 
 	case contains(msg, "no such host"):
 		return "The mail server's name could not be resolved. Check auth.smtp.host\n" +
