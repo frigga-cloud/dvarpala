@@ -13,7 +13,7 @@
 #
 #   authenticated source        -> ACCEPT   (their routes decide reachability)
 #   destined for the portal     -> ACCEPT
-#   DNS                         -> ACCEPT   (needed to resolve the OAuth hosts)
+#   DNS, to this server only    -> ACCEPT   (so anything can be resolved at all)
 #   destined for an OAuth host  -> ACCEPT   (so people can actually sign in)
 #   anything else, over TCP     -> REJECT  (so a browser fails at once)
 #   anything else               -> DROP
@@ -139,8 +139,21 @@ setup() {
 
     # The walled garden, for everyone else.
     iptables -A "$CHAIN" -d "$PORTAL_IP" -j ACCEPT
-    iptables -A "$CHAIN" -p udp --dport 53 -j ACCEPT
-    iptables -A "$CHAIN" -p tcp --dport 53 -j ACCEPT
+
+    # DNS to this server only.
+    #
+    # A signed-out client is given the resolver on this machine, and nothing
+    # else. Allowing port 53 to anywhere - which is what this did before - left
+    # a two-way channel out of the walled garden that everything else here
+    # exists to prevent: DNS carries arbitrary data in both directions, slowly
+    # but reliably, and tunnelling over it is a well-worn technique.
+    #
+    # Traffic to the resolver arrives on INPUT rather than FORWARD, because the
+    # resolver is this machine. These rules cover a client that was pushed a
+    # different resolver and has not noticed yet.
+    iptables -A "$CHAIN" -p udp --dport 53 -d "$PORTAL_IP" -j ACCEPT
+    iptables -A "$CHAIN" -p tcp --dport 53 -d "$PORTAL_IP" -j ACCEPT
+
     iptables -A "$CHAIN" -m set --match-set "$OAUTH_SET" dst -j ACCEPT
 
     # Log a sample of refusals, then refuse.
@@ -173,6 +186,12 @@ setup() {
     # not depend on INPUT happening to default to ACCEPT.
     iptables -C INPUT -i tun+ -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || \
         iptables -I INPUT 1 -i tun+ -p tcp --dport "$PORTAL_PORT" -j ACCEPT
+
+    # The resolver, for the same reason.
+    iptables -C INPUT -i tun+ -p udp --dport 53 -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT 1 -i tun+ -p udp --dport 53 -j ACCEPT
+    iptables -C INPUT -i tun+ -p tcp --dport 53 -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT 1 -i tun+ -p tcp --dport 53 -j ACCEPT
 
     portal_interception
 

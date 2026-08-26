@@ -363,6 +363,56 @@ cp "$SOURCE_DIR/scripts/openvpn/dvarpala-firewall.sh" "$SCRIPT_DIR/"
 chmod +x "$SCRIPT_DIR"/*.sh
 ok "client-connect, client-disconnect, firewall"
 
+# ── 9a. the resolver for the walled garden ───────────────────────────────────
+#
+# A client that has not signed in is given this machine as its resolver and
+# cannot reach any other, which closes DNS as a way out of the garden. It also
+# answers "signin" with the portal, so somebody can be told an address they
+# can actually remember - nothing announces a captive portal when a VPN comes
+# up, so the address has to be communicated one way or another.
+
+log "Installing the walled-garden resolver"
+apt-get "${APT_WAIT[@]}" install -y -qq dnsmasq >/dev/null 2>&1 || true
+
+if command -v dnsmasq >/dev/null 2>&1; then
+    install -D -m 644 "$SOURCE_DIR/scripts/openvpn/dvarpala-dns.conf" \
+        /etc/dnsmasq.d/dvarpala.conf
+
+    # systemd-resolved holds port 53 on many Ubuntu images. Leave it running
+    # for the machine's own lookups, but stop it listening, or dnsmasq cannot
+    # bind and the garden has no resolver at all.
+    if systemctl is-active --quiet systemd-resolved; then
+        mkdir -p /etc/systemd/resolved.conf.d
+        cat > /etc/systemd/resolved.conf.d/dvarpala.conf <<'RESOLVED'
+# dnsmasq serves the VPN tunnel on port 53; this would otherwise hold it.
+[Resolve]
+DNSStubListener=no
+RESOLVED
+        systemctl restart systemd-resolved
+    fi
+
+    # The tunnel interface does not exist until OpenVPN starts, and dnsmasq is
+    # bound to it, so it has to come up after.
+    mkdir -p /etc/systemd/system/dnsmasq.service.d
+    cat > /etc/systemd/system/dnsmasq.service.d/dvarpala.conf <<'UNIT'
+# Bound to tun0, which OpenVPN creates. Starting first only fails.
+[Unit]
+After=openvpn-server@server.service
+Wants=openvpn-server@server.service
+
+[Service]
+Restart=on-failure
+RestartSec=5
+UNIT
+
+    systemctl daemon-reload
+    systemctl enable dnsmasq >/dev/null 2>&1 || true
+    ok "dnsmasq serving the tunnel; http://signin reaches the portal"
+else
+    warn "dnsmasq could not be installed; clients will be given a public resolver"
+    warn "and DNS will remain open out of the walled garden"
+fi
+
 # ── 10. ownership ────────────────────────────────────────────────────────────
 
 chown -R "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR" /var/log/dvarpala

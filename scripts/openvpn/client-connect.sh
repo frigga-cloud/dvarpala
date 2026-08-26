@@ -21,7 +21,21 @@ API="${DVARPALA_API:-http://127.0.0.1:8080}"
 LOG="/var/log/openvpn/dvarpala-connect.log"
 FIREWALL="${DVARPALA_FIREWALL:-/opt/dvarpala/scripts/dvarpala-firewall.sh}"
 PORTAL_IP="${DVARPALA_PORTAL_IP:-172.30.100.1}"
-DNS="${DVARPALA_DNS:-8.8.8.8}"
+
+# Two resolvers, because a client in the walled garden and a client that has
+# signed in are in different situations.
+#
+# Unidentified, it is given this machine: it cannot reach any other resolver,
+# which is what closes DNS as a way out of the garden, and this one answers
+# "signin" with the sign-in page so somebody can be told an address they can
+# remember.
+#
+# Signed in, the tunnel carries only the company's addresses and everything
+# else goes over the person's own connection - so their own resolver is the
+# right one, and taking it over would be reaching further into their machine
+# than this needs to.
+GARDEN_DNS="${DVARPALA_GARDEN_DNS:-$PORTAL_IP}"
+WORK_DNS="${DVARPALA_DNS:-}"
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
@@ -50,7 +64,7 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 walled_garden() {
     echo 'push "redirect-gateway def1 bypass-dhcp"'
     echo "push \"route $PORTAL_IP 255.255.255.255\""
-    echo "push \"dhcp-option DNS $DNS\""
+    echo "push \"dhcp-option DNS $GARDEN_DNS\""
 }
 
 # work_only is the second shape: the company's addresses through the tunnel,
@@ -68,7 +82,9 @@ walled_garden() {
 # sign-in completes.
 work_only() {
     echo "push \"route $PORTAL_IP 255.255.255.255\""
-    echo "push \"dhcp-option DNS $DNS\""
+    # Only if this deployment names one. Empty means the client keeps the
+    # resolver it already had, which is what a split tunnel implies.
+    [[ -n "$WORK_DNS" ]] && echo "push \"dhcp-option DNS $WORK_DNS\""
 }
 
 CLIENT_IP="${ifconfig_pool_remote_ip:-}"
