@@ -20,11 +20,14 @@
         <div class="alert alert-error">{{.reason}}</div>
 
         <h2>Could not sign you in</h2>
-        <p class="lede">Nothing has changed about your account. You can try
-           again, and if it keeps failing, send an administrator the details
+        <p class="lede">Nothing has changed about your account.</p>
+
+        {{if .hint}}<div class="note">{{.hint}}</div>{{end}}
+
+        <p class="lede">If it keeps failing, send an administrator the details
            below &mdash; they identify this exact attempt in the audit trail.</p>
 
-        <a class="btn" href="/">Try again</a>
+        <a class="btn" href="/">Start again</a>
 
         <div class="meta">
             <strong>Code</strong> {{.error_code}}<br>

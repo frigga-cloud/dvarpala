@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -64,5 +65,35 @@ func TestMissingAPIEndpointsAreNotRedirected(t *testing.T) {
 	}
 	if ct := w.Header().Get("Content-Type"); ct[:16] != "application/json" {
 		t.Errorf("content type is %q, want JSON", ct)
+	}
+}
+
+// A failure page that states a fact nobody can act on is a dead end. The
+// commonest of these is a spent sign-in: the reason says the attempt was
+// invalid or expired, and never that pressing back is what did it.
+func TestFailuresExplainWhatToDoAboutThem(t *testing.T) {
+	actionable := []string{
+		"INVALID_STATE",
+		"DOMAIN_NOT_ALLOWED",
+		"NOT_AUTHORISED",
+		"PROVIDER_UNAVAILABLE",
+		"NOT_REDEEMABLE",
+	}
+
+	for _, code := range actionable {
+		if hintFor(code) == "" {
+			t.Errorf("%s offers no guidance, so the page is a dead end", code)
+		}
+	}
+
+	// The spent-token case is the one people actually hit, and the fix - stop
+	// pressing back - has to be in the text.
+	if got := hintFor("INVALID_STATE"); !strings.Contains(got, "back") {
+		t.Errorf("INVALID_STATE hint does not mention going back: %q", got)
+	}
+
+	// An unrecognised code says nothing rather than guessing.
+	if got := hintFor("SOMETHING_NEW"); got != "" {
+		t.Errorf("unknown code invented guidance: %q", got)
 	}
 }

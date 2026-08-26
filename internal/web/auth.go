@@ -194,12 +194,52 @@ func isAdmin(sess *auth.Session) bool {
 
 // Failure shows the error page.
 func (h *AuthHandler) Failure(c *gin.Context) {
+	code := defaultTo(c.Query("code"), "AUTH_FAILED")
+
 	c.HTML(http.StatusOK, "auth-error.html", gin.H{
 		"reason":     defaultTo(c.Query("reason"), "Authentication failed. Please try again."),
-		"error_code": defaultTo(c.Query("code"), "AUTH_FAILED"),
+		"error_code": code,
+		"hint":       hintFor(code),
 		"provider":   c.Query("provider"),
 		"timestamp":  time.Now().Format("2006-01-02 15:04:05"),
 	})
+}
+
+// hintFor turns a failure code into the thing to actually do about it.
+//
+// The reasons these pages carry are accurate and useless to the person
+// reading them. "Invalid or expired login attempt" describes the state of a
+// token nobody knew existed; what it does not say is that going back in the
+// browser is what caused it, and that starting again fixes it. Somebody
+// meeting that in production concludes the product is broken.
+func hintFor(code string) string {
+	switch code {
+	case "INVALID_STATE":
+		return "Every sign-in can only be used once, and going back in your " +
+			"browser returns you to one that has already been spent. Start " +
+			"again from the sign-in page rather than pressing back."
+
+	case "DOMAIN_NOT_ALLOWED":
+		return "This network only admits certain email domains. If that " +
+			"address is the right one for your work, an administrator has to " +
+			"add its domain."
+
+	case "NOT_AUTHORISED":
+		return "You proved the address is yours, but it has no access here - " +
+			"either no account, or one that has been deactivated. An " +
+			"administrator can grant it."
+
+	case "PROVIDER_UNAVAILABLE":
+		return "That way of signing in is not switched on for this server. " +
+			"Go back to the sign-in page and use one of the methods it offers."
+
+	case "NOT_REDEEMABLE":
+		return "Emergency access links work once and expire quickly. Ask for " +
+			"a new one."
+
+	default:
+		return ""
+	}
 }
 
 // Status reports whether the caller has a session.
