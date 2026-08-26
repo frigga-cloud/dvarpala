@@ -95,6 +95,14 @@
 
   .empty { padding: 2.5rem 1rem; text-align: center; color: var(--faint); font-size: .9rem; }
 
+  /* Trail columns. A timestamp broken over three lines costs more vertical
+   * space than the row it describes, and makes two adjacent events hard to
+   * order by eye - which is the one thing this table exists to let you do. */
+  td.nowrap { white-space: nowrap; }
+  td.details {
+    max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
   /* ── forms ── */
   form.inline { display: contents; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
@@ -159,6 +167,8 @@
       <a href="/admin/users"     class="{{if or (eq .Page "users") (eq .Page "user")}}on{{end}}">People</a>
       <a href="/admin/groups"    class="{{if eq .Page "groups"}}on{{end}}">Groups &amp; access</a>
       <a href="/admin/resources" class="{{if eq .Page "resources"}}on{{end}}">Resources</a>
+      <a href="/admin/activity"  class="{{if eq .Page "activity"}}on{{end}}">Activity</a>
+      <a href="/admin/audit"     class="{{if eq .Page "audit"}}on{{end}}">Audit trail</a>
     </nav>
     {{if .Session}}<div class="who">{{.Session.Email}}</div>{{end}}
   </div>
@@ -181,7 +191,7 @@
   <div class="panel scroll">
     {{if .Users}}
     <table>
-      <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Department</th><th>Status</th><th>Groups</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Department</th><th>Last signed in</th><th>Status</th><th>Groups</th><th></th></tr></thead>
       <tbody>
       {{range .Users}}
         <tr>
@@ -189,6 +199,7 @@
           <td class="mono"><a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a></td>
           <td>{{if .FullName}}{{.FullName}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
           <td>{{if .Department}}{{.Department}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td class="mono">{{if .LastLogin}}{{.LastLogin.Format "2006-01-02 15:04"}}{{else}}<span class="dim">never</span>{{end}}</td>
           <td><span class="pill {{if eq (printf "%s" .Status) "active"}}pill-allow{{else}}pill-deny{{end}}">{{.Status}}</span></td>
           <td>{{if .Groups}}{{range $i, $g := .Groups}}{{if $i}}, {{end}}{{$g.Name}}{{end}}{{else}}<span class="dim">none</span>{{end}}</td>
           <td>
@@ -461,6 +472,124 @@
       </form>
     </div>
   </div>
+
+{{else if eq .Page "activity"}}
+  <h1>Activity</h1>
+  <p class="sub">Who is on the network at this moment, and who was here recently.</p>
+
+  <div class="panel scroll">
+    <div class="panel-head">
+      <h2>On the network now</h2>
+      <p>Live from the session store &mdash; this is what the VPN consults when it decides whether to open the firewall.</p>
+    </div>
+    {{if .Live}}
+    <table>
+      <thead><tr><th>Email</th><th>Method</th><th>Tunnel address</th><th>Groups</th><th>Since</th><th>Time left</th><th>Access</th></tr></thead>
+      <tbody>
+      {{range .Live}}
+        <tr>
+          <td class="mono"><a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a></td>
+          <td>{{.Provider}}</td>
+          <td class="mono">{{if .ClientIP}}{{.ClientIP}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td>{{if .Groups}}{{.Groups}}{{else}}<span class="dim">none</span>{{end}}</td>
+          <td class="mono">{{.Since}}</td>
+          <td class="mono">{{.Remaining}}</td>
+          <td>
+            {{if .OnTunnel}}<span class="pill pill-allow">tunnel open</span>
+            {{else}}<span class="pill">browser only</span>{{end}}
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+      <div class="empty">Nobody is signed in.</div>
+    {{end}}
+  </div>
+
+  <p class="note">A session marked <b>browser only</b> signed in on the web but has no
+    tunnel bound to it, so it opens no network access. That is the ordinary state
+    of somebody who signed in and then disconnected, and of anyone who reached
+    this console from outside the VPN.</p>
+
+  <div class="panel scroll">
+    <div class="panel-head">
+      <h2>Recently signed in</h2>
+      <p>From the database, so it survives a restart &mdash; a memory of the last success, not proof of access now.</p>
+    </div>
+    {{if .SignIns}}
+    <table>
+      <thead><tr><th>Email</th><th>Status</th><th>Last signed in</th><th>Ago</th></tr></thead>
+      <tbody>
+      {{range .SignIns}}
+        <tr>
+          <td class="mono"><a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a></td>
+          <td><span class="pill {{if eq .Status "active"}}pill-allow{{else}}pill-deny{{end}}">{{.Status}}</span></td>
+          <td class="mono">{{.When}}</td>
+          <td class="dim">{{.Ago}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+      <div class="empty">Nobody has ever signed in.</div>
+    {{end}}
+  </div>
+
+{{else if eq .Page "audit"}}
+  <h1>Audit trail</h1>
+  <p class="sub">Every recorded action, newest first. Read-only &mdash; nothing in
+    Dvarpala can alter or remove a record.</p>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Narrow the trail</h2><p>Leave both blank for the most recent activity of any kind.</p></div>
+    <div class="panel-body">
+      <form method="GET" action="/admin/audit">
+        <div class="fields">
+          <div class="field"><label for="a-email">Email</label>
+            <input id="a-email" name="email" type="text" value="{{.FilterEmail}}" placeholder="sam@company.com"></div>
+          <div class="field"><label for="a-action">Action</label>
+            <select id="a-action" name="action">
+              <option value="">Any action</option>
+              {{range .Kinds}}
+              <option value="{{.Action}}" {{if eq .Action $.FilterKind}}selected{{end}}>{{.Action}} ({{.Count}})</option>
+              {{end}}
+            </select></div>
+        </div>
+        <div class="actions">
+          <button type="submit">Search</button>
+          {{if or .FilterEmail .FilterKind}}<a class="back" href="/admin/audit">Clear</a>{{end}}
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel scroll">
+    {{if .Trail}}
+    <table>
+      <thead><tr><th>ID</th><th>When</th><th>Who</th><th>Action</th><th>From</th><th>Details</th></tr></thead>
+      <tbody>
+      {{range .Trail}}
+        <tr>
+          <td class="id">{{.ID}}</td>
+          <td class="mono nowrap">{{.When}}</td>
+          <td class="mono nowrap">{{if .Email}}<a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a>{{else}}<span class="dim">not identified</span>{{end}}</td>
+          <td class="mono nowrap">{{.Action}}</td>
+          <td class="mono nowrap">{{if .IP}}{{.IP}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td class="mono dim details" title="{{.Details}}">{{if .Details}}{{.Details}}{{else}}&mdash;{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+      <div class="empty">Nothing matches.</div>
+    {{end}}
+  </div>
+
+  <p class="note">An entry with no name was written before anyone was identified &mdash;
+    a refused sign-in, or a step of the installation. Those are the ones worth
+    reading closely: a person who never got as far as having a name still leaves
+    the address they came from.</p>
 {{end}}
 
 </main>

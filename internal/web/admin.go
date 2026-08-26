@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"dvarpala/internal/auth"
@@ -44,6 +46,8 @@ func (h *AdminHandler) Register(r *gin.RouterGroup) {
 	g.GET("/users/:email", h.UserDetail)
 	g.GET("/groups", h.Groups)
 	g.GET("/resources", h.Resources)
+	g.GET("/activity", h.Activity)
+	g.GET("/audit", h.Audit)
 
 	// Anything that changes something is a POST, and every POST carries a
 	// token tied to the caller's session. Without that, any page on the
@@ -123,6 +127,55 @@ type adminView struct {
 	Grants    []services.AccessGrant
 	Allowed   bool
 	DenyMsg   string
+
+	// Activity page.
+	Live    []liveRow
+	SignIns []signInRow
+
+	// Audit page.
+	Trail       []auditRow
+	Kinds       []kindRow
+	FilterEmail string
+	FilterKind  string
+}
+
+// liveRow is one person signed in at this moment.
+//
+// Times arrive pre-formatted because the console template has no function map
+// and adding one would mean every page paying for a facility two tables need.
+type liveRow struct {
+	Email     string
+	Provider  string
+	ClientIP  string
+	Groups    string
+	Since     string
+	Remaining string
+	OnTunnel  bool
+}
+
+// signInRow is one person's most recent sign-in.
+type signInRow struct {
+	Email  string
+	Status string
+	When   string
+	Ago    string
+}
+
+// auditRow is one entry of the trail.
+type auditRow struct {
+	ID      uint
+	When    string
+	Email   string
+	Action  string
+	IP      string
+	Details string
+}
+
+// kindRow is one kind of event and how often it appears, which is how an
+// administrator discovers what can be filtered on without reading the source.
+type kindRow struct {
+	Action string
+	Count  int64
 }
 
 func (h *AdminHandler) session(c *gin.Context) *auth.Session {
@@ -208,6 +261,151 @@ func (h *AdminHandler) Groups(c *gin.Context) {
 func (h *AdminHandler) Resources(c *gin.Context) {
 	list, err := h.svc.Resources.ListResources(c.Request.Context())
 	h.render(c, adminView{Page: "resources", Resources: list}, err)
+}
+
+// Activity answers two questions that get asked in the same breath during an
+// incident: who is on the network right now, and who was here recently.
+//
+// They come from different places and mean different things. The live list is
+// Redis, and it is the truth about access - a session there is what the VPN
+// consults when it decides whether to open the firewall. Last sign-in is the
+// database, and it is only a memory of the last time someone succeeded. A
+// person can appear in the second and not the first, which is the ordinary
+// case of somebody who has gone home.
+func (h *AdminHandler) Activity(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	active, err := h.auth.ActiveSessions(ctx)
+	view := adminView{Page: "activity"}
+
+	for _, a := range active {
+		view.Live = append(view.Live, liveRow{
+			Email:     a.Email,
+			Provider:  a.Provider,
+			ClientIP:  a.ClientIP,
+			Groups:    strings.Join(a.Groups, ", "),
+			Since:     a.IssuedAt.Format("2006-01-02 15:04"),
+			Remaining: humanDuration(a.Remaining),
+			OnTunnel:  a.OnTunnel,
+		})
+	}
+
+	// Last sign-in is a column of the users table, so this is the same read
+	// the People page performs.
+	users, uErr := h.svc.Users.ListUsers(ctx)
+	if err == nil {
+		err = uErr
+	}
+
+	seen := make([]models.User, 0, len(users))
+	for _, u := range users {
+		if u.LastLogin != nil {
+			seen = append(seen, u)
+		}
+	}
+	sort.Slice(seen, func(i, j int) bool {
+		return seen[i].LastLogin.After(*seen[j].LastLogin)
+	})
+	if len(seen) > 25 {
+		seen = seen[:25]
+	}
+
+	for _, u := range seen {
+		view.SignIns = append(view.SignIns, signInRow{
+			Email:  u.Email,
+			Status: string(u.Status),
+			When:   u.LastLogin.Format("2006-01-02 15:04"),
+			Ago:    humanDuration(time.Since(*u.LastLogin)) + " ago",
+		})
+	}
+
+	h.render(c, view, err)
+}
+
+// Audit shows the trail, newest first.
+//
+// Read-only, and deliberately so: the service offers no way to alter or remove
+// a record, and a console that could edit the trail would make it worthless as
+// evidence of anything.
+func (h *AdminHandler) Audit(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	email := strings.TrimSpace(c.Query("email"))
+	kind := strings.TrimSpace(c.Query("action"))
+
+	records, err := h.svc.Audit.List(ctx, services.AuditQuery{
+		Email: email,
+		// A trail is only useful if you can see far enough back to find the
+		// thing you came looking for.
+		Limit:  200,
+		Action: kind,
+	})
+
+	view := adminView{Page: "audit", FilterEmail: email, FilterKind: kind}
+	for _, r := range records {
+		who := r.Email
+		if who == "" {
+			// Written before anyone was identified - a refused login, or an
+			// installation step. Saying so beats an empty cell.
+			who = ""
+		}
+		view.Trail = append(view.Trail, auditRow{
+			ID:      r.ID,
+			When:    r.CreatedAt.Format("2006-01-02 15:04:05"),
+			Email:   who,
+			Action:  r.Action,
+			IP:      r.IPAddress,
+			Details: truncate(r.Details, 90),
+		})
+	}
+
+	if counts, cErr := h.svc.Audit.Actions(ctx); cErr == nil {
+		for a, n := range counts {
+			view.Kinds = append(view.Kinds, kindRow{Action: a, Count: n})
+		}
+		sort.Slice(view.Kinds, func(i, j int) bool {
+			if view.Kinds[i].Count != view.Kinds[j].Count {
+				return view.Kinds[i].Count > view.Kinds[j].Count
+			}
+			return view.Kinds[i].Action < view.Kinds[j].Action
+		})
+	}
+
+	h.render(c, view, err)
+}
+
+// humanDuration renders a span the way somebody reading a console wants it:
+// coarse, and never more than two units.
+func humanDuration(d time.Duration) string {
+	if d <= 0 {
+		return "expired"
+	}
+	if d < time.Minute {
+		return "under a minute"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		h := int(d.Hours())
+		if m := int(d.Minutes()) % 60; m > 0 {
+			return fmt.Sprintf("%dh %dm", h, m)
+		}
+		return fmt.Sprintf("%dh", h)
+	}
+	days := int(d.Hours()) / 24
+	if hrs := int(d.Hours()) % 24; hrs > 0 {
+		return fmt.Sprintf("%dd %dh", days, hrs)
+	}
+	return fmt.Sprintf("%dd", days)
+}
+
+// truncate shortens a value to fit a table cell without hiding that it was cut.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // ── actions ─────────────────────────────────────────────────────────────────
