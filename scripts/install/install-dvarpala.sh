@@ -710,20 +710,73 @@ fi
 
 cat <<SUMMARY
 
-  Portal        http://$SERVER_HOST:8080
+  Portal        http://$SERVER_HOST:8080   (reachable only through the tunnel)
+  Sign-in page  http://signin              (once connected)
   VPN           $SERVER_HOST:1194/udp
   Config        $CONFIG_DIR/environment.yaml
-  Manage        dvarpala-cli user list
-                dvarpala-cli --help    (audit, session, vpn, mail, admin)
+  Backups       /var/backups/dvarpala, nightly, kept 14 days
+
+  Everything below runs on this machine, as any user.
+
+  Who exists, and what they may reach
+    dvarpala-cli user list
+    dvarpala-cli user create --email sam@example.com --name "Sam"
+    dvarpala-cli user access sam@example.com
+    dvarpala-cli user deactivate sam@example.com
+    dvarpala-cli user activate sam@example.com
+
+  Groups carry the permissions; people inherit them by membership
+    dvarpala-cli group create --name engineering --description "Engineering"
+    dvarpala-cli group assign --user sam@example.com --group engineering
+    dvarpala-cli group show engineering
+
+  A resource is anything with an address this machine can reach
+    dvarpala-cli resource create --name grafana --type dashboard --ip 10.0.5.20 --port 3000
+    dvarpala-cli permission grant --group engineering --resource grafana --type read
+    dvarpala-cli resource list
+
+  VPN profiles. The file holds a private key: hand it over directly
+    dvarpala-cli vpn issue --user sam@example.com --output sam.ovpn
+    dvarpala-cli vpn list
+    dvarpala-cli vpn revoke sam@example.com
+
+  Who is connected now, and removing somebody who should not be
+    dvarpala-cli session list
+    dvarpala-cli session end 172.30.100.4
+
+  What happened, and when
+    dvarpala-cli audit --limit 20
+    dvarpala-cli audit --user sam@example.com
+    dvarpala-cli audit --action authentication_failed --since 2h
+    dvarpala-cli audit actions
+
+  Mail, and the way back in if it breaks
+    dvarpala-cli mail test you@your-domain
+    dvarpala-cli admin break-glass you@your-domain --reason "why"
+
+  Full list: dvarpala-cli --help
 
 SUMMARY
 
 if [[ "$LOGIN_READY" == "yes" ]]; then
     log "Installation complete"
     cat <<SUMMARY
-  Next:
-    1. Issue profiles:  dvarpala-cli vpn issue --user someone@example.com
-    2. Register resources and grant group permissions.
+  Do these next, in this order:
+
+    1. Register what people should reach, and grant it to a group.
+       Nothing is reachable until it is granted - a profile on its own
+       gets somebody as far as the sign-in page and no further.
+
+    2. Issue a profile for each person:
+         dvarpala-cli vpn issue --user someone@example.com
+
+    3. Tell them: import the file, connect, then open http://signin
+       Nothing announces a captive portal when a VPN comes up, so the
+       address has to be passed on.
+
+    4. Take a copy of the backups off this machine. They are written
+       nightly to /var/backups/dvarpala and would be lost with it:
+         scp -i <key> ubuntu@$SERVER_HOST:/var/backups/dvarpala/\* .
 
 SUMMARY
     exit 0
