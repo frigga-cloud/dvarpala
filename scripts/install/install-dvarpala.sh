@@ -769,8 +769,13 @@ fi
 
 cat <<SUMMARY
 
-  Portal        http://$SERVER_HOST:8080   (reachable only through the tunnel)
-  Sign-in page  http://signin              (once connected)
+  Portal        http://172.30.100.1:8080   (through the tunnel, always works)
+  Sign-in page  http://signin               (through the tunnel, before signing in)
+  Admin console http://172.30.100.1:8080/admin
+
+  "signin" is answered by this server's resolver, which a client is given
+  only while it is in the walled garden. After signing in they keep their
+  own resolver, so use the address from then on.
   VPN           $SERVER_HOST:1194/udp
   Config        $CONFIG_DIR/environment.yaml
   Backups       /var/backups/dvarpala, nightly, kept 14 days

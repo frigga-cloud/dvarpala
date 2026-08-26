@@ -856,6 +856,17 @@ No operating system announces a captive portal when a VPN comes up, so
 that address has to be passed on. Any http:// address also works - they
 will be redirected.
 
+Administrators need the address rather than the name:
+
+    http://172.30.100.1:8080/admin
+
+"signin" is answered by this server's own resolver, which a client is
+given only while it is still in the walled garden. Once somebody signs
+in they keep their own resolver - their personal traffic is theirs, and
+taking over their lookups would undo that - so the name stops resolving
+at exactly the point an administrator wants it. The address is pushed
+as a route in both states and always works.
+
 
 STEP 7 - keep a copy of the backups
 -----------------------------------
