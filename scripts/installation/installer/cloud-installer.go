@@ -724,12 +724,15 @@ func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
 		return err
 	}
 
-	// The key as it was actually written, not as it was planned. These two
-	// have drifted apart before.
-	keyName := filepath.Base(vmInfo.SSHKeyPath)
-	if keyName == "" || keyName == "." {
-		keyName = config.ResourceNames.KeyPairName + ".pem"
+	// The key path as it was actually written, not as it was planned - those
+	// two have drifted apart before - and relative to where the installer was
+	// run rather than to where this file sits. "From the directory holding
+	// this file" is a sentence people read while standing somewhere else.
+	keyPath := vmInfo.SSHKeyPath
+	if keyPath == "" {
+		keyPath = "./dvarpala-deployment/" + config.ResourceNames.KeyPairName + ".pem"
 	}
+	keyName := filepath.Base(keyPath)
 
 	connectionInfo := fmt.Sprintf(`Dvarpala is installed
 =====================
@@ -741,7 +744,7 @@ func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
 
 Getting on to the machine
 -------------------------
-From the directory holding this file:
+From the directory the installer was run in:
 
     ssh -i %s ubuntu@%s
 
@@ -800,8 +803,8 @@ Files here
 		vmInfo.InstanceID, vmInfo.PrivateIP,
 		config.Admin.Email,
 		config.Cloud.Provider, config.Cloud.Region,
-		keyName, vmInfo.PublicIP,
-		vmInfo.PublicIP, vmInfo.SSHKeyPath,
+		keyPath, vmInfo.PublicIP,
+		vmInfo.PublicIP, absoluteish(keyPath),
 		config.Admin.Email,
 		keyName)
 
@@ -1508,4 +1511,15 @@ func getOperatingSystem() string {
 
 func main() {
 	cloudInstaller()
+}
+
+// absoluteish turns a path relative to the installer's working directory into
+// one that works from anywhere, which is what an ~/.ssh/config entry needs -
+// ssh reads that file from the home directory, not from wherever the operator
+// happened to be standing when they ran the installer.
+func absoluteish(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }
