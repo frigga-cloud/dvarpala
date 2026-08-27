@@ -373,47 +373,194 @@ new user saw would be a broken page.
 
 ## 9. Installing
 
-### On a server you already have
+There are two ways in, and they suit different people. Read the first
+paragraph of each and pick one; do not follow both.
 
-Ubuntu 22.04, with a public address and UDP 1194 reachable.
+Every command below says which machine to type it on. That distinction
+matters more than anything else in this section.
+
+---
+
+### Path A — you already have a server
+
+**For:** anyone whose organisation makes its own machines. Most people.
+
+**You need, before starting:**
+
+- A machine running **Ubuntu 22.04**, reachable from the internet
+- **UDP port 1194** open to it, and SSH
+- To be able to `ssh` into it and run `sudo`
+
+Dvarpala does not create the machine on this path, and does not open the
+port. If you cannot already reach the machine with `ssh`, stop here — nothing
+below will work.
+
+**ON THE SERVER**, over SSH:
 
 ```bash
-git clone https://github.com/frigga-cloud/dvarpala /opt/dvarpala/src
+sudo apt-get update && sudo apt-get install -y git
+sudo git clone https://github.com/frigga-cloud/dvarpala /opt/dvarpala/src
 sudo /opt/dvarpala/src/scripts/install/install-dvarpala.sh \
-  --source /opt/dvarpala/src --admin you@your-domain
+  --source /opt/dvarpala/src \
+  --admin you@your-domain
 ```
 
-About twenty steps: PostgreSQL, Redis, Go, the binaries, the certificate
-authority, OpenVPN with the hooks, the firewall as a systemd unit so it
-survives a reboot, the resolver, nightly backups, and the first administrator.
+`--admin` is the first administrator's email. It is created for you, and it is
+the account you will sign in as.
 
-It is idempotent — running it twice is safe.
+About twenty minutes. It installs PostgreSQL, Redis, Go, the Dvarpala
+binaries, a certificate authority, OpenVPN with the hooks, the walled-garden
+firewall as a systemd unit so it survives a reboot, the resolver, and nightly
+backups.
 
-**It ends with a warning, not a success**, because a fresh server has no way
-for anybody to sign in. Saying "complete" there is how an administrator ends
-up issuing VPN profiles for a door with no handle on the inside.
+Running it twice is safe.
 
-### Building the machine too
+**It ends with a warning, not a success.** That is correct: a fresh server has
+no way for anybody to sign in. Continue to "Making it possible to sign in"
+below.
 
-For AWS, GCP or Azure, `scripts/installation` creates the network, the
-instance, a fixed public address, and then runs the installer over SSH. It
-needs the repository, Go, and cloud credentials on the operator's own machine.
+---
 
-### Then, before anybody can sign in
+### Path B — build the server as well
+
+**For:** a proof of concept, or an organisation happy to hand over cloud
+credentials.
+
+**You need, before starting, ON YOUR OWN COMPUTER:**
+
+- This repository, cloned
+- **Go** installed
+- The **AWS CLI**, configured with `aws configure`, using credentials that may
+  create networks and instances
+
+**ON YOUR OWN COMPUTER:**
 
 ```bash
-sudo nano /opt/dvarpala/config/environment.yaml    # auth.otp.enabled: true
-                                                   # auth.brevo or auth.smtp
-sudo nano /etc/dvarpala/dvarpala.env               # the key or password
+cd dvarpala/scripts/installation
+go run launcher.go --provider aws --region ap-south-1
+```
+
+It asks a few questions. Two answers matter:
+
+- **Region** — type it. Pressing enter takes the default, which may not be
+  the one you passed on the command line.
+- **Instance type** — the smallest offered is enough.
+
+Leave any key and secret prompts **blank**; anything typed there overrides the
+credentials `aws configure` already set up.
+
+It creates a network, a security group, an instance and a fixed public
+address, then runs the same installer as Path A over SSH.
+
+**What it leaves you**, in `./dvarpala-deployment`:
+
+| | |
+|---|---|
+| `<name>-keypair.pem` | the SSH key for the server. **The only copy.** |
+| `admin.ovpn` | the first administrator's VPN profile |
+| `connection-info.txt` | the server's address, and the steps from here |
+
+To get on to the server afterwards, **ON YOUR OWN COMPUTER**:
+
+```bash
+ssh -i ./dvarpala-deployment/<name>-keypair.pem ubuntu@<the-address>
+```
+
+Both files hold private keys. Do not commit them or send them by email.
+
+---
+
+### Making it possible to sign in
+
+Required on both paths. Until this is done, anybody who connects reaches the
+sign-in page and nothing else.
+
+**ON THE SERVER:**
+
+**1. Turn on codes, and say who sends them.**
+
+```bash
+sudo nano /opt/dvarpala/config/environment.yaml
+```
+
+Under `auth:`, set:
+
+```yaml
+  otp:
+    enabled: true
+```
+
+Then fill in **one** of these, a little further down:
+
+```yaml
+  brevo:
+    api_key: ""                    # leave empty - see step 2
+    from: noreply@your-domain      # must be a sender Brevo has verified
+    from_name: "Your Company"
+```
+
+```yaml
+  smtp:
+    host: smtp.your-provider
+    port: 587
+    username: <the login they gave you>
+    password: ""                   # leave empty - see step 2
+    from: noreply@your-domain
+```
+
+Save with `Ctrl+O`, `Enter`, `Ctrl+X`.
+
+**2. Put the credential in the credentials file**, not the settings file. That
+file is read by several programs and ends up in backups.
+
+```bash
+sudo nano /etc/dvarpala/dvarpala.env
+```
+
+Remove the `#` from the line you need and put the value after the `=`:
+
+```
+BREVO_API_KEY=xkeysib-...
+```
+
+or
+
+```
+AUTH_SMTP_PASSWORD=...
+```
+
+**3. Apply it, and check.**
+
+```bash
 sudo systemctl restart dvarpala
+sudo journalctl -u dvarpala -n 20 | grep -i "code sign-in"
+```
+
+You want a line naming what you configured. If it says codes are being written
+to the server's own log, the credential did not reach it — check step 2.
+
+**4. Send yourself a real message.**
+
+```bash
 dvarpala-cli mail test you@your-domain
 ```
 
-Credentials go in `/etc/dvarpala/dvarpala.env`, which root writes and only
-Dvarpala reads. Both the server and the CLI read it, so the delivery check
-tests the same credentials the server uses.
+**Do not go further until that email arrives.** A VPN profile issued now gets
+somebody as far as the sign-in page and no further.
 
-**Do not issue profiles until a real message arrives.**
+---
+
+### What next
+
+**ON THE SERVER:**
+
+```bash
+dvarpala-cli quickstart
+```
+
+Prints the remaining steps in order — resources, groups, permissions,
+profiles — and marks the ones already done. Section 10 covers the same ground
+in more detail.
 
 ---
 
