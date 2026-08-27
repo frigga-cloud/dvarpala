@@ -113,7 +113,15 @@ The firewall then permits three things and refuses the rest:
 |---|---|
 | The sign-in page | so there is somewhere to go |
 | DNS, to this server only | so anything can be resolved at all |
+| Mail services | so the code that was just sent can be read |
 | Web requests | **rewritten** to the sign-in page, whatever was asked for |
+
+That third one is not a convenience. The code arrives by email, and if a
+person's mail client cannot reach its server they cannot read it — the only
+way in is blocked by the thing they are signing in to. The allowed list is in
+`scripts/openvpn/dvarpala-firewall.sh` and covers Google, Microsoft and Apple
+by default; add whatever your people actually use, and keep it short, because
+every entry is a small hole in the garden.
 
 Everything else is refused — TCP with a reset, so a browser fails in a second
 rather than waiting a minute and reporting that the internet is broken.
@@ -729,8 +737,21 @@ dvarpala-cli mail test you@your-domain
 dvarpala-cli admin break-glass you@your-domain --reason "why"
 ```
 
-An admin console covers the same ground at `http://172.30.100.1:8080/admin`,
-reachable only through the tunnel, and only by members of `system_admins`.
+### The admin console
+
+The same ground, for people who would rather click, at:
+
+```
+http://172.30.100.1:8080/admin
+```
+
+**That address, not `http://signin`.** The name is answered by this server's
+own resolver, which a client is given only while it is still in the walled
+garden. Once somebody signs in they keep their own resolver — their personal
+traffic is theirs — so the name stops resolving at exactly the point an
+administrator wants it. The address works in both states.
+
+Reachable only through the tunnel, and only by members of `system_admins`.
 Every form carries a token tied to the session, so no other website can make an
 administrator's browser grant access.
 

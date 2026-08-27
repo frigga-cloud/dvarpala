@@ -14,7 +14,7 @@
 #   client -> a destination granted to it -> ACCEPT
 #   destined for the portal     -> ACCEPT
 #   DNS, to this server only    -> ACCEPT   (so anything can be resolved at all)
-#   destined for an OAuth host  -> ACCEPT   (so people can actually sign in)
+#   destined for a mail service -> ACCEPT   (so the code can be read)
 #   anything else, over TCP     -> REJECT  (so a browser fails at once)
 #   anything else               -> DROP
 #
@@ -44,7 +44,7 @@ CHAIN="DVARPALA"
 NAT_CHAIN="DVARPALA_PORTAL"
 ACCESS_SET="dvarpala_access"
 SIGNEDIN_SET="dvarpala_signedin"
-OAUTH_SET="dvarpala_oauth"
+MAIL_SET="dvarpala_mail"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -52,25 +52,42 @@ require_root() {
     [[ $EUID -eq 0 ]] || die "must run as root"
 }
 
-# OAuth provider address ranges, so an unauthenticated user can reach a login
-# page. Hostnames are deliberately not used: iptables and ipset resolve a name
-# once, at insertion, and CDN-backed endpoints move.
-oauth_ranges() {
+# Addresses an unidentified client may reach, beyond the sign-in page.
+#
+# There is exactly one reason to allow anything here: the sign-in code arrives
+# by email, and somebody has to be able to read it. If their mail client
+# cannot reach its server, the code sits unread and the only way in is blocked
+# by the thing they are signing in to. Observed: imap.gmail.com refused while
+# the message waited, and it appeared the moment the tunnel was closed.
+#
+# So this is a list of mail services, not of login providers. It began as OAuth
+# provider ranges, which stopped being needed the day sign-in became codes by
+# email and would otherwise have sat here opening far more than was necessary.
+#
+# Kept as address ranges rather than names: iptables and ipset resolve a name
+# once, at insertion, and a large mail service moves between many addresses.
+#
+# Add the ranges of whatever mail service your people actually use. Every one
+# of these is a small hole in the garden - an unidentified client can hold a
+# conversation with anything inside them - so keep the list short.
+mail_ranges() {
     cat <<'EOF'
-20.190.128.0/18
-40.126.0.0/18
-13.107.6.0/24
-13.107.9.0/24
-172.217.0.0/16
-172.253.0.0/16
+# Google - Gmail and Workspace, web and IMAP
 142.250.0.0/15
+172.217.0.0/16
 74.125.0.0/16
-140.82.112.0/20
-192.30.252.0/22
-185.199.108.0/22
-35.231.145.151/32
-34.74.90.64/28
-34.74.226.0/24
+192.178.0.0/15
+209.85.128.0/17
+64.233.160.0/19
+66.102.0.0/20
+# Microsoft - Outlook and Office 365
+40.92.0.0/15
+40.107.0.0/16
+52.100.0.0/14
+104.47.0.0/17
+40.104.0.0/15
+# Apple - iCloud Mail
+17.0.0.0/8
 EOF
 }
 
@@ -141,11 +158,12 @@ setup() {
     #
     # It grants nothing. Being in it does not open a single destination.
     ipset create "$SIGNEDIN_SET" hash:ip -exist
-    ipset create "$OAUTH_SET" hash:net -exist
-    ipset flush "$OAUTH_SET"
+    ipset create "$MAIL_SET" hash:net -exist
+    ipset flush "$MAIL_SET"
     while read -r cidr; do
-        [[ -n "$cidr" ]] && ipset add "$OAUTH_SET" "$cidr" -exist
-    done < <(oauth_ranges)
+        [[ "$cidr" == \#* ]] && continue
+        [[ -n "$cidr" ]] && ipset add "$MAIL_SET" "$cidr" -exist
+    done < <(mail_ranges)
 
     # Chain. Rebuilt from scratch so repeated runs are idempotent.
     iptables -N "$CHAIN" 2>/dev/null || true
@@ -185,7 +203,8 @@ setup() {
     iptables -A "$CHAIN" -p udp --dport 53 -d "$PORTAL_IP" -j ACCEPT
     iptables -A "$CHAIN" -p tcp --dport 53 -d "$PORTAL_IP" -j ACCEPT
 
-    iptables -A "$CHAIN" -m set --match-set "$OAUTH_SET" dst -j ACCEPT
+    # So a person can read the code that was just sent to them.
+    iptables -A "$CHAIN" -m set --match-set "$MAIL_SET" dst -j ACCEPT
 
     # Log a sample of refusals, then refuse.
     iptables -A "$CHAIN" -m limit --limit 1/min -j LOG --log-prefix "[dvarpala-blocked] "
