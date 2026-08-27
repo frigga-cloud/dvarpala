@@ -843,7 +843,7 @@ an address this machine itself can reach.
 STEP 6 - give people a profile
 ------------------------------
     dvarpala-cli user create --email someone@your-domain --name "Their Name"
-    dvarpala-cli vpn issue --user someone@your-domain --output them.ovpn
+    dvarpala-cli vpn issue --user someone@your-domain
 
 The file contains a private key. Hand it over directly rather than by
 email, and delete your copy afterwards.

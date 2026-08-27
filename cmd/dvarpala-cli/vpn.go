@@ -29,7 +29,7 @@ func vpnIssueCmd() *cobra.Command {
 		Long: "Issues a certificate whose common name is the user's email, so the VPN\n" +
 			"can identify who has connected. Any previously issued profile for that\n" +
 			"user is revoked, so each person holds exactly one credential.",
-		Example: "  dvarpala-cli vpn issue --user sam@acme.com --output sam.ovpn",
+		Example: "  dvarpala-cli vpn issue --user sam@acme.com",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := openServices()
 			if err != nil {
@@ -42,25 +42,49 @@ func vpnIssueCmd() *cobra.Command {
 				return err
 			}
 
+			// Somewhere this can actually be written.
+			//
+			// This command runs as the service user, because that is who may
+			// read the database password - and that user cannot write to an
+			// administrator's home directory. A bare "--output sam.ovpn"
+			// therefore failed with "permission denied" for everybody, on the
+			// very command the documentation demonstrates.
 			if output == "" {
-				output = filepath.Base(email) + ".ovpn"
+				output = filepath.Join(profileDir, filepath.Base(email)+".ovpn")
 			}
+
+			if dir := filepath.Dir(output); dir != "" && dir != "." {
+				if err := os.MkdirAll(dir, 0o750); err != nil {
+					return fmt.Errorf("preparing %s: %w", dir, err)
+				}
+			}
+
 			// The profile contains the user's private key.
 			if err := os.WriteFile(output, []byte(config.ConfigData), 0o600); err != nil {
-				return fmt.Errorf("writing %s: %w", output, err)
+				return fmt.Errorf("writing %s: %w\n\n"+
+					"This command runs as the %q user, which cannot write everywhere\n"+
+					"an administrator can. Leave --output off and it is written to\n"+
+					"%s, or give a path that user can write.",
+					output, err, serviceUser, profileDir)
 			}
 
 			fmt.Printf("Issued VPN profile for %s\n", email)
 			fmt.Printf("  common name: %s\n", email)
 			fmt.Printf("  expires:     %s\n", config.ExpiresAt.Format("2006-01-02"))
 			fmt.Printf("  written to:  %s (mode 0600 - contains a private key)\n", output)
+			fmt.Println()
+			fmt.Println("It holds a private key. Copy it to the person directly, then")
+			fmt.Println("remove it from this machine:")
+			fmt.Printf("  sudo cat %s          # to read it\n", output)
+			fmt.Printf("  sudo rm %s           # once they have it\n", output)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&email, "user", "", "User email (required)")
 	cmd.Flags().StringVar(&name, "name", "", "Label for this profile, e.g. laptop")
-	cmd.Flags().StringVar(&output, "output", "", "Where to write the .ovpn file")
+	cmd.Flags().StringVar(&output, "output", "",
+		"Where to write the .ovpn file (default: "+profileDir+")")
 	cmd.Flags().IntVar(&days, "days", 365, "How long the certificate is valid")
 	_ = cmd.MarkFlagRequired("user")
 
@@ -176,3 +200,14 @@ func vpnServerCertCmd() *cobra.Command {
 
 	return cmd
 }
+
+// Where profiles are written, and who this command runs as.
+//
+// The service user owns the certificates and may read the database password,
+// so the CLI becomes that user - and it therefore cannot write into an
+// administrator's home directory. A directory it owns removes the problem
+// rather than explaining it.
+const (
+	profileDir  = "/opt/dvarpala/profiles"
+	serviceUser = "dvarpala"
+)

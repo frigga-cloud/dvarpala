@@ -272,6 +272,11 @@ auth:
 
   # Who may sign in at all. An empty list accepts any domain, which on a
   # server reachable from the internet accepts anybody with a Google account.
+  #
+  # This SEEDS the list the first time the server starts and is ignored after
+  # that: the live list lives in the database so it can be changed without
+  # editing this file as root and restarting. Add or remove domains in the
+  # console, under "Sign-in domains". Editing here later has no effect.
   allowed_domains:$ALLOWED_DOMAINS_YAML
 
   # Signing in with a code sent by email.
@@ -499,6 +504,11 @@ warn "those copies live on this machine. Take them off it as well, or losing"
 warn "the machine loses the backups with it."
 
 # ── 10. ownership ────────────────────────────────────────────────────────────
+
+# Where issued VPN profiles are written. The CLI runs as the service user, so
+# it cannot write into an administrator's home directory - a directory it owns
+# removes the problem rather than explaining it.
+install -d -m 750 -o "$DVARPALA_USER" -g "$DVARPALA_USER" "$DVARPALA_DIR/profiles"
 
 chown -R "$DVARPALA_USER:$DVARPALA_USER" "$DVARPALA_DIR" /var/log/dvarpala
 chmod 700 "$CERT_DIR"
@@ -800,7 +810,7 @@ cat <<SUMMARY
     dvarpala-cli resource list
 
   VPN profiles. The file holds a private key: hand it over directly
-    dvarpala-cli vpn issue --user sam@example.com --output sam.ovpn
+    dvarpala-cli vpn issue --user sam@example.com
     dvarpala-cli vpn list
     dvarpala-cli vpn revoke sam@example.com
 

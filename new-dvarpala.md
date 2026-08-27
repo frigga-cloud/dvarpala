@@ -446,7 +446,7 @@ dvarpala-cli resource create --name wiki --type service --ip 10.0.5.20 --port 80
 dvarpala-cli permission grant --group engineering --resource wiki --type read
 
 # Profiles
-dvarpala-cli vpn issue --user sam@company.com --output sam.ovpn
+dvarpala-cli vpn issue --user sam@company.com
 dvarpala-cli vpn revoke sam@company.com
 
 # Who is connected, and removing somebody

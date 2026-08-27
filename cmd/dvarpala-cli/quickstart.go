@@ -90,7 +90,7 @@ func quickstartCmd() *cobra.Command {
 			step(5, state.hasProfile,
 				"Issue each person a VPN profile",
 				[]string{
-					"  dvarpala-cli vpn issue --user sam@your-domain --output sam.ovpn",
+					"  dvarpala-cli vpn issue --user sam@your-domain",
 					"",
 					"The file contains a private key. Hand it over directly rather than",
 					"by email, and delete your copy afterwards.",
