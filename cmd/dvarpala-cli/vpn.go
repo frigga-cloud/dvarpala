@@ -32,7 +32,11 @@ func vpnIssueCmd() *cobra.Command {
 		Long: "Issues a certificate whose common name is the user's email, so the VPN\n" +
 			"can identify who has connected. Any previously issued profile for that\n" +
 			"user is revoked, so each person holds exactly one credential.",
-		Example: "  dvarpala-cli vpn issue --user sam@acme.com",
+		Example: "  dvarpala-cli vpn issue --user sam@acme.com\n" +
+			"\n" +
+			"  # fetched in one command, from your own machine:\n" +
+			"  ssh -i key.pem ubuntu@server \\\n" +
+			"    'dvarpala-cli vpn issue --user sam@acme.com --output -' > sam.ovpn",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := openServices()
 			if err != nil {
@@ -53,6 +57,16 @@ func vpnIssueCmd() *cobra.Command {
 			config, err := svc.VPNConfigs.Issue(cmd.Context(), email, name, validity)
 			if err != nil {
 				return err
+			}
+
+			// Straight out, when asked for. This is what makes fetching a
+			// profile one command instead of four: an operator can run this
+			// over ssh from their own machine and redirect the result into a
+			// file, rather than writing it here, changing its owner, copying
+			// it down and remembering to delete both copies.
+			if output == "-" {
+				fmt.Fprint(cmd.OutOrStdout(), config.ConfigData)
+				return nil
 			}
 
 			// Somewhere this can actually be written.
@@ -110,7 +124,8 @@ func vpnIssueCmd() *cobra.Command {
 	cmd.Flags().StringVar(&email, "user", "", "User email (required)")
 	cmd.Flags().StringVar(&name, "name", "", "Label for this profile, e.g. laptop")
 	cmd.Flags().StringVar(&output, "output", "",
-		"Where to write the .ovpn file (default: "+profileDir+")")
+		"Where to write the .ovpn file, or \"-\" for standard output "+
+			"(default: "+profileDir+")")
 	cmd.Flags().IntVar(&days, "days", 365, "How long the certificate is valid")
 	_ = cmd.MarkFlagRequired("user")
 

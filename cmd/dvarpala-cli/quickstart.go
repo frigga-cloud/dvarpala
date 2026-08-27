@@ -92,6 +92,12 @@ func quickstartCmd() *cobra.Command {
 				[]string{
 					"  dvarpala-cli vpn issue --user sam@your-domain",
 					"",
+					"To fetch it straight to your own machine, in one command, run",
+					"this THERE rather than here:",
+					"",
+					"  ssh -i <key.pem> ubuntu@<this-server> \\",
+					"    'dvarpala-cli vpn issue --user sam@your-domain --output -' > sam.ovpn",
+					"",
 					"The file contains a private key. Hand it over directly rather than",
 					"by email, and delete your copy afterwards.",
 					"",

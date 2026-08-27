@@ -460,13 +460,41 @@ address, then runs the same installer as Path A over SSH.
 | `admin.ovpn` | the first administrator's VPN profile |
 | `connection-info.txt` | the server's address, and the steps from here |
 
-To get on to the server afterwards, **ON YOUR OWN COMPUTER**:
+Both files hold private keys. Do not commit them or send them by email.
+
+---
+
+### Getting on to the server
+
+Everything after this point is typed on the server, so both paths meet here.
+
+**ON YOUR OWN COMPUTER:**
 
 ```bash
 ssh -i ./dvarpala-deployment/<name>-keypair.pem ubuntu@<the-address>
 ```
 
-Both files hold private keys. Do not commit them or send them by email.
+The address is printed at the end of the install and again in
+`connection-info.txt`. `ubuntu` is the user on an Ubuntu image.
+
+**Path A:** you are already there — use whatever key and address you use for
+that machine.
+
+Your prompt changes to something like `ubuntu@ip-172-30-0-16` once you are on
+the server. If it still shows your own computer's name, the commands below
+will not do what you expect.
+
+Worth doing once, so the key path stops mattering. **ON YOUR OWN COMPUTER**,
+add this to `~/.ssh/config`, creating the file if it does not exist:
+
+```
+Host dvarpala
+    HostName <the-address>
+    User ubuntu
+    IdentityFile /full/path/to/<name>-keypair.pem
+```
+
+Then it is just `ssh dvarpala`. Nothing depends on this; it only saves typing.
 
 ---
 
@@ -490,23 +518,57 @@ Under `auth:`, set:
     enabled: true
 ```
 
-Then fill in **one** of these, a little further down:
+Then choose **one** way of sending the codes, and fill in that block only.
+
+Dvarpala does not send email itself. It hands each message to a service that
+does, and this is where you say which.
+
+#### Either — a transactional email service
+
+Brevo, SendGrid, Postmark, Amazon SES and others exist to send email from
+servers. Dvarpala speaks to Brevo directly.
+
+**What you need first:** an account at `brevo.com`, and the address you want
+codes to come from verified with them. Then, in their dashboard under
+**SMTP & API**, create an **API key** — a long string beginning `xkeysib-`.
+Note this is *not* the SMTP key on the same page.
 
 ```yaml
   brevo:
-    api_key: ""                    # leave empty - see step 2
-    from: noreply@your-domain      # must be a sender Brevo has verified
-    from_name: "Your Company"
+    api_key: ""                    # leave empty - it goes in step 2
+    from: noreply@your-domain      # must be verified with Brevo
+    from_name: "Your Company"      # what recipients see as the sender
 ```
+
+Best for most deployments: it needs no mail ports, and it does not care that
+the connection comes from a server.
+
+#### Or — a mail server you already have
+
+Any ordinary mail server: your own, or a provider's.
+
+**What you need first:** its address, the login it expects, and a password or
+application key for that login. Your email provider's help pages call this
+"SMTP settings".
 
 ```yaml
   smtp:
-    host: smtp.your-provider
-    port: 587
-    username: <the login they gave you>
-    password: ""                   # leave empty - see step 2
-    from: noreply@your-domain
+    host: smtp.your-provider       # e.g. smtp.gmail.com
+    port: 587                      # 587 usually; 465 for some providers
+    username: <the login>          # often not the same as the from address
+    password: ""                   # leave empty - it goes in step 2
+    from: noreply@your-domain      # what recipients see
+    from_name: "Your Company"
 ```
+
+Two cautions. Some providers use a login that cannot be sent from — Brevo's
+SMTP login ends `@smtp-brevo.com` — which is why `username` and `from` are
+separate settings.
+
+And a mail service built for people may refuse a sign-in from a server and
+report it as a wrong password. Google Workspace does this. If the same
+credentials work from your laptop and not from the server, that is what has
+happened; use a transactional service instead.
 
 Save with `Ctrl+O`, `Enter`, `Ctrl+X`.
 
@@ -592,8 +654,9 @@ dvarpala-cli group assign --user sam@company.com --group engineering
 dvarpala-cli resource create --name wiki --type service --ip 10.0.5.20 --port 80
 dvarpala-cli permission grant --group engineering --resource wiki --type read
 
-# Profiles
+# Profiles - see "Giving somebody access" below
 dvarpala-cli vpn issue --user sam@company.com
+dvarpala-cli vpn list
 dvarpala-cli vpn revoke sam@company.com
 
 # Who is connected, and removing somebody
@@ -615,6 +678,52 @@ An admin console covers the same ground at `http://172.30.100.1:8080/admin`,
 reachable only through the tunnel, and only by members of `system_admins`.
 Every form carries a token tied to the session, so no other website can make an
 administrator's browser grant access.
+
+### Giving somebody access
+
+Four things, in this order. Skipping one produces something that looks right
+and does nothing.
+
+**1. Make sure they exist and are in a group that has been granted something.**
+
+```bash
+dvarpala-cli user access sam@company.com
+```
+
+If that lists no grants, a profile will get them to the sign-in page and no
+further.
+
+**2. Issue their profile, and fetch it in one command.**
+
+**ON YOUR OWN COMPUTER:**
+
+```bash
+ssh -i <your-key.pem> ubuntu@<the-server> \
+  'dvarpala-cli vpn issue --user sam@company.com --output -' > sam.ovpn
+```
+
+`--output -` writes the profile to the screen instead of to a file, so it
+arrives on your own machine directly. Without it, the profile is written on
+the server, owned by the service user, and has to be copied down separately.
+
+Each person should have exactly one profile. Issuing a new one revokes the
+last, so a lost laptop is handled by issuing again.
+
+**3. Hand the file over directly.**
+
+It contains that person's private key. Anybody holding it can open a tunnel as
+them. Give it to them in person, or over something you already trust for
+credentials — not email, and not a shared drive. Delete your copy afterwards.
+
+**4. Tell them three things.**
+
+- Install an OpenVPN client — Tunnelblick on a Mac, OpenVPN Connect elsewhere
+- Import the file and connect
+- Then open **http://signin**, or the address you were given if that fails
+
+That last point matters. No operating system announces a captive portal when a
+VPN connects, so nothing will prompt them. Any `http://` address is redirected
+to the sign-in page, but they have to open something.
 
 ### Two distinctions that matter
 
