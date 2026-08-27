@@ -724,14 +724,19 @@ func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
 		return err
 	}
 
+	// An absolute path, always.
+	//
 	// The key path as it was actually written, not as it was planned - those
-	// two have drifted apart before - and relative to where the installer was
-	// run rather than to where this file sits. "From the directory holding
-	// this file" is a sentence people read while standing somewhere else.
+	// two have drifted apart before. And absolute, because a relative one is
+	// only correct from the directory the installer happened to run in, and
+	// nothing about a printed command says where that was. Every relative
+	// path this printed cost somebody a "no such file or directory" from a
+	// key that was sitting there the whole time.
 	keyPath := vmInfo.SSHKeyPath
 	if keyPath == "" {
 		keyPath = "./dvarpala-deployment/" + config.ResourceNames.KeyPairName + ".pem"
 	}
+	keyPath = absoluteish(keyPath)
 	keyName := filepath.Base(keyPath)
 
 	connectionInfo := fmt.Sprintf(`Dvarpala is installed
@@ -744,9 +749,10 @@ func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
 
 STEP 1 - get on to the machine
 -----------------------------
-Run this from the directory you ran the installer in:
-
     ssh -i %s ubuntu@%s
+
+The key path is absolute, so this works from any directory. That file is
+the only copy of the key to this server - losing it locks you out.
 
 Everything from here on is typed on the machine, not on your own
 computer. Your prompt changes to ubuntu@ip-... once you are there.
@@ -912,7 +918,7 @@ Files here
 		config.Cloud.Provider, config.Cloud.Region,
 		keyPath, vmInfo.PublicIP,
 		keyPath, vmInfo.PublicIP,
-		vmInfo.PublicIP, absoluteish(keyPath),
+		vmInfo.PublicIP, keyPath,
 		config.Admin.Email,
 		keyName)
 

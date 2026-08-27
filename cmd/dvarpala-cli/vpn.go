@@ -107,16 +107,19 @@ func vpnIssueCmd() *cobra.Command {
 			// than from this one.
 			fmt.Println()
 			fmt.Println("It holds a private key, and is owned by the service user.")
-			fmt.Println("To fetch it, run these ON YOUR OWN COMPUTER:")
 			fmt.Println()
-			fmt.Printf("  ssh -i <your-key.pem> ubuntu@%s \\\n", host)
-			fmt.Printf("    'sudo cp %q /tmp/p.ovpn && sudo chown ubuntu /tmp/p.ovpn'\n", output)
-			fmt.Printf("  scp -i <your-key.pem> ubuntu@%s:/tmp/p.ovpn .\n", host)
+			fmt.Println("Fetch it in one command, ON YOUR OWN COMPUTER. Use the full path")
+			fmt.Println("to your key file - a relative one only works from the directory")
+			fmt.Println("the installer ran in:")
 			fmt.Println()
-			fmt.Println("Then hand the file over directly - not by email - and remove")
-			fmt.Println("both copies:")
+			fmt.Printf("  ssh -i /full/path/to/your-key.pem ubuntu@%s \\\n", host)
+			fmt.Printf("    'dvarpala-cli vpn issue --user %s --output -' > %s.ovpn\n",
+				email, filepath.Base(email))
+			fmt.Println()
+			fmt.Println("That issues a fresh profile and writes it straight to your own")
+			fmt.Println("machine. Hand it over directly - not by email - then remove the")
+			fmt.Println("copy left here:")
 			fmt.Printf("  sudo rm %q\n", output)
-			fmt.Println("  (and /tmp/p.ovpn on this machine)")
 			return nil
 		},
 	}
