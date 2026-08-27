@@ -24,7 +24,8 @@ func main() {
 		Use:   "dvarpala-cli",
 		Short: "Dvarpala VPN management CLI",
 		Long: "Command line interface for managing Dvarpala VPN users, groups, and resources.\n\n" +
-			"Runs on the VPN server, where it can reach the database directly.",
+			"Runs on the VPN server, where it can reach the database directly.\n\n" +
+			"Setting this up for the first time? Run: dvarpala-cli quickstart",
 		// Errors are printed once, by main, rather than also by Cobra.
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -40,6 +41,7 @@ func main() {
 	rootCmd.AddCommand(vpnCmd())
 	rootCmd.AddCommand(mailCmd())
 	rootCmd.AddCommand(auditCmd())
+	rootCmd.AddCommand(quickstartCmd())
 	rootCmd.AddCommand(sessionCmd())
 	rootCmd.AddCommand(checkCmd())
 	rootCmd.AddCommand(adminCmd())

@@ -419,7 +419,15 @@ tests the same credentials the server uses.
 
 ## 10. Running it day to day
 
-Everything is `dvarpala-cli`, on the server.
+Everything is `dvarpala-cli`, on the server. Two commands orient a newcomer:
+
+```bash
+dvarpala-cli quickstart    # what to do, in the order it has to be done
+dvarpala-cli check         # is this installation working, and what is wrong
+```
+
+`quickstart` reads the installation's own state and marks the steps already
+done, so it is as useful half way through as it is on the first morning.
 
 ```bash
 # People
