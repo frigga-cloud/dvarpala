@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
+
+	"dvarpala/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -34,6 +37,16 @@ func vpnIssueCmd() *cobra.Command {
 			svc, err := openServices()
 			if err != nil {
 				return err
+			}
+
+			// The address clients connect to, which is also the address an
+			// operator reaches this machine on. Read rather than guessed, so
+			// the commands printed below can be run as printed.
+			host := "<this-server>"
+			if cfg, err := config.Load(configPath); err == nil {
+				if h := strings.TrimSpace(cfg.OpenVPN.Server.Host); h != "" {
+					host = h
+				}
 			}
 
 			validity := time.Duration(days) * 24 * time.Hour
@@ -72,11 +85,24 @@ func vpnIssueCmd() *cobra.Command {
 			fmt.Printf("  common name: %s\n", email)
 			fmt.Printf("  expires:     %s\n", config.ExpiresAt.Format("2006-01-02"))
 			fmt.Printf("  written to:  %s (mode 0600 - contains a private key)\n", output)
+			// The whole command, ready to run, from the machine the operator
+			// is sitting at. "Copy it to the person" is advice, not an
+			// instruction: it leaves somebody to work out that the file is
+			// owned by another user, that it has to be staged somewhere
+			// readable first, and that scp runs from their own machine rather
+			// than from this one.
 			fmt.Println()
-			fmt.Println("It holds a private key. Copy it to the person directly, then")
-			fmt.Println("remove it from this machine:")
-			fmt.Printf("  sudo cat %s          # to read it\n", output)
-			fmt.Printf("  sudo rm %s           # once they have it\n", output)
+			fmt.Println("It holds a private key, and is owned by the service user.")
+			fmt.Println("To fetch it, run these ON YOUR OWN COMPUTER:")
+			fmt.Println()
+			fmt.Printf("  ssh -i <your-key.pem> ubuntu@%s \\\n", host)
+			fmt.Printf("    'sudo cp %q /tmp/p.ovpn && sudo chown ubuntu /tmp/p.ovpn'\n", output)
+			fmt.Printf("  scp -i <your-key.pem> ubuntu@%s:/tmp/p.ovpn .\n", host)
+			fmt.Println()
+			fmt.Println("Then hand the file over directly - not by email - and remove")
+			fmt.Println("both copies:")
+			fmt.Printf("  sudo rm %q\n", output)
+			fmt.Println("  (and /tmp/p.ovpn on this machine)")
 			return nil
 		},
 	}
