@@ -769,9 +769,21 @@ dvarpala-cli user access sam@company.com
 If that lists no grants, a profile will get them to the sign-in page and no
 further.
 
-**2. Issue their profile, and fetch it in one command.**
+**2. Issue their profile.**
 
-**ON YOUR OWN COMPUTER:**
+Two ways. The console is easier and is what you will use most of the time.
+
+*From the admin console*, while connected to the VPN yourself:
+
+```
+http://172.30.100.1:8080/admin
+```
+
+Enter their email in the VPN section and press issue. **The file downloads to
+your own computer** the way any download does — no key file, no ssh, nothing
+to clean up afterwards.
+
+*Or from your own computer*, in one command:
 
 ```bash
 ssh -i <your-key.pem> ubuntu@<the-address> \
@@ -779,8 +791,13 @@ ssh -i <your-key.pem> ubuntu@<the-address> \
 ```
 
 `--output -` writes the profile to the screen instead of to a file, so it
-arrives on your own machine directly. Without it, the profile is written on
-the server, owned by the service user, and has to be copied down separately.
+arrives on your machine directly. Useful for scripting, or before you have a
+working profile of your own to reach the console with.
+
+**The first profile is the exception.** Nobody can reach the console before
+they have one, so the very first administrator's is fetched for you: Path B
+writes it to `dvarpala-deployment/admin.ovpn`, and on Path A the command above
+is the way to get it. After that, use the console.
 
 Each person should have exactly one profile. Issuing a new one revokes the
 last, so a lost laptop is handled by issuing again.
