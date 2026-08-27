@@ -379,6 +379,16 @@ paragraph of each and pick one; do not follow both.
 Every command below says which machine to type it on. That distinction
 matters more than anything else in this section.
 
+Anything in angle brackets is something you substitute:
+
+| | |
+|---|---|
+| `<the-address>` | the server's public address, e.g. `65.1.124.239` |
+| `<your-key.pem>` | the file that lets you on to the server — explained below |
+| `you@your-domain` | your own work email address |
+
+Type the value, not the brackets.
+
 ---
 
 ### Path A — you already have a server
@@ -468,17 +478,62 @@ Both files hold private keys. Do not commit them or send them by email.
 
 Everything after this point is typed on the server, so both paths meet here.
 
+#### What a key file is
+
+Servers do not ask for a password. They ask for a **key file** — a small file
+on your own computer that proves you are allowed on. It usually ends `.pem`.
+
+It comes in a pair. The server keeps one half; you keep the other. Anybody
+holding your half can get on to that server as you, so it is never sent by
+email, never committed, and never shared.
+
+**Where yours is:**
+
+- **Path B** — the installer created it and saved it in
+  `./dvarpala-deployment/`, next to where you ran the command. It is the file
+  ending `-keypair.pem`. **This is the only copy in existence**; if you lose
+  it you cannot get back on to that server.
+- **Path A** — whoever made the machine created it. It is the same file you
+  already use to reach that server. If somebody else made it, ask them for it.
+
+To find it:
+
+```bash
+ls ~/dvarpala/scripts/installation/dvarpala-deployment/*.pem
+```
+
+Wherever this document writes `<your-key.pem>`, put that file's path.
+
+#### Connecting
+
 **ON YOUR OWN COMPUTER:**
 
 ```bash
-ssh -i ./dvarpala-deployment/<name>-keypair.pem ubuntu@<the-address>
+ssh -i <your-key.pem> ubuntu@<the-address>
 ```
 
-The address is printed at the end of the install and again in
-`connection-info.txt`. `ubuntu` is the user on an Ubuntu image.
+Three parts:
 
-**Path A:** you are already there — use whatever key and address you use for
-that machine.
+| | |
+|---|---|
+| `-i <your-key.pem>` | the key file above |
+| `ubuntu` | the user account. Always `ubuntu` on an Ubuntu image |
+| `<the-address>` | the server's public address |
+
+The address is printed at the end of the install and again in
+`connection-info.txt`.
+
+A worked example — yours will differ:
+
+```bash
+ssh -i ./dvarpala-deployment/friggalabs-vm-y66am-keypair.pem ubuntu@65.1.124.239
+```
+
+**If it says "Permission denied (publickey)"** the key is wrong, or you are
+running the command on the server instead of on your own computer.
+
+**If it says the identity file is not accessible** the path is wrong — run the
+`ls` above and copy the path it prints exactly.
 
 Your prompt changes to something like `ubuntu@ip-172-30-0-16` once you are on
 the server. If it still shows your own computer's name, the commands below
@@ -698,7 +753,7 @@ further.
 **ON YOUR OWN COMPUTER:**
 
 ```bash
-ssh -i <your-key.pem> ubuntu@<the-server> \
+ssh -i <your-key.pem> ubuntu@<the-address> \
   'dvarpala-cli vpn issue --user sam@company.com --output -' > sam.ovpn
 ```
 
