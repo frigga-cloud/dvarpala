@@ -113,6 +113,15 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 		log.Println("WARNING: no login providers are enabled - nobody can authenticate")
 	}
 
+	// The allow-list lives in the database so the console can change it. Seed
+	// it from configuration the first time only: that carries across the
+	// domain the installer took from the first administrator's address, and
+	// every domain an existing deployment already had, without the config
+	// file overwriting the console's changes on every restart.
+	if err := svc.Domains.SeedFromConfig(context.Background(), cfg.Auth.AllowedDomains); err != nil {
+		return nil, fmt.Errorf("seeding the domain allow-list: %w", err)
+	}
+
 	authSvc := auth.NewService(providers, sessions, svc, redisClient, cfg.Auth.AllowedDomains)
 	if otpStore != nil {
 		authSvc.EnableOTP(otpStore)

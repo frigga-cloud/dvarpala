@@ -107,6 +107,7 @@
   form.inline { display: contents; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
   .field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+  .field .hint { color: var(--faint); font-size: .78rem; line-height: 1.35; }
   label {
     font-family: var(--mono); font-size: .64rem; letter-spacing: .12em;
     text-transform: uppercase; color: var(--faint);
@@ -169,6 +170,7 @@
       <a href="/admin/resources" class="{{if eq .Page "resources"}}on{{end}}">Resources</a>
       <a href="/admin/activity"  class="{{if eq .Page "activity"}}on{{end}}">Activity</a>
       <a href="/admin/audit"     class="{{if eq .Page "audit"}}on{{end}}">Audit trail</a>
+      <a href="/admin/domains"   class="{{if eq .Page "domains"}}on{{end}}">Sign-in domains</a>
     </nav>
     {{if .Session}}<div class="who">{{.Session.Email}}</div>{{end}}
   </div>
@@ -459,8 +461,11 @@
               <option value="vm">vm</option>
               <option value="database">database</option>
             </select></div>
-          <div class="field"><label for="r-ip">IP address</label>
-            <input id="r-ip" name="ip" type="text" placeholder="10.0.1.20"></div>
+          <div class="field"><label for="r-ip">IP address or range</label>
+            <input id="r-ip" name="ip" type="text" placeholder="10.20.1.55 or 10.20.0.0/16">
+            <span class="hint">One host, or a whole network in CIDR form &mdash; a
+              range is usually what you want for another VPC. Required for vm and
+              database.</span></div>
           <div class="field"><label for="r-port">Port</label>
             <input id="r-port" name="port" type="number" min="1" max="65535" placeholder="80"></div>
           <div class="field"><label for="r-url">URL (optional)</label>
@@ -472,6 +477,65 @@
       </form>
     </div>
   </div>
+
+{{else if eq .Page "domains"}}
+  <h1>Sign-in domains</h1>
+  <p class="sub">Which email domains may sign in at all, whatever else is configured.</p>
+
+  {{if not .Domains}}
+  <div class="msg msg-err">No domains are listed, so <strong>any</strong> email domain
+    can sign in &mdash; anyone at any company, if they can reach the portal. Add the
+    domains that should be allowed.</div>
+  {{end}}
+
+  <div class="panel scroll">
+    {{if .Domains}}
+    <table>
+      <thead><tr><th>Domain</th><th>Added by</th><th>Note</th><th></th></tr></thead>
+      <tbody>
+      {{range .Domains}}
+        <tr>
+          <td class="mono">{{.Domain}}</td>
+          <td>{{if .AddedBy}}{{.AddedBy}}{{else}}<span class="dim">the installer</span>{{end}}</td>
+          <td>{{if .Note}}{{.Note}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td>
+            <form method="POST" action="/admin/domains/remove">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="domain" value="{{.Domain}}">
+              <button class="danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<div class="empty">No domains listed &mdash; every domain is accepted.</div>{{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Allow a domain</h2>
+      <p>The part after the @. Matching is exact, so <span class="mono">frigga.cloud</span>
+        does not admit <span class="mono">mail.frigga.cloud</span> &mdash; add that separately.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/domains/add">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="d-domain">Domain</label>
+            <input id="d-domain" name="domain" type="text" required placeholder="frigga.cloud">
+            <span class="hint">A whole address works too &mdash; the domain is taken from it.</span></div>
+          <div class="field"><label for="d-note">Note (optional)</label>
+            <input id="d-note" name="note" type="text" placeholder="Contractors"></div>
+        </div>
+        <div class="actions"><button type="submit">Allow this domain</button></div>
+      </form>
+    </div>
+  </div>
+
+  <p class="note">A person whose domain is not listed sees exactly the same
+    &ldquo;check your email&rdquo; page as everyone else, and no code is sent. That is
+    deliberate &mdash; the portal must not become a way to discover who works here
+    &mdash; but it means a wrongly missing domain looks like mail not arriving.
+    The audit trail is where it shows up.</p>
 
 {{else if eq .Page "activity"}}
   <h1>Activity</h1>

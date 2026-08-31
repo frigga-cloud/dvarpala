@@ -48,6 +48,7 @@ func (h *AdminHandler) Register(r *gin.RouterGroup) {
 	g.GET("/resources", h.Resources)
 	g.GET("/activity", h.Activity)
 	g.GET("/audit", h.Audit)
+	g.GET("/domains", h.Domains)
 
 	// Anything that changes something is a POST, and every POST carries a
 	// token tied to the caller's session. Without that, any page on the
@@ -62,6 +63,8 @@ func (h *AdminHandler) Register(r *gin.RouterGroup) {
 	w.POST("/permissions/grant", h.GrantPermission)
 	w.POST("/permissions/revoke", h.RevokePermission)
 	w.POST("/vpn/issue", h.IssueProfile)
+	w.POST("/domains/add", h.AddDomain)
+	w.POST("/domains/remove", h.RemoveDomain)
 }
 
 // requireAdmin allows only signed-in members of the administrator group.
@@ -123,6 +126,7 @@ type adminView struct {
 	Users     []models.User
 	Groups    []models.Group
 	Resources []models.Resource
+	Domains   []models.AllowedDomain
 	User      *models.User
 	Grants    []services.AccessGrant
 	Allowed   bool
@@ -261,6 +265,59 @@ func (h *AdminHandler) Groups(c *gin.Context) {
 func (h *AdminHandler) Resources(c *gin.Context) {
 	list, err := h.svc.Resources.ListResources(c.Request.Context())
 	h.render(c, adminView{Page: "resources", Resources: list}, err)
+}
+
+// Domains lists the email domains permitted to sign in.
+//
+// The installer seeds this from the first administrator's own address, which
+// is a guess drawn from one person. This page is where that guess gets
+// corrected - a company with a second domain, or contractors signing in with
+// their own, previously meant editing YAML on the server as root.
+func (h *AdminHandler) Domains(c *gin.Context) {
+	list, err := h.svc.Domains.List(c.Request.Context())
+	h.render(c, adminView{Page: "domains", Domains: list}, err)
+}
+
+// AddDomain permits a new email domain.
+func (h *AdminHandler) AddDomain(c *gin.Context) {
+	domain := c.PostForm("domain")
+
+	var by string
+	if sess := h.session(c); sess != nil {
+		by = sess.Email
+	}
+
+	record, err := h.svc.Domains.Add(c.Request.Context(), domain, by, c.PostForm("note"))
+
+	msg := ""
+	if err == nil {
+		msg = record.Domain + " may now sign in"
+	}
+	h.back(c, "/admin/domains", err, msg)
+}
+
+// RemoveDomain withdraws a domain.
+func (h *AdminHandler) RemoveDomain(c *gin.Context) {
+	domain := c.PostForm("domain")
+
+	var by string
+	if sess := h.session(c); sess != nil {
+		by = sess.Email
+	}
+
+	err := h.svc.Domains.Remove(c.Request.Context(), domain, by)
+
+	msg := ""
+	if err == nil {
+		msg = domain + " can no longer sign in"
+		// The list being empty does not read as "everyone is refused", which
+		// is what an administrator who just removed the last entry is likely
+		// to assume.
+		if remaining, lerr := h.svc.Domains.List(c.Request.Context()); lerr == nil && len(remaining) == 0 {
+			msg += ". Warning: no domains remain, so ANY domain can now sign in."
+		}
+	}
+	h.back(c, "/admin/domains", err, msg)
 }
 
 // Activity answers two questions that get asked in the same breath during an

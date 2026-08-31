@@ -67,8 +67,13 @@ type Service struct {
 	// reconnect by hand, which is what they had to do before.
 	reconnect Reconnector
 
-	// allowedDomains restricts which email domains may authenticate at all.
-	// Empty means any domain is acceptable.
+	// domains is the allow-list held in the database, which an administrator
+	// can change from the console. When present it is authoritative.
+	domains *services.DomainService
+
+	// allowedDomains is the fallback for a service built without a database -
+	// tests, and tools that only need the login rules. Empty means any domain
+	// is acceptable.
 	allowedDomains []string
 }
 
@@ -82,6 +87,7 @@ func NewService(providers *Registry, sessions *SessionService, svc *services.Ser
 		perms:          svc.Permissions,
 		audit:          svc.Audit,
 		rdb:            rdb,
+		domains:        svc.Domains,
 		allowedDomains: normaliseDomains(allowedDomains),
 	}
 }
@@ -167,7 +173,7 @@ func (s *Service) Complete(ctx context.Context, providerName, code, state, clien
 		return nil, fmt.Errorf("verifying identity: %w", err)
 	}
 
-	if !s.domainAllowed(info.Email) {
+	if !s.domainAllowed(ctx, info.Email) {
 		s.logDenied(ctx, info.Email, clientIP, "domain_not_allowed")
 		return nil, fmt.Errorf("%w: %s", ErrDomainBlocked, info.Email)
 	}
@@ -272,8 +278,23 @@ func (s *Service) consumeState(ctx context.Context, state, providerName string) 
 	return nil
 }
 
-// domainAllowed applies the configured email domain allow-list.
-func (s *Service) domainAllowed(email string) bool {
+// domainAllowed applies the email domain allow-list.
+//
+// The database is asked when there is one, so a domain added in the console
+// takes effect on the next sign-in rather than the next restart. A database
+// that cannot answer refuses the login: an allow-list that fails open is not
+// an allow-list, and the alternative is that a database blip briefly admits
+// every domain on the internet.
+func (s *Service) domainAllowed(ctx context.Context, email string) bool {
+	if s.domains != nil {
+		ok, err := s.domains.Allowed(ctx, email)
+		if err != nil {
+			log.Printf("auth: could not read the domain allow-list, refusing %s: %v", email, err)
+			return false
+		}
+		return ok
+	}
+
 	if len(s.allowedDomains) == 0 {
 		return true
 	}
@@ -374,7 +395,7 @@ func (s *Service) RequestCode(ctx context.Context, email, clientIP string) error
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
 
-	if !s.domainAllowed(email) {
+	if !s.domainAllowed(ctx, email) {
 		s.logDenied(ctx, email, clientIP, "domain_not_allowed")
 		return nil
 	}

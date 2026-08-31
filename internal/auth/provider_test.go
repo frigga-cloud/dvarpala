@@ -90,7 +90,7 @@ func TestDomainAllowList(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Service{allowedDomains: normaliseDomains(tc.allowed)}
-			if got := s.domainAllowed(tc.email); got != tc.want {
+			if got := s.domainAllowed(context.Background(), tc.email); got != tc.want {
 				t.Errorf("domainAllowed(%q) with %v = %v, want %v",
 					tc.email, tc.allowed, got, tc.want)
 			}

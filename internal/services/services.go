@@ -25,6 +25,7 @@ type Services struct {
 	Resources   *ResourceService
 	Permissions *PermissionService
 	VPNConfigs  *VPNConfigService
+	Domains     *DomainService
 }
 
 // New wires up every service against a single database handle.
@@ -45,6 +46,7 @@ func New(db *gorm.DB, cfg *config.Config) *Services {
 		Resources:   resources,
 		Permissions: NewPermissionService(db, audit, users, groups, resources),
 		VPNConfigs:  NewVPNConfigService(db, audit, users, loadCA(cfg), serverDetails(cfg)),
+		Domains:     NewDomainService(db, audit),
 	}
 }
 
