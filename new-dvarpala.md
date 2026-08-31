@@ -817,6 +817,27 @@ ssh -i <your-key.pem> ubuntu@<the-address> \
 server; the `.ovpn` is theirs and opens the VPN. They are easy to confuse
 because they arrive within seconds of each other.
 
+Find the key's path with:
+
+```bash
+ls ~/*/scripts/installation/dvarpala-deployment/*.pem
+```
+
+**That command prints nothing when it works.** The profile goes into the file
+rather than to the screen, so silence means success — the only output would be
+an error.
+
+**3. Hand it to the VPN client.** Nothing opens by itself:
+
+```bash
+open sam.ovpn          # macOS
+xdg-open sam.ovpn      # Linux
+```
+
+The client asks whether to install the configuration; say yes, then press
+connect. Finder does not always show a newly written file straight away, so
+open it from the terminal rather than looking for it.
+
 `--output -` writes the profile to the screen instead of to a file, so it
 arrives on your machine directly. Useful for scripting, or before you have a
 working profile of your own to reach the console with.
@@ -829,13 +850,13 @@ is the way to get it. After that, use the console.
 Each person should have exactly one profile. Issuing a new one revokes the
 last, so a lost laptop is handled by issuing again.
 
-**3. Hand the file over directly.**
+**4. Hand the file over directly.**
 
 It contains that person's private key. Anybody holding it can open a tunnel as
 them. Give it to them in person, or over something you already trust for
 credentials — not email, and not a shared drive. Delete your copy afterwards.
 
-**4. Tell them three things.**
+**5. Tell them three things.**
 
 - Install an OpenVPN client — Tunnelblick on a Mac, OpenVPN Connect elsewhere
 - Import the file and connect
