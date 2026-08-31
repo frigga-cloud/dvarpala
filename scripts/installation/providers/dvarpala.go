@@ -59,7 +59,7 @@ const (
 	// software, which is what a run of install-v3 against a doc naming
 	// install-v4 already did. Prefer moving dev/foundation to minting another
 	// name - a branch per attempt is how they drifted apart.
-	defaultRepoRef = "dev/foundation"
+	defaultRepoRef = "install-v6"
 	remoteSrcDir   = "/opt/dvarpala/src"
 )
 

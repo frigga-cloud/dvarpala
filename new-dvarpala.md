@@ -417,14 +417,14 @@ below will work.
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
-sudo git clone --branch dev/foundation \
+sudo git clone --branch install-v6 \
   https://github.com/frigga-cloud/dvarpala /opt/dvarpala/src
 sudo /opt/dvarpala/src/scripts/install/install-dvarpala.sh \
   --source /opt/dvarpala/src \
   --admin you@your-domain
 ```
 
-**`--branch dev/foundation` is not optional today.** Without it git takes the
+**`--branch install-v6` is not optional today.** Without it git takes the
 repository's default branch, `main`, which does not contain this work at all —
 there is no `scripts/install/` there, so the next line fails on a file that
 does not exist. When this work merges into `main`, drop the `--branch` line
@@ -944,7 +944,7 @@ certificate check prevents another client inheriting one.
 
 **`main` does not contain this work.** Anything cloning the default branch gets
 code with no installer in it, which is why Path A above passes
-`--branch dev/foundation`. The cloud installer in Path B names the same branch
+`--branch install-v6`. The cloud installer in Path B names the same branch
 internally, and the two must stay in step - when they disagree the hand
 install and the cloud install build different software. Both revert to the
 plain default the day this merges.
