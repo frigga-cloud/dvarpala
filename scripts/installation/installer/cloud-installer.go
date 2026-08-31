@@ -821,11 +821,16 @@ next step tests the same credentials the server itself uses.
 STEP 4 - apply it, and check
 ----------------------------
     sudo systemctl restart dvarpala
-    sudo journalctl -u dvarpala -n 20 | grep -i "code sign-in"
+    sudo journalctl -u dvarpala --no-pager | grep -i "code sign-in" | tail -1
 
-You want a line saying it is sending through whatever you configured.
-If it says it is writing codes to its own log, the key did not reach
-it - go back to step 3.
+Three possible answers:
+
+  sending through ...                    working
+  writing codes to this server's log     the key did not reach it, step 3
+  nothing at all                         otp.enabled is still false, step 2
+
+Search the whole log, not the last few lines - about forty lines of
+routes are printed at startup and this one scrolls past.
 
 Then send yourself a real message:
 

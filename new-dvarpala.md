@@ -672,11 +672,19 @@ AUTH_SMTP_PASSWORD=...
 
 ```bash
 sudo systemctl restart dvarpala
-sudo journalctl -u dvarpala -n 20 | grep -i "code sign-in"
+sudo journalctl -u dvarpala --no-pager | grep -i "code sign-in" | tail -1
 ```
 
-You want a line naming what you configured. If it says codes are being written
-to the server's own log, the credential did not reach it — check step 2.
+Three possible answers:
+
+| What it says | What it means |
+|---|---|
+| `sending through Brevo, as ...` | working — go on to the next step |
+| `writing codes to this server's own log` | the credential did not reach it; check step 2 |
+| **nothing at all** | `otp.enabled` is still `false`; check step 1 |
+
+Search the whole log rather than the last few lines — the server prints about
+forty lines of routes at startup, and this one scrolls past.
 
 **4. Send yourself a real message.**
 
