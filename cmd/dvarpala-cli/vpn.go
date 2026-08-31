@@ -65,7 +65,15 @@ func vpnIssueCmd() *cobra.Command {
 			// file, rather than writing it here, changing its owner, copying
 			// it down and remembering to delete both copies.
 			if output == "-" {
+				// Nothing else on stdout: the caller is redirecting it into a
+				// file. Silence is what success looks like here, which is
+				// worth knowing after a run of commands that fail quietly.
 				fmt.Fprint(cmd.OutOrStdout(), config.ConfigData)
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"Issued for %s, expires %s. Written to standard output - "+
+						"if you redirected it into a file, that file now holds "+
+						"the profile and nothing was printed here.\n",
+					email, config.ExpiresAt.Format("2006-01-02"))
 				return nil
 			}
 
