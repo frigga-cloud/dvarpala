@@ -899,6 +899,10 @@ does not exist):
 
 Nothing depends on this. It only saves typing.
 
+Both lines go stale when a server is rebuilt - a new one gets a new
+address and a new key. Updating only the address leaves ssh reporting
+"no such identity" for a key belonging to a machine that is gone.
+
 The administrator's own profile
 -------------------------------
 admin.ovpn, beside this file, belongs to %s. It contains a private key:

@@ -567,6 +567,12 @@ Host dvarpala
 
 Then it is just `ssh dvarpala`. Nothing depends on this; it only saves typing.
 
+**Both lines go stale when a server is rebuilt.** A new server gets a new
+address *and* a new key, and updating only the address — the obvious half —
+produces `no such identity: ...keypair.pem: No such file or directory`
+followed by `Permission denied`. If you see that, the key path is pointing at
+a server that no longer exists.
+
 ---
 
 ### Making it possible to sign in
