@@ -321,8 +321,23 @@ func setupAWSConfig(config InstallationConfig, scanner *bufio.Scanner) Installat
 	config.VMConfig.InstanceType = instanceTypes[instanceChoice]
 
 	// Authentication method
-	fmt.Println("\nAWS Authentication:")
-	fmt.Println("1. Use existing AWS CLI profile")
+	// Do not ask a question that can be answered.
+	//
+	// If the AWS CLI already works, the credentials are settled and there is
+	// nothing to choose. Asking anyway offered "enter an access key" as an
+	// equal option, and anything typed there becomes an environment variable
+	// that silently overrides the working profile - so the prompt existed
+	// mainly as a way to break a setup that was already correct.
+	if arn := currentAWSIdentity(); arn != "" {
+		fmt.Printf("✅ Using the AWS CLI credentials already configured: %s\n", arn)
+		return config
+	}
+
+	fmt.Println("\nThe AWS CLI is not configured, or its credentials are not valid.")
+	fmt.Println("The simplest fix is to leave this and run:  aws configure")
+	fmt.Println()
+	fmt.Println("Or supply credentials here:")
+	fmt.Println("1. I have run aws configure since starting this")
 	fmt.Println("2. Enter Access Key and Secret Key")
 	fmt.Println("3. Use IAM role (for EC2/Lambda execution)")
 	fmt.Print("Enter choice (1-3): ")
@@ -331,9 +346,8 @@ func setupAWSConfig(config InstallationConfig, scanner *bufio.Scanner) Installat
 
 	switch authChoice {
 	case "1":
-		// Check for existing AWS configuration
-		if !fileExists(filepath.Join(os.Getenv("HOME"), ".aws", "credentials")) {
-			fmt.Println("⚠️ No AWS credentials found. Run 'aws configure' first.")
+		if arn := currentAWSIdentity(); arn == "" {
+			fmt.Println("⚠️ Still no working AWS credentials. Run 'aws configure' first.")
 			os.Exit(1)
 		}
 		fmt.Println("✅ Using existing AWS CLI profile")
@@ -1645,4 +1659,21 @@ func absoluteish(path string) string {
 		return abs
 	}
 	return path
+}
+
+// currentAWSIdentity returns who the AWS CLI is acting as, or empty if it
+// cannot act at all.
+//
+// Asking the CLI rather than looking for a credentials file: a file can exist
+// and hold a revoked key, and credentials can come from an environment
+// variable or an instance role with no file at all. This is the only check
+// that answers the question actually being asked.
+func currentAWSIdentity() string {
+	cmd := exec.Command("aws", "sts", "get-caller-identity",
+		"--query", "Arn", "--output", "text")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

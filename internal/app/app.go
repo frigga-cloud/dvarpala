@@ -20,6 +20,12 @@ import (
 )
 
 type Dvarpala struct {
+	// signIn describes how people can authenticate, kept so it can be
+	// reported at the end of startup as well as when it is decided. Gin
+	// prints a line per route between the two, and the decision that matters
+	// most was scrolling out of sight.
+	signIn []string
+
 	sweeper  *vpn.IdleSweeper
 	config   *config.Config
 	db       *database.DB
@@ -54,6 +60,9 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 
 	providers := auth.NewRegistry()
 
+	// What to say at the end of startup, when somebody is actually looking.
+	var signIn []string
+
 	// Google, when credentials are configured. Missing credentials are not
 	// fatal: the provider is simply not offered.
 	if cfg.OAuth.Google.ClientID != "" {
@@ -68,6 +77,7 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 		}
 		providers.Add(google)
 		log.Println("Google login enabled")
+		signIn = append(signIn, "Google login enabled")
 	}
 
 	// Sign-in by emailed code, when this deployment has turned it on.
@@ -95,8 +105,12 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 
 		if _, viaLog := mailer.(auth.LogMailer); viaLog {
 			log.Printf("WARNING: code sign-in is writing codes to %s", describedAs)
+			signIn = append(signIn,
+				fmt.Sprintf("WARNING: sign-in codes are written to %s", describedAs))
 		} else {
 			log.Printf("code sign-in enabled, sending through %s", describedAs)
+			signIn = append(signIn,
+				fmt.Sprintf("sign-in codes sent through %s", describedAs))
 		}
 
 		otpStore = auth.NewOTPStore(redisClient, mailer)
@@ -107,10 +121,15 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	if dev := auth.NewDevProvider(); dev.Guard(cfg.Server.Mode) == nil {
 		providers.Add(dev)
 		log.Println("WARNING: development login provider is enabled (server.mode=debug)")
+		signIn = append(signIn,
+			"WARNING: the development login is enabled - it accepts any email "+
+				"with no password (server.mode=debug)")
 	}
 
 	if providers.Len() == 0 {
 		log.Println("WARNING: no login providers are enabled - nobody can authenticate")
+		signIn = append(signIn,
+			"WARNING: nobody can sign in - no login method is configured")
 	}
 
 	// The allow-list lives in the database so the console can change it. Seed
@@ -178,6 +197,7 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 	router.LoadHTMLGlob("web/templates/*.html")
 
 	app := &Dvarpala{
+		signIn:   signIn,
 		sweeper:  sweeper,
 		config:   cfg,
 		db:       db,
@@ -196,6 +216,13 @@ func NewDvarpala(cfg *config.Config) (*Dvarpala, error) {
 func (d *Dvarpala) Router() *gin.Engine {
 	return d.router
 }
+
+// SignInSummary describes how people may authenticate.
+//
+// Reported after the routes rather than only when it is decided: gin logs a
+// line per route in between, so the one line an operator restarts the service
+// to read had already scrolled past the last twenty.
+func (d *Dvarpala) SignInSummary() []string { return d.signIn }
 
 // Background starts the work that runs alongside the HTTP server, and returns
 // when the context is cancelled. Safe to call when nothing is configured.

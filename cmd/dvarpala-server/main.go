@@ -60,6 +60,14 @@ func main() {
 		}
 	}()
 
+	// Said last, where it will be read. Everything above this is setup detail
+	// and, in debug mode, one line per registered route - so an operator who
+	// restarts the service and looks at the end of the log sees the answer to
+	// the question they restarted it for.
+	for _, line := range dvarpala.SignInSummary() {
+		log.Print(line)
+	}
+
 	log.Printf("Dvarpala server starting on port %d", cfg.Server.Port)
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server failed to start: %v", err)

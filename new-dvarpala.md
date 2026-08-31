@@ -472,8 +472,9 @@ It asks a few questions. Two answers matter:
   the one you passed on the command line.
 - **Instance type** — the smallest offered is enough.
 
-Leave any key and secret prompts **blank**; anything typed there overrides the
-credentials `aws configure` already set up.
+It does not ask about credentials if the AWS CLI already works — it checks,
+says which identity it is using, and moves on. You are only asked if that
+check fails, and the answer then is usually to stop and run `aws configure`.
 
 It creates a network, a security group, an instance and a fixed public
 address, then runs the same installer as Path A over SSH.
