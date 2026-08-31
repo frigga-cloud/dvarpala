@@ -54,7 +54,7 @@ const (
 	// installs nothing and fails on a missing file. Set this back to "main"
 	// the day dev/foundation merges; it is the only place the branch is
 	// named.
-	defaultRepoRef = "dev/foundation"
+	defaultRepoRef = "install-v3"
 	remoteSrcDir   = "/opt/dvarpala/src"
 )
 
