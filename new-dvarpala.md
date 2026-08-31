@@ -812,6 +812,11 @@ ssh -i <your-key.pem> ubuntu@<the-address> \
   'dvarpala-cli vpn issue --user sam@company.com --output -' > sam.ovpn
 ```
 
+`<your-key.pem>` is the SSH key that gets **you** on to the server — not the
+`.ovpn` this produces. Two files, two jobs: the `.pem` is yours and opens the
+server; the `.ovpn` is theirs and opens the VPN. They are easy to confuse
+because they arrive within seconds of each other.
+
 `--output -` writes the profile to the screen instead of to a file, so it
 arrives on your machine directly. Useful for scripting, or before you have a
 working profile of your own to reach the console with.
