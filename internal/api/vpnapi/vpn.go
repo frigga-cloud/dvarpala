@@ -8,6 +8,7 @@ package vpnapi
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -248,7 +249,17 @@ func toRoutes(grants []services.AccessGrant) []Route {
 			continue
 		}
 
-		network, netmask := splitCIDR(ip)
+		network, netmask, ok := services.SplitCIDR(ip)
+		if !ok {
+			// Registering a resource refuses an address like this, so reaching
+			// here means a row that predates that check. Say so: the symptom
+			// otherwise is a grant that looks right everywhere and routes
+			// nothing.
+			log.Printf("vpn: resource %q has an address that cannot be routed (%q) - skipping",
+				g.Resource.Name, ip)
+			continue
+		}
+
 		key := network + "/" + netmask
 		if seen[key] {
 			continue // the same host granted via two groups needs one route
@@ -281,24 +292,6 @@ func grantedResources(grants []services.AccessGrant) []string {
 		names = append(names, g.Resource.Name)
 	}
 	return names
-}
-
-// splitCIDR converts an address into the network/netmask pair OpenVPN wants.
-// A bare address becomes a single-host route.
-func splitCIDR(addr string) (network, netmask string) {
-	if !strings.Contains(addr, "/") {
-		return addr, "255.255.255.255"
-	}
-
-	parts := strings.SplitN(addr, "/", 2)
-	masks := map[string]string{
-		"8": "255.0.0.0", "16": "255.255.0.0", "21": "255.255.248.0",
-		"24": "255.255.255.0", "26": "255.255.255.192", "32": "255.255.255.255",
-	}
-	if m, ok := masks[parts[1]]; ok {
-		return parts[0], m
-	}
-	return parts[0], "255.255.255.255"
 }
 
 // sameIdentity reports whether a connecting certificate belongs to the person

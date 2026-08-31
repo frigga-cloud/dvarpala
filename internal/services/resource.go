@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 
 	"dvarpala/internal/database/models"
@@ -68,6 +69,18 @@ func (s *ResourceService) CreateResource(ctx context.Context, req CreateResource
 	if (kind == models.ResourceTypeVM || kind == models.ResourceTypeDatabase) && req.IPAddress == "" {
 		return nil, fmt.Errorf("%w: %s resources need --ip so routes can be pushed",
 			ErrInvalidResource, kind)
+	}
+
+	// An address that cannot be turned into a route is refused here rather
+	// than stored. Anything at all used to be accepted: a typo, or a prefix
+	// length the route builder did not recognise, produced a resource that
+	// read as granted in the console and in the CLI and reached nothing.
+	req.IPAddress = strings.TrimSpace(req.IPAddress)
+	if req.IPAddress != "" {
+		if _, _, ok := SplitCIDR(req.IPAddress); !ok {
+			return nil, fmt.Errorf("%w: %q is not an IPv4 address or range (for example 10.20.1.55, or 10.20.0.0/16 for a whole network)",
+				ErrInvalidResource, req.IPAddress)
+		}
 	}
 
 	var existing models.Resource
@@ -138,4 +151,39 @@ func Address(r models.Resource) string {
 	default:
 		return "-"
 	}
+}
+
+// SplitCIDR converts a resource address into the network/netmask pair OpenVPN
+// wants, reporting whether it could.
+//
+// A bare address becomes a single-host route. A range is reduced to its
+// network address first, because OpenVPN refuses a route carrying host bits
+// below the netmask - 10.20.1.5/24 has to be pushed as 10.20.1.0 255.255.255.0.
+//
+// It lives here, next to the validation that uses it, so the check made when a
+// resource is registered and the conversion made when a route is pushed cannot
+// disagree about what is routable.
+//
+// An address it cannot convert is refused rather than approximated. A fixed
+// table of prefix lengths used to sit here, and anything outside it fell back
+// to a single host: /20 silently became /32, so a grant covering four thousand
+// addresses reached exactly one and said nothing anywhere.
+func SplitCIDR(addr string) (network, netmask string, ok bool) {
+	addr = strings.TrimSpace(addr)
+
+	if !strings.Contains(addr, "/") {
+		ip := net.ParseIP(addr)
+		if ip == nil || ip.To4() == nil {
+			return "", "", false
+		}
+		return ip.To4().String(), "255.255.255.255", true
+	}
+
+	// ParseCIDR returns the masked network, which is exactly what is wanted:
+	// it turns a host address written with a prefix into the network it names.
+	_, ipnet, err := net.ParseCIDR(addr)
+	if err != nil || ipnet.IP.To4() == nil {
+		return "", "", false
+	}
+	return ipnet.IP.String(), net.IP(ipnet.Mask).String(), true
 }

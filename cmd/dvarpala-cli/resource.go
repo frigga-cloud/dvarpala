@@ -50,7 +50,7 @@ func resourceCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Resource name (required)")
 	cmd.Flags().StringVar(&kind, "type", "", "dashboard | vm | database | service (required)")
 	cmd.Flags().StringVar(&url, "url", "", "URL, for dashboards and services")
-	cmd.Flags().StringVar(&ip, "ip", "", "IP address, required for vm and database")
+	cmd.Flags().StringVar(&ip, "ip", "", "IP address, or a range like 10.20.0.0/16; required for vm and database")
 	cmd.Flags().IntVar(&port, "port", 0, "Port")
 	cmd.Flags().StringVar(&description, "description", "", "What this resource is")
 	_ = cmd.MarkFlagRequired("name")
