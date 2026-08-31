@@ -153,21 +153,39 @@ func (gcp *GCPProvider) createNewVPC(vpcName string, config NetworkConfig) (*GCP
 		return nil, fmt.Errorf("failed to create subnet: %v", err)
 	}
 
-	// Create firewall rules
+	// Create firewall rules.
+	//
+	// SSH and the VPN only. The portal listens on 8080 but is reached through
+	// the tunnel, so it needs no path from the internet, and nothing listens
+	// on 443.
+	//
+	// Two rules rather than one, because the two ports do not deserve the same
+	// audience: administrative access is restricted to the configured
+	// addresses, and the VPN has to be reachable from anywhere an employee
+	// might be. A single rule covering both could only ever apply the wider of
+	// the two, which is what this did before.
 	firewallName := vpcName + "-allow-dvarpala"
 	cmd = exec.Command("gcloud", "compute", "firewall-rules", "create", firewallName,
 		"--network", vpcName,
-		// SSH and the VPN only. The portal listens on 8080 but is reached
-		// through the tunnel, so it needs no path from the internet, and
-		// nothing listens on 443.
-		"--allow", "tcp:22,udp:1194",
+		"--allow", "udp:1194",
 		"--source-ranges", "0.0.0.0/0",
-		"--description=Allow dvarpala VPN and web access")
+		"--description=Allow dvarpala VPN access")
 
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to create firewall rules: %v", err)
 	}
 	vpcInfo.FirewallRule = firewallName
+
+	sshRuleName := vpcName + "-allow-ssh"
+	cmd = exec.Command("gcloud", "compute", "firewall-rules", "create", sshRuleName,
+		"--network", vpcName,
+		"--allow", "tcp:22",
+		"--source-ranges", strings.Join(adminSourceRanges(config.AllowedIPs), ","),
+		"--description=Allow dvarpala administrative access")
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to create ssh firewall rule: %v", err)
+	}
 
 	fmt.Printf("✅ VPC created successfully: %s\n", vpcName)
 	return vpcInfo, nil

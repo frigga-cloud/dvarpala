@@ -159,3 +159,28 @@ func shellQuote(s string) string {
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// adminSourceRanges is where administrative access - SSH - may come from.
+//
+// It is the configured allowed_ips, or everywhere when nothing is configured.
+// Empty must stay permissive: a deployment that never set the field would
+// otherwise build a server nobody could log in to, including the person
+// running the installer.
+//
+// The VPN port is deliberately NOT restricted by this. Employees connect from
+// wherever they happen to be - a home, a phone on mobile data, an airport -
+// so narrowing UDP 1194 to an office address would break the one thing the
+// product exists to do, and would do it silently, days later, to somebody who
+// is not the person who set the field.
+func adminSourceRanges(allowedIPs []string) []string {
+	ranges := make([]string, 0, len(allowedIPs))
+	for _, cidr := range allowedIPs {
+		if trimmed := strings.TrimSpace(cidr); trimmed != "" {
+			ranges = append(ranges, trimmed)
+		}
+	}
+	if len(ranges) == 0 {
+		return []string{"0.0.0.0/0"}
+	}
+	return ranges
+}

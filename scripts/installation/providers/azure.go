@@ -169,7 +169,7 @@ func (az *AzureProvider) createNewVPC(vpcName, resourceGroup string, config Netw
 	}
 
 	// Add security rules
-	az.addSecurityRules(resourceGroup, vpcInfo.NSGName)
+	az.addSecurityRules(resourceGroup, vpcInfo.NSGName, config.AllowedIPs)
 
 	// Associate NSG with subnet
 	cmd = exec.Command("az", "network", "vnet", "subnet", "update",
@@ -186,24 +186,30 @@ func (az *AzureProvider) createNewVPC(vpcName, resourceGroup string, config Netw
 	return vpcInfo, nil
 }
 
-func (az *AzureProvider) addSecurityRules(resourceGroup, nsgName string) {
+func (az *AzureProvider) addSecurityRules(resourceGroup, nsgName string, allowedIPs []string) {
 	rules := []struct {
 		name     string
 		priority int
 		port     string
 		protocol string
+		sources  []string
 	}{
 		// Only these two. The portal listens on 8080 but is reached from
 		// inside the tunnel, so it never crosses this boundary - opening it
 		// published the sign-in page, the emergency-access endpoint and the
 		// administration console to anyone who found the address. Nothing
 		// listens on 443 at all.
-		{"SSH", 1000, "22", "Tcp"},
-		{"OpenVPN", 1001, "1194", "Udp"},
+		//
+		// The sources differ deliberately: administrative access is limited
+		// to the configured addresses, the VPN is reachable from anywhere.
+		// Omitting the source entirely, which is what this did before, means
+		// "*" - every address on the internet, for both.
+		{"SSH", 1000, "22", "Tcp", adminSourceRanges(allowedIPs)},
+		{"OpenVPN", 1001, "1194", "Udp", []string{"*"}},
 	}
 
 	for _, rule := range rules {
-		exec.Command("az", "network", "nsg", "rule", "create",
+		args := []string{"network", "nsg", "rule", "create",
 			"--resource-group", resourceGroup,
 			"--nsg-name", nsgName,
 			"--name", rule.name,
@@ -211,7 +217,10 @@ func (az *AzureProvider) addSecurityRules(resourceGroup, nsgName string) {
 			"--priority", fmt.Sprintf("%d", rule.priority),
 			"--destination-port-ranges", rule.port,
 			"--access", "Allow",
-			"--direction", "Inbound").Run()
+			"--direction", "Inbound",
+			"--source-address-prefixes"}
+		args = append(args, rule.sources...)
+		exec.Command("az", args...).Run()
 	}
 }
 

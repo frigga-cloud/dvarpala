@@ -357,14 +357,23 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 //
 // Port 443 is absent for a simpler reason: nothing listens on it.
 func (aws *AWSProvider) addSecurityGroupRules(sgID string, allowedIPs []string) {
-	// SSH, for installing and administering the machine.
-	exec.Command("aws", "ec2", "authorize-security-group-ingress",
-		"--group-id", sgID,
-		"--protocol", "tcp",
-		"--port", "22",
-		"--cidr", "0.0.0.0/0").Run()
+	// SSH, for installing and administering the machine, from the configured
+	// addresses only.
+	//
+	// This used to accept allowedIPs and ignore it, opening port 22 to the
+	// whole internet on every server built here while the configuration file
+	// went on offering a setting that did nothing. Go does not warn about an
+	// unused parameter, so nothing said so.
+	for _, cidr := range adminSourceRanges(allowedIPs) {
+		exec.Command("aws", "ec2", "authorize-security-group-ingress",
+			"--group-id", sgID,
+			"--protocol", "tcp",
+			"--port", "22",
+			"--cidr", cidr).Run()
+	}
 
-	// The VPN itself. This is how a client reaches everything else.
+	// The VPN itself. This is how a client reaches everything else, and it is
+	// open to everywhere on purpose - see adminSourceRanges.
 	exec.Command("aws", "ec2", "authorize-security-group-ingress",
 		"--group-id", sgID,
 		"--protocol", "udp",
