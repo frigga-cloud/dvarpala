@@ -780,92 +780,117 @@ administrator's browser grant access.
 
 ### Giving somebody access
 
-Four things, in this order. Skipping one produces something that looks right
-and does nothing.
-
-**1. Make sure they exist and are in a group that has been granted something.**
+A profile on its own reaches the sign-in page and nothing else. Access comes
+from being in a group that has been granted a resource, so check that first:
 
 ```bash
 dvarpala-cli user access sam@company.com
 ```
 
-If that lists no grants, a profile will get them to the sign-in page and no
-further.
+If it lists no grants, fix that before issuing anything — otherwise they sign
+in successfully and still cannot reach a thing, which looks like a broken VPN.
 
-**2. Issue their profile.**
+#### Issuing the profile
 
-Two ways. The console is easier and is what you will use most of the time.
-
-*From the admin console*, while connected to the VPN yourself:
+**Normally, from the admin console** — while you are connected to the VPN
+yourself:
 
 ```
 http://172.30.100.1:8080/admin
 ```
 
-Enter their email in the VPN section and press issue. **The file downloads to
-your own computer** the way any download does — no key file, no ssh, nothing
-to clean up afterwards.
+Enter their email in the VPN section and press issue. The file downloads to
+your computer like any download. No key file, no ssh, nothing to clean up.
 
-*Or from your own computer*, in one command:
-
-```bash
-ssh -i <your-key.pem> ubuntu@<the-address> \
-  'dvarpala-cli vpn issue --user sam@company.com --output -' > sam.ovpn
-```
-
-`<your-key.pem>` is the SSH key that gets **you** on to the server — not the
-`.ovpn` this produces. Two files, two jobs: the `.pem` is yours and opens the
-server; the `.ovpn` is theirs and opens the VPN. They are easy to confuse
-because they arrive within seconds of each other.
-
-Find the key's path with:
+**The first administrator is the exception.** Nobody can reach the console
+without a profile, and you have none yet. Path B already wrote yours to
+`dvarpala-deployment/admin.ovpn`. On Path A, fetch it over ssh — all one line:
 
 ```bash
-ls ~/*/scripts/installation/dvarpala-deployment/*.pem
+ssh -i <your-key.pem> ubuntu@<the-address> 'dvarpala-cli vpn issue --user you@your-domain --output -' > ~/Desktop/you.ovpn
 ```
 
-**That command prints nothing when it works.** The profile goes into the file
-rather than to the screen, so silence means success — the only output would be
-an error.
+Three things about that command:
 
-**3. Hand it to the VPN client.** Nothing opens by itself:
+- **Keep it on one line.** Split across two, the shell runs half of it and
+  reports something that looks unrelated.
+- **`<your-key.pem>` is not the file this produces.** The `.pem` is yours and
+  opens the *server*; the `.ovpn` is theirs and opens the *VPN*. Find the
+  `.pem` with `ls ~/*/scripts/installation/dvarpala-deployment/*.pem`.
+- **Write it outside the repository.** A `.ovpn` saved into the project is a
+  private key one `git add` away from being published.
+
+It prints a line confirming what it issued. The profile itself went into the
+file, so seeing no certificate on screen is success.
+
+Then lock it down, because it holds a private key:
 
 ```bash
-open sam.ovpn          # macOS
-xdg-open sam.ovpn      # Linux
+chmod 600 ~/Desktop/you.ovpn
 ```
-
-The client asks whether to install the configuration; say yes, then press
-connect. Finder does not always show a newly written file straight away, so
-open it from the terminal rather than looking for it.
-
-`--output -` writes the profile to the screen instead of to a file, so it
-arrives on your machine directly. Useful for scripting, or before you have a
-working profile of your own to reach the console with.
-
-**The first profile is the exception.** Nobody can reach the console before
-they have one, so the very first administrator's is fetched for you: Path B
-writes it to `dvarpala-deployment/admin.ovpn`, and on Path A the command above
-is the way to get it. After that, use the console.
 
 Each person should have exactly one profile. Issuing a new one revokes the
 last, so a lost laptop is handled by issuing again.
 
-**4. Hand the file over directly.**
+#### What happens when you connect
 
-It contains that person's private key. Anybody holding it can open a tunnel as
-them. Give it to them in person, or over something you already trust for
-credentials — not email, and not a shared drive. Delete your copy afterwards.
+This is the part nothing prompts you through, so it is worth knowing before
+you start.
 
-**5. Tell them three things.**
+**1. Import the file and connect.** Tunnelblick on a Mac, OpenVPN Connect
+elsewhere. Open the file from the terminal rather than hunting in Finder:
 
-- Install an OpenVPN client — Tunnelblick on a Mac, OpenVPN Connect elsewhere
-- Import the file and connect
-- Then open **http://signin**, or the address you were given if that fails
+```bash
+open ~/Desktop/you.ovpn
+```
 
-That last point matters. No operating system announces a captive portal when a
-VPN connects, so nothing will prompt them. Any `http://` address is redirected
-to the sign-in page, but they have to open something.
+The client asks whether to install the configuration. Say yes, then connect.
+
+**2. You are now in the walled garden, and it will feel broken.** Websites
+will not load. That is the product working: until you identify yourself, the
+only thing reachable is the sign-in page.
+
+**3. Open the sign-in page yourself.** Nothing announces it:
+
+```
+http://signin
+```
+
+If that name does not resolve, use `http://172.30.100.1:8080`. Any plain
+`http://` address is redirected there, but `https://` ones cannot be — TLS
+exists to prevent exactly that — so a modern site will simply refuse to load
+rather than showing you the portal.
+
+**4. Type your email. A six-digit code arrives.** Enter it.
+
+**5. The VPN drops and reconnects by itself.** A few seconds, and it is
+supposed to happen. Routes are fixed when a tunnel is built, so the tunnel you
+signed in over still has the walled garden's. The server closes it, your
+client reconnects on its own, and the second tunnel carries the access you
+have just earned. Do not reconnect by hand and do not read the blink as a
+fault.
+
+**6. You are through.** The resources you were granted are reachable, and your
+ordinary internet is back to normal — only company addresses go through the
+tunnel now.
+
+#### When it does not work
+
+| What you see | What it means |
+|---|---|
+| Sign-in page never loads | The VPN is not actually connected — check the client |
+| Code never arrives | Mail is not configured, or your domain is not on the sign-in list. Neither says so on the page, deliberately. Check `dvarpala-cli audit` |
+| Signed in, but nothing is reachable | No grants. `dvarpala-cli user access you@your-domain` |
+| Everything loads before signing in | The walled garden is not holding — check the firewall unit |
+
+#### Handing a profile to somebody else
+
+The file contains that person's private key. Anybody holding it can open a
+tunnel as them. Give it to them in person, or over something you already trust
+with credentials — not email, not a shared drive. Delete your copy afterwards.
+
+Tell them the three things above: install a client, import and connect, then
+open `http://signin` because nothing will prompt them.
 
 ### Two distinctions that matter
 
