@@ -67,6 +67,24 @@ walled_garden() {
     echo "push \"dhcp-option DNS $GARDEN_DNS\""
 }
 
+# open_mail_briefly lets this one client reach mail for a few minutes, so the
+# sign-in code it is about to be sent can actually be read.
+#
+# Per client and self-expiring, because the ranges involved are Google's,
+# Microsoft's and Apple's, and none of them separate mail from everything else
+# they run. Opened for everybody permanently - which is what this used to be -
+# it is not a walled garden at all.
+#
+# Never fatal: a client that cannot reach webmail can still read the code on a
+# phone, which is what most people do anyway.
+open_mail_briefly() {
+    local client="${1:-}"
+    [[ -n "$client" && -x "$FIREWALL" ]] || return 0
+    "$FIREWALL" mail-open "$client" >/dev/null 2>&1 \
+        && log "  mail opened briefly for $client so the code can be read" \
+        || log "  note: could not open mail for $client; the code can still be read elsewhere"
+}
+
 # work_only is the second shape: the company's addresses through the tunnel,
 # everything else left alone.
 #
@@ -119,6 +137,7 @@ if [[ $CURL_STATUS -ne 0 || -z "$RESPONSE" ]]; then
     log "  ERROR: could not reach Dvarpala at $API (curl exit $CURL_STATUS)"
     log "  failing closed: captive portal only"
     walled_garden > "$CONFIG_FILE"
+    open_mail_briefly "$CLIENT_IP"
     exit 0
 fi
 
@@ -131,6 +150,7 @@ if [[ "$AUTHENTICATED" != "true" ]]; then
     log "  not authenticated: $REASON"
     log "  granting captive portal only"
     walled_garden > "$CONFIG_FILE"
+    open_mail_briefly "$CLIENT_IP"
     exit 0
 fi
 

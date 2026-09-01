@@ -46,6 +46,12 @@ ACCESS_SET="dvarpala_access"
 SIGNEDIN_SET="dvarpala_signedin"
 MAIL_SET="dvarpala_mail"
 
+# How long a signed-out client may reach mail for, in seconds. Long enough to
+# open a webmail tab and read a code that takes a minute or two to arrive;
+# short enough that a client which connects and does nothing is not left with
+# a way out of the garden. A code itself lasts five minutes.
+MAIL_WINDOW="${DVARPALA_MAIL_WINDOW:-600}"
+
 die() { echo "error: $*" >&2; exit 1; }
 
 require_root() {
@@ -158,16 +164,37 @@ setup() {
     #
     # It grants nothing. Being in it does not open a single destination.
     ipset create "$SIGNEDIN_SET" hash:ip -exist
-    ipset create "$MAIL_SET" hash:net -exist
-    ipset flush "$MAIL_SET"
-    while read -r cidr; do
-        [[ "$cidr" == \#* ]] && continue
-        [[ -n "$cidr" ]] && ipset add "$MAIL_SET" "$cidr" -exist
-    done < <(mail_ranges)
 
+    # Mail is opened per client and expires by itself.
+    #
+    # This used to be a plain list of destinations, matched on destination
+    # alone: every unidentified client could reach every range in it, for as
+    # long as the server was up. Since the ranges are Google's, Microsoft's
+    # and Apple's - and none of them separate mail from search, storage or
+    # anything else they run - that opened most of the useful internet to
+    # anybody holding a certificate, which is the opposite of a walled garden.
+    #
+    # Now each entry is a (client, destination) pair carrying a timeout, added
+    # when that client connects unauthenticated and removed by the kernel a
+    # few minutes later. Nobody else inherits it, and nothing has to remember
+    # to clean it up.
     # Chain. Rebuilt from scratch so repeated runs are idempotent.
     iptables -N "$CHAIN" 2>/dev/null || true
     iptables -F "$CHAIN"
+
+    # Now the chain holds no rules, nothing references the sets, and an old
+    # one can be replaced. This matters on an upgrade: the previous version
+    # created MAIL_SET as hash:net, and "create -exist" will not change the
+    # type of a set that already exists - it succeeds and leaves the old one,
+    # after which the src,dst rule below cannot be added at all. Silently, so
+    # the garden would come back up with no mail rule and no complaint.
+    if ipset list -t "$MAIL_SET" >/dev/null 2>&1; then
+        if ! ipset list -t "$MAIL_SET" 2>/dev/null | grep -q "Type: hash:net,net"; then
+            echo "  replacing $MAIL_SET, which is the previous per-destination kind"
+            ipset destroy "$MAIL_SET" 2>/dev/null || true
+        fi
+    fi
+    ipset create "$MAIL_SET" hash:net,net timeout "$MAIL_WINDOW" -exist
 
     # Established traffic first: replies to permitted requests must return.
     iptables -A "$CHAIN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
@@ -203,8 +230,9 @@ setup() {
     iptables -A "$CHAIN" -p udp --dport 53 -d "$PORTAL_IP" -j ACCEPT
     iptables -A "$CHAIN" -p tcp --dport 53 -d "$PORTAL_IP" -j ACCEPT
 
-    # So a person can read the code that was just sent to them.
-    iptables -A "$CHAIN" -m set --match-set "$MAIL_SET" dst -j ACCEPT
+    # So a person can read the code that was just sent to them - but only the
+    # client this was opened for, and only until it expires.
+    iptables -A "$CHAIN" -m set --match-set "$MAIL_SET" src,dst -j ACCEPT
 
     # Log a sample of refusals, then refuse.
     iptables -A "$CHAIN" -m limit --limit 1/min -j LOG --log-prefix "[dvarpala-blocked] "
@@ -334,10 +362,30 @@ status() {
     iptables -L "$CHAIN" -v -n --line-numbers 2>/dev/null | sed 's/^/  /'
 }
 
+# mail_open lets one signed-out client reach mail for a while, so the code it
+# is waiting for can be read. Called by the connect hook when a client lands in
+# the walled garden.
+mail_open() {
+    local client="${1:-}" window="${2:-$MAIL_WINDOW}"
+    [[ -n "$client" ]] || die "mail-open needs a client address"
+
+    ipset create "$MAIL_SET" hash:net,net timeout "$MAIL_WINDOW" -exist
+
+    local n=0
+    while read -r cidr; do
+        [[ "$cidr" == \#* ]] && continue
+        [[ -z "$cidr" ]] && continue
+        ipset add "$MAIL_SET" "$client,$cidr" timeout "$window" -exist && n=$((n + 1))
+    done < <(mail_ranges)
+
+    echo "mail opened for $client for ${window}s ($n ranges)"
+}
+
 case "${1:-}" in
     setup)  setup ;;
     allow)  shift; allow "$@" ;;
     revoke) revoke "${2:-}" ;;
+    mail-open) mail_open "${2:-}" "${3:-}" ;;
     status) status ;;
-    *) echo "usage: $0 {setup|allow <client-ip> <destination>...|revoke <ip>|status}"; exit 1 ;;
+    *) echo "usage: $0 {setup|allow <client-ip> <destination>...|revoke <ip>|mail-open <client-ip> [seconds]|status}"; exit 1 ;;
 esac
