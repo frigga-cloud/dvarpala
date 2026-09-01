@@ -35,8 +35,7 @@ func vpnIssueCmd() *cobra.Command {
 		Example: "  dvarpala-cli vpn issue --user sam@acme.com\n" +
 			"\n" +
 			"  # fetched in one command, from your own machine:\n" +
-			"  ssh -i key.pem ubuntu@server \\\n" +
-			"    'dvarpala-cli vpn issue --user sam@acme.com --output -' > sam.ovpn",
+			"  ssh -i key.pem ubuntu@server 'dvarpala-cli vpn issue --user sam@acme.com --output -' > sam.ovpn",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := openServices()
 			if err != nil {
@@ -118,9 +117,14 @@ func vpnIssueCmd() *cobra.Command {
 			fmt.Println()
 			fmt.Println("Fetch it in one command, ON YOUR OWN COMPUTER:")
 			fmt.Println()
-			fmt.Printf("  ssh -i <SSH-KEY> ubuntu@%s \\\n", host)
-			fmt.Printf("    'dvarpala-cli vpn issue --user %s --output -' > %s.ovpn\n",
-				email, filepath.Base(email))
+			// Deliberately one line, however long it gets. Printed across two
+			// with a trailing backslash it looks tidier and breaks when
+			// copied: terminals join the lines, the backslash lands against
+			// the opening quote, and the shell waits forever for a quote that
+			// can no longer close. Every person who copied the two-line form
+			// hit that.
+			fmt.Printf("  ssh -i <SSH-KEY> ubuntu@%s 'dvarpala-cli vpn issue --user %s --output -' > %s.ovpn\n",
+				host, email, filepath.Base(email))
 			fmt.Println()
 			fmt.Println()
 			fmt.Println("<SSH-KEY> is whatever got you on to this machine a moment ago -")
