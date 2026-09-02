@@ -49,17 +49,11 @@ const (
 
 	// The branch the cloud installers clone.
 	//
-	// TEMPORARY: this should be "main". It names dev/foundation because main
-	// does not yet contain scripts/install/ at all - a clone of it installs
-	// nothing and fails on a missing file. Set this back to "main" the day
-	// dev/foundation merges.
-	//
 	// Keep this in step with the clone command in new-dvarpala.md: when the
 	// two disagree the hand install and the cloud install build different
 	// software, which is what a run of install-v3 against a doc naming
-	// install-v4 already did. Prefer moving dev/foundation to minting another
-	// name - a branch per attempt is how they drifted apart.
-	defaultRepoRef = "install-v6"
+	// install-v4 already did.
+	defaultRepoRef = "main"
 	remoteSrcDir   = "/opt/dvarpala/src"
 )
 

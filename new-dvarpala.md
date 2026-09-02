@@ -417,19 +417,11 @@ below will work.
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
-sudo git clone --branch install-v6 \
-  https://github.com/frigga-cloud/dvarpala /opt/dvarpala/src
+sudo git clone https://github.com/frigga-cloud/dvarpala /opt/dvarpala/src
 sudo /opt/dvarpala/src/scripts/install/install-dvarpala.sh \
   --source /opt/dvarpala/src \
   --admin you@your-domain
 ```
-
-**`--branch install-v6` is not optional today.** Without it git takes the
-repository's default branch, `main`, which does not contain this work at all —
-there is no `scripts/install/` there, so the next line fails on a file that
-does not exist. When this work merges into `main`, drop the `--branch` line
-and the command becomes the ordinary one. Nothing else in this section
-changes.
 
 `--admin` is the first administrator's email. It is created for you, and it is
 the account you will sign in as.
@@ -967,9 +959,3 @@ addresses and removes none of them.
 address across reconnects, so a new address means a lost session. The
 certificate check prevents another client inheriting one.
 
-**`main` does not contain this work.** Anything cloning the default branch gets
-code with no installer in it, which is why Path A above passes
-`--branch install-v6`. The cloud installer in Path B names the same branch
-internally, and the two must stay in step - when they disagree the hand
-install and the cloud install build different software. Both revert to the
-plain default the day this merges.
