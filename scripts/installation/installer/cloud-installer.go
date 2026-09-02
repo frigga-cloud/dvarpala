@@ -97,7 +97,7 @@ func cloudInstaller() {
 		fmt.Printf("✅ Configuration loaded from: %s\n", *configFile)
 	} else if *interactive {
 		fmt.Printf("✅ Running in interactive mode\n")
-		config = runInteractiveSetup()
+		config = runInteractiveSetup(*region, *outputDir)
 	} else {
 		fmt.Printf("✅ Creating configuration from flags\n")
 		config = createConfigFromFlags(*provider, *region, *outputDir)
@@ -151,19 +151,21 @@ func cloudInstaller() {
 
 	// Verify installation is working
 	fmt.Println("\n🔍 Verifying installation...")
-	if err := verifyInstallation(vmInfo.PublicIP); err != nil {
+	if err := verifyInstallation(vmInfo.PublicIP, vmInfo.SSHKeyPath); err != nil {
 		log.Printf("⚠️ Installation verification failed: %v", err)
 	} else {
 		fmt.Println("✅ Installation verification successful")
 	}
 
-	// Download admin.ovpn file
-	fmt.Println("\n📄 Downloading admin OpenVPN configuration...")
-	if err := downloadAdminOVPN(config, vmInfo); err != nil {
-		log.Printf("⚠️ Failed to download admin.ovpn: %v", err)
-	} else {
-		fmt.Println("✅ Admin OpenVPN configuration downloaded")
-	}
+	// The administrator's profile was already fetched over the SSH session
+	// the install ran on, straight into the output directory.
+	//
+	// There used to be a second attempt here that fetched it from
+	// http://<public-ip>:8080/admin.ovpn. That is the approach an earlier
+	// commit removed for publishing a private key on a public web root, and
+	// with 8080 no longer open it could only ever fail - after retrying ten
+	// times, thirty seconds apart, for five minutes of an install that had
+	// already succeeded.
 
 	// Generate output files
 	fmt.Println("\n📁 Generating configuration files...")
@@ -188,11 +190,24 @@ func cloudInstaller() {
 	printSSHConnectionInfo(vmInfo)
 }
 
-func runInteractiveSetup() InstallationConfig {
+// runInteractiveSetup asks for what it needs, using anything already supplied
+// on the command line as the default.
+//
+// It used to ignore the flags entirely, so --region chose nothing: the prompt
+// offered us-east-1, pressing enter took it, and deployments appeared in a
+// region the operator had explicitly asked away from.
+func runInteractiveSetup(region, outputDir string) InstallationConfig {
 	scanner := bufio.NewScanner(os.Stdin)
+
+	out := strings.TrimSpace(outputDir)
+	if out == "" {
+		out = "./dvarpala-deployment"
+	}
+
 	config := InstallationConfig{
 		BackupEnabled:   true,
-		OutputDirectory: "./dvarpala-deployment",
+		OutputDirectory: out,
+		Cloud:           CloudConfig{Region: strings.TrimSpace(region)},
 		VMConfig: VMConfig{
 			DiskSize: 50,
 			Tags: map[string]string{
@@ -270,11 +285,19 @@ func setupAWSConfig(config InstallationConfig, scanner *bufio.Scanner) Installat
 		}
 	}
 
-	fmt.Print("AWS Region [us-east-1]: ")
+	// Whatever --region was given is the default here, so pressing enter
+	// agrees with the flag instead of quietly overruling it. Deployments were
+	// landing in us-east-1 while the operator had asked for somewhere else,
+	// and nothing said so until an address in the wrong country turned up.
+	regionDefault := strings.TrimSpace(config.Cloud.Region)
+	if regionDefault == "" {
+		regionDefault = "us-east-1"
+	}
+	fmt.Printf("AWS Region [%s]: ", regionDefault)
 	scanner.Scan()
 	region := strings.TrimSpace(scanner.Text())
 	if region == "" {
-		region = "us-east-1"
+		region = regionDefault
 	}
 	config.Cloud.Region = region
 
@@ -298,8 +321,23 @@ func setupAWSConfig(config InstallationConfig, scanner *bufio.Scanner) Installat
 	config.VMConfig.InstanceType = instanceTypes[instanceChoice]
 
 	// Authentication method
-	fmt.Println("\nAWS Authentication:")
-	fmt.Println("1. Use existing AWS CLI profile")
+	// Do not ask a question that can be answered.
+	//
+	// If the AWS CLI already works, the credentials are settled and there is
+	// nothing to choose. Asking anyway offered "enter an access key" as an
+	// equal option, and anything typed there becomes an environment variable
+	// that silently overrides the working profile - so the prompt existed
+	// mainly as a way to break a setup that was already correct.
+	if arn := currentAWSIdentity(); arn != "" {
+		fmt.Printf("✅ Using the AWS CLI credentials already configured: %s\n", arn)
+		return config
+	}
+
+	fmt.Println("\nThe AWS CLI is not configured, or its credentials are not valid.")
+	fmt.Println("The simplest fix is to leave this and run:  aws configure")
+	fmt.Println()
+	fmt.Println("Or supply credentials here:")
+	fmt.Println("1. I have run aws configure since starting this")
 	fmt.Println("2. Enter Access Key and Secret Key")
 	fmt.Println("3. Use IAM role (for EC2/Lambda execution)")
 	fmt.Print("Enter choice (1-3): ")
@@ -308,9 +346,8 @@ func setupAWSConfig(config InstallationConfig, scanner *bufio.Scanner) Installat
 
 	switch authChoice {
 	case "1":
-		// Check for existing AWS configuration
-		if !fileExists(filepath.Join(os.Getenv("HOME"), ".aws", "credentials")) {
-			fmt.Println("⚠️ No AWS credentials found. Run 'aws configure' first.")
+		if arn := currentAWSIdentity(); arn == "" {
+			fmt.Println("⚠️ Still no working AWS credentials. Run 'aws configure' first.")
 			os.Exit(1)
 		}
 		fmt.Println("✅ Using existing AWS CLI profile")
@@ -686,56 +723,230 @@ func setupObjectStorage(config InstallationConfig, vmInfo *VMInfo) error {
 	return cloudService.UploadConfiguration()
 }
 
+// generateOutputFiles writes what the operator needs to keep, and the notes
+// they need to act on.
+//
+// This used to describe an installation that does not exist: a key pair by a
+// name no file is saved under, VPN credentials of "portal/access" that were
+// never a thing, and a browser that opens the sign-in page by itself - which
+// nothing does when a VPN connects, on any operating system. Somebody
+// following it would be stuck at the first step and told it was the fourth.
 func generateOutputFiles(config InstallationConfig, vmInfo *VMInfo) error {
-	// Save configuration
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	configPath := filepath.Join(config.OutputDirectory, "installation-config.json")
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+	if err := os.WriteFile(configPath, configData, 0o600); err != nil {
 		return err
 	}
 
-	// Generate connection info
-	connectionInfo := fmt.Sprintf(`Dvarpala Installation Complete
-================================
+	// An absolute path, always.
+	//
+	// The key path as it was actually written, not as it was planned - those
+	// two have drifted apart before. And absolute, because a relative one is
+	// only correct from the directory the installer happened to run in, and
+	// nothing about a printed command says where that was. Every relative
+	// path this printed cost somebody a "no such file or directory" from a
+	// key that was sitting there the whole time.
+	keyPath := vmInfo.SSHKeyPath
+	if keyPath == "" {
+		keyPath = "./dvarpala-deployment/" + config.ResourceNames.KeyPairName + ".pem"
+	}
+	keyPath = absoluteish(keyPath)
+	keyName := filepath.Base(keyPath)
 
-Frigga Resource Names:
-- VPC: %s
-- VM: %s  
-- Storage: %s
-- KeyPair: %s
+	connectionInfo := fmt.Sprintf(`Dvarpala is installed
+=====================
 
-Server Details:
-- Instance ID: %s  
-- Public IP: %s
-- Private IP: %s
+  Server        %s
+  Instance      %s   (private address %s)
+  Administrator %s
+  Provider      %s, %s
 
-Admin Access:
-- Email: %s
-- VPN Config: See %s/admin.ovpn
+STEP 1 - get on to the machine
+-----------------------------
+    ssh -i %s ubuntu@%s
 
-Object Storage:
-- Bucket: %s
-- Backup Location: %s/dvarpala/
+The key path is absolute, so this works from any directory. That file is
+the only copy of the key to this server - losing it locks you out.
 
-Next Steps:
-1. Download admin.ovpn from the output directory
-2. Connect to VPN using credentials: portal/access
-3. Browser auto-opens to http://172.30.100.1:8080
-4. Complete authentication via web portal for full access
-5. Configure OAuth providers and generate user certificates
+Everything from here on is typed on the machine, not on your own
+computer. Your prompt changes to ubuntu@ip-... once you are there.
 
-Files Generated:
-- installation-config.json: Full installation configuration
-- admin.ovpn: Admin VPN configuration with auto-open
-- connection-info.txt: This file
-`, config.ResourceNames.VPCName, config.ResourceNames.VMName,
-		config.ResourceNames.BucketName, config.ResourceNames.KeyPairName,
-		vmInfo.InstanceID, vmInfo.PublicIP, vmInfo.PrivateIP,
-		config.Admin.Email, config.OutputDirectory,
-		config.StorageBucket, config.StorageBucket)
+
+STEP 2 - choose how people will sign in
+---------------------------------------
+Nobody can sign in yet. Until this is done, anyone who connects reaches
+the sign-in page and nothing else.
+
+Codes sent by email is the method that needs no domain name and no
+certificate. Open the settings:
+
+    sudo nano /opt/dvarpala/config/environment.yaml
+
+Find the "otp:" section (in nano: Ctrl+W, type otp:, Enter) and turn it
+on:
+
+    otp:
+      enabled: true
+
+Then fill in ONE of the two ways of sending mail, just below it.
+
+  Through Brevo, or a similar service. No mail ports, and it does not
+  mind being used from a server:
+
+    brevo:
+      api_key: ""                      <- leave empty, see step 3
+      from: noreply@your-domain        <- must be verified with them
+      from_name: "Your Company"
+
+  Or through an ordinary mail server, if you have one:
+
+    smtp:
+      host: smtp.your-provider
+      port: 587
+      username: <the login they gave you>
+      password: ""                     <- leave empty, see step 3
+      from: noreply@your-domain
+
+Save and close: Ctrl+O, Enter, Ctrl+X.
+
+
+STEP 3 - put the password in the credentials file
+-------------------------------------------------
+Passwords do not go in the settings file. That file is read by several
+programs, ends up in backups, and gets pasted into messages when
+something goes wrong. There is a separate file only root can write and
+only Dvarpala can read:
+
+    sudo nano /etc/dvarpala/dvarpala.env
+
+Find the line for whichever you chose, remove the # in front of it, and
+put the key after the = sign:
+
+    BREVO_API_KEY=xkeysib-...
+
+  (for an ordinary mail server, use AUTH_SMTP_PASSWORD instead)
+
+Save and close: Ctrl+O, Enter, Ctrl+X.
+
+Both the server and dvarpala-cli read this file, so the check in the
+next step tests the same credentials the server itself uses.
+
+
+STEP 4 - apply it, and check
+----------------------------
+    sudo systemctl restart dvarpala
+    sudo journalctl -u dvarpala --no-pager | grep -i "code sign-in" | tail -1
+
+Three possible answers:
+
+  sending through ...                    working
+  writing codes to this server's log     the key did not reach it, step 3
+  nothing at all                         otp.enabled is still false, step 2
+
+Search the whole log, not the last few lines - about forty lines of
+routes are printed at startup and this one scrolls past.
+
+Then send yourself a real message:
+
+    dvarpala-cli mail test you@your-domain
+
+Do not go further until that email arrives. A VPN profile issued now
+gets somebody as far as the sign-in page and no further.
+
+
+STEP 5 - decide what people may reach
+-------------------------------------
+Nothing is reachable until it is granted. A resource is anything with
+an address this machine itself can reach.
+
+    dvarpala-cli resource create --name wiki --type service --ip 10.0.5.20
+    dvarpala-cli group create --name staff --description "Staff"
+    dvarpala-cli permission grant --group staff --resource wiki --type read
+    dvarpala-cli group assign --user someone@your-domain --group staff
+
+
+STEP 6 - give people a profile
+------------------------------
+    dvarpala-cli user create --email someone@your-domain --name "Their Name"
+    dvarpala-cli vpn issue --user someone@your-domain
+
+The file contains a private key. Hand it over directly rather than by
+email, and delete your copy afterwards.
+
+Tell them: import it into an OpenVPN client, connect, then open
+
+    http://signin
+
+No operating system announces a captive portal when a VPN comes up, so
+that address has to be passed on. Any http:// address also works - they
+will be redirected.
+
+Administrators need the address rather than the name:
+
+    http://172.30.100.1:8080/admin
+
+"signin" is answered by this server's own resolver, which a client is
+given only while it is still in the walled garden. Once somebody signs
+in they keep their own resolver - their personal traffic is theirs, and
+taking over their lookups would undo that - so the name stops resolving
+at exactly the point an administrator wants it. The address is pushed
+as a route in both states and always works.
+
+
+STEP 7 - keep a copy of the backups
+-----------------------------------
+Written nightly to /var/backups/dvarpala on the machine, which is no
+protection if the machine is lost. Copy them somewhere else:
+
+    scp -i %s ubuntu@%s:/var/backups/dvarpala/\* .
+
+They hold the certificate authority and the database. Without the
+authority, every profile ever issued stops working and everybody needs
+a new one.
+
+
+Optional - a shortcut for connecting
+------------------------------------
+So you can type "ssh dvarpala" instead of the whole command. On your own
+computer, not the machine, add this to ~/.ssh/config (create it if it
+does not exist):
+
+    Host dvarpala
+        HostName %s
+        User ubuntu
+        IdentityFile %s
+
+Nothing depends on this. It only saves typing.
+
+Both lines go stale when a server is rebuilt - a new one gets a new
+address and a new key. Updating only the address leaves ssh reporting
+"no such identity" for a key belonging to a machine that is gone.
+
+The administrator's own profile
+-------------------------------
+admin.ovpn, beside this file, belongs to %s. It contains a private key:
+hand it over directly rather than by email, and do not commit it.
+
+Files here
+----------
+  admin.ovpn               the administrator's VPN profile (private key)
+  %s
+                           the SSH key for this server (private key)
+  installation-config.json what this install was told to build
+  connection-info.txt      this file
+`,
+		vmInfo.PublicIP,
+		vmInfo.InstanceID, vmInfo.PrivateIP,
+		config.Admin.Email,
+		config.Cloud.Provider, config.Cloud.Region,
+		keyPath, vmInfo.PublicIP,
+		keyPath, vmInfo.PublicIP,
+		vmInfo.PublicIP, keyPath,
+		config.Admin.Email,
+		keyName)
 
 	connectionPath := filepath.Join(config.OutputDirectory, "connection-info.txt")
-	return os.WriteFile(connectionPath, []byte(connectionInfo), 0644)
+	return os.WriteFile(connectionPath, []byte(connectionInfo), 0o600)
 }
 
 func printInstallationSummary(config InstallationConfig, vmInfo *VMInfo) {
@@ -748,8 +959,13 @@ func printInstallationSummary(config InstallationConfig, vmInfo *VMInfo) {
 	if config.BackupEnabled {
 		fmt.Printf("☁️ Backup: %s\n", config.StorageBucket)
 	}
-	fmt.Println("\n✨ Your Dvarpala VPN server is ready to use!")
-	fmt.Printf("📖 See %s/connection-info.txt for next steps\n", config.OutputDirectory)
+	// Not "ready to use". A fresh server has no way for anybody to sign in,
+	// and saying otherwise is how somebody ends up issuing profiles for a
+	// door with no handle on the inside.
+	fmt.Println("\n📖 Read this before going further:")
+	fmt.Printf("   %s/connection-info.txt\n", config.OutputDirectory)
+	fmt.Println("   It covers getting on to the machine, configuring a way to")
+	fmt.Println("   sign in, and what to do in which order.")
 }
 
 func printSSHConnectionInfo(vmInfo *VMInfo) {
@@ -850,20 +1066,50 @@ func getStringFromCredentials(credentials map[string]interface{}, key string) st
 	return ""
 }
 
-// verifyInstallation performs a quick verification that the installation is working
-func verifyInstallation(vmIP string) error {
-	fmt.Printf("🔍 Checking health endpoint at http://%s:8080/health...\n", vmIP)
+// verifyInstallation checks the services are running, over SSH.
+//
+// It used to fetch http://<public-ip>:8080/health, which cannot work and
+// should not: the portal is reachable only from inside the tunnel, and the
+// security group no longer opens 8080 to the internet. The check timed out on
+// every install and reported a working server as unverified.
+//
+// Asking the machine itself is both accurate and stricter - it can see that
+// every service came up, not merely that one port answers.
+func verifyInstallation(vmIP, keyPath string) error {
+	fmt.Println("🔍 Checking the services on the machine...")
 
-	// Quick check that nginx is responding on port 8080
-	cmd := exec.Command("curl", "-s", "--connect-timeout", "10", "--max-time", "15",
-		fmt.Sprintf("http://%s:8080/health", vmIP))
+	const script = `for s in dvarpala openvpn-server@server postgresql redis-server dvarpala-firewall dnsmasq; do
+  printf '%-24s %s\n' "$s" "$(systemctl is-active $s 2>/dev/null)"
+done`
+
+	cmd := exec.Command("ssh",
+		"-i", keyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=15",
+		"-o", "LogLevel=ERROR",
+		fmt.Sprintf("ubuntu@%s", vmIP), script)
 
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("health check failed: %v", err)
+		return fmt.Errorf("could not reach the machine: %v", err)
 	}
 
-	fmt.Printf("✅ Health check response: %s\n", strings.TrimSpace(string(output)))
+	var failed []string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		fmt.Printf("   %-24s %s\n", fields[0], fields[1])
+		if fields[1] != "active" {
+			failed = append(failed, fields[0])
+		}
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("not running: %s", strings.Join(failed, ", "))
+	}
 	return nil
 }
 
@@ -1203,87 +1449,6 @@ func getExpectedInstallationStep(minutes int) string {
 	}
 }
 
-// downloadAdminOVPN downloads the admin.ovpn file from the VM
-func downloadAdminOVPN(config InstallationConfig, vmInfo *VMInfo) error {
-	// Download admin.ovpn file from VM
-	adminOVPNURL := fmt.Sprintf("http://%s:8080/admin.ovpn", vmInfo.PublicIP)
-
-	maxAttempts := 10
-	for i := 0; i < maxAttempts; i++ {
-		cmd := exec.Command("curl", "-s", "-o",
-			filepath.Join(config.OutputDirectory, "admin.ovpn"),
-			adminOVPNURL)
-
-		if err := cmd.Run(); err == nil {
-			// Verify the file was downloaded and is not empty
-			if fileExists(filepath.Join(config.OutputDirectory, "admin.ovpn")) {
-				return nil
-			}
-		}
-
-		fmt.Printf("⏳ Waiting for admin.ovpn to be ready... (%d/%d)\n", i+1, maxAttempts)
-		time.Sleep(30 * time.Second)
-	}
-
-	// If download fails, try to generate a basic template
-	return generateBasicOVPNTemplate(config, vmInfo)
-}
-
-// generateBasicOVPNTemplate creates a basic OpenVPN configuration template
-func generateBasicOVPNTemplate(config InstallationConfig, vmInfo *VMInfo) error {
-	ovpnTemplate := fmt.Sprintf(`# Dvarpala OpenVPN Client Configuration
-# Generated by Frigga Labs Installer
-
-client
-dev tun
-proto udp
-remote %s 1194
-resolv-retry infinite
-nobind
-
-# Authentication
-auth-user-pass
-
-# Security
-cipher AES-256-GCM
-auth SHA256
-
-# Compression
-compress lz4-v2
-
-# Connection
-keepalive 10 120
-verb 3
-
-# Selective Routing - Internet traffic goes direct
-# Only blocked resources route through VPN
-route-nopull
-
-# Auto-open captive portal (cross-platform)
-up "echo 'Opening captive portal...' && (open http://172.30.100.1:8080 2>/dev/null || xdg-open http://172.30.100.1:8080 2>/dev/null || start http://172.30.100.1:8080 2>/dev/null || echo 'Please open http://172.30.100.1:8080 manually')"
-
-# Note: SSL certificates will be added automatically after first connection
-# Initial credentials: username=portal, password=access
-
-<ca>
-# Certificate Authority certificate will be added here
-# Connect to VPN first, then download complete configuration
-</ca>
-
-<cert>
-# Client certificate will be added here
-# Visit http://%s:8080 after VPN connection for setup
-</cert>
-
-<key>
-# Client private key will be added here
-</key>
-`, vmInfo.PublicIP, vmInfo.PublicIP)
-
-	ovpnPath := filepath.Join(config.OutputDirectory, "admin.ovpn")
-	return os.WriteFile(ovpnPath, []byte(ovpnTemplate), 0644)
-}
-
 // Platform-specific CLI installation functions
 
 func installAWSCLIForPlatform() error {
@@ -1483,4 +1648,32 @@ func getOperatingSystem() string {
 
 func main() {
 	cloudInstaller()
+}
+
+// absoluteish turns a path relative to the installer's working directory into
+// one that works from anywhere, which is what an ~/.ssh/config entry needs -
+// ssh reads that file from the home directory, not from wherever the operator
+// happened to be standing when they ran the installer.
+func absoluteish(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
+}
+
+// currentAWSIdentity returns who the AWS CLI is acting as, or empty if it
+// cannot act at all.
+//
+// Asking the CLI rather than looking for a credentials file: a file can exist
+// and hold a revoked key, and credentials can come from an environment
+// variable or an instance role with no file at all. This is the only check
+// that answers the question actually being asked.
+func currentAWSIdentity() string {
+	cmd := exec.Command("aws", "sts", "get-caller-identity",
+		"--query", "Arn", "--output", "text")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

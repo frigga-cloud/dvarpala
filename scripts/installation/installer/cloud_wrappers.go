@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"dvarpala-cloud-installer/providers"
+	"fmt"
 )
 
 // AWS Wrapper
@@ -61,6 +61,9 @@ func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
+		// Without this the profile is written to the current directory rather
+		// than beside the key it belongs with.
+		OutputDir: instanceConfig.OutputDir,
 	}, aw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
@@ -76,6 +79,9 @@ func (aw *AWSWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
+		// Without this the profile is written to the current directory rather
+		// than beside the key it belongs with.
+		OutputDir: instanceConfig.OutputDir,
 	}, sshKeyPath); err != nil {
 		return nil, fmt.Errorf("direct installation failed: %v", err)
 	}
@@ -153,6 +159,9 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
+		// Without this the profile is written to the current directory rather
+		// than beside the key it belongs with.
+		OutputDir: instanceConfig.OutputDir,
 	}, gw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
@@ -168,6 +177,9 @@ func (gw *GCPWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (*VM
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
+		// Without this the profile is written to the current directory rather
+		// than beside the key it belongs with.
+		OutputDir: instanceConfig.OutputDir,
 	}, sshKeyPath); err != nil {
 		return nil, fmt.Errorf("direct installation failed: %v", err)
 	}
@@ -247,6 +259,9 @@ func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
+		// Without this the profile is written to the current directory rather
+		// than beside the key it belongs with.
+		OutputDir: instanceConfig.OutputDir,
 	}, azw.config.ResourceNames.VMName)
 	if err != nil {
 		return nil, err
@@ -259,6 +274,9 @@ func (azw *AzureWrapper) CreateVM(vpcID string, instanceConfig InstanceConfig) (
 		DiskSizeGB:   instanceConfig.DiskSizeGB,
 		AdminEmail:   instanceConfig.AdminEmail,
 		AdminName:    instanceConfig.AdminName,
+		// Without this the profile is written to the current directory rather
+		// than beside the key it belongs with.
+		OutputDir: instanceConfig.OutputDir,
 	}, instanceInfo.SSHKeyPath); err != nil {
 		return nil, fmt.Errorf("direct installation failed: %v", err)
 	}

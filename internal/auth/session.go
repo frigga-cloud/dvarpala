@@ -1,2 +1,289 @@
-// Package auth provides session management functionality
+// Package auth provides authentication and session management.
 package auth
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"dvarpala/internal/redis"
+
+	goredis "github.com/go-redis/redis/v8"
+)
+
+// ErrNoSession means no valid session exists (absent or expired).
+var ErrNoSession = errors.New("no active session")
+
+// Session is what a successful authentication produces.
+//
+// It is the handover between the web login and the VPN: the portal writes it,
+// and the VPN's connect path reads it to decide what access to grant.
+type Session struct {
+	Token    string    `json:"token"`
+	UserID   uint      `json:"user_id"`
+	Email    string    `json:"email"`
+	Provider string    `json:"provider"`
+	Groups   []string  `json:"groups"`
+	ClientIP string    `json:"client_ip"`
+	IssuedAt time.Time `json:"issued_at"`
+	Expires  time.Time `json:"expires_at"`
+}
+
+// SessionService stores sessions in Redis, which expires them automatically.
+type SessionService struct {
+	rdb *redis.Client
+	ttl time.Duration
+}
+
+// NewSessionService creates a session store. The TTL comes from
+// auth.session_duration in configuration (default 8 hours).
+func NewSessionService(rdb *redis.Client, ttl time.Duration) *SessionService {
+	if ttl <= 0 {
+		ttl = 8 * time.Hour
+	}
+	return &SessionService{rdb: rdb, ttl: ttl}
+}
+
+// Key layouts.
+//
+// A session is written under two keys so it can be found two ways:
+//
+//	session:<token>  - by the browser's cookie
+//	auth:<client-ip> - by the VPN, which only knows the client's tunnel IP
+//
+// The auth:<ip> form is the one the OpenVPN hooks look up, and is the layout
+// the original design specifies.
+func sessionKey(token string) string { return "session:" + token }
+func authKey(clientIP string) string { return "auth:" + clientIP }
+
+// Create issues a session and stores it under both keys.
+func (s *SessionService) Create(ctx context.Context, sess Session) (*Session, error) {
+	token, err := newToken()
+	if err != nil {
+		return nil, fmt.Errorf("generating session token: %w", err)
+	}
+
+	sess.Token = token
+	sess.IssuedAt = time.Now()
+	sess.Expires = sess.IssuedAt.Add(s.ttl)
+
+	payload, err := json.Marshal(sess)
+	if err != nil {
+		return nil, fmt.Errorf("encoding session: %w", err)
+	}
+
+	pipe := s.rdb.TxPipeline()
+	pipe.Set(ctx, sessionKey(token), payload, s.ttl)
+	if sess.ClientIP != "" {
+		pipe.Set(ctx, authKey(sess.ClientIP), payload, s.ttl)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("storing session: %w", err)
+	}
+
+	return &sess, nil
+}
+
+// Get returns a session by token.
+func (s *SessionService) Get(ctx context.Context, token string) (*Session, error) {
+	return s.fetch(ctx, sessionKey(token))
+}
+
+// GetByClientIP returns the session for a VPN client address.
+//
+// This is what the OpenVPN connect path calls: it knows the tunnel IP but not
+// the browser's cookie.
+func (s *SessionService) GetByClientIP(ctx context.Context, clientIP string) (*Session, error) {
+	return s.fetch(ctx, authKey(clientIP))
+}
+
+func (s *SessionService) fetch(ctx context.Context, key string) (*Session, error) {
+	payload, err := s.rdb.Get(ctx, key).Bytes()
+	if errors.Is(err, goredis.Nil) {
+		return nil, ErrNoSession
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading session: %w", err)
+	}
+
+	var sess Session
+	if err := json.Unmarshal(payload, &sess); err != nil {
+		return nil, fmt.Errorf("decoding session: %w", err)
+	}
+
+	// Redis expiry is authoritative, but check anyway: a clock skew or a key
+	// written with the wrong TTL should not grant access.
+	if time.Now().After(sess.Expires) {
+		return nil, ErrNoSession
+	}
+
+	return &sess, nil
+}
+
+// Revoke deletes a session by token, and its client-IP alias.
+//
+// Called on logout, on VPN disconnect, and when an administrator forces a
+// user off.
+func (s *SessionService) Revoke(ctx context.Context, token string) error {
+	sess, err := s.Get(ctx, token)
+	if err != nil && !errors.Is(err, ErrNoSession) {
+		return err
+	}
+
+	pipe := s.rdb.TxPipeline()
+	pipe.Del(ctx, sessionKey(token))
+	if sess != nil && sess.ClientIP != "" {
+		pipe.Del(ctx, authKey(sess.ClientIP))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("revoking session: %w", err)
+	}
+	return nil
+}
+
+// RevokeByClientIP removes the session for a VPN client address. This is what
+// the client-disconnect hook calls, so that reconnecting requires signing in
+// again.
+func (s *SessionService) RevokeByClientIP(ctx context.Context, clientIP string) error {
+	sess, err := s.GetByClientIP(ctx, clientIP)
+	if errors.Is(err, ErrNoSession) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return s.Revoke(ctx, sess.Token)
+}
+
+// ActiveSession is one live session, with how long it has left.
+type ActiveSession struct {
+	Session
+
+	// Remaining is what Redis says is left of this session, which can be less
+	// than Expires suggests: a disconnect shortens a session without changing
+	// the time recorded inside it.
+	Remaining time.Duration
+
+	// OnTunnel is true when the session is reachable by client address, which
+	// is the lookup the VPN performs. A session without it signs a browser in
+	// but opens no network access.
+	OnTunnel bool
+}
+
+// Active lists the sessions that exist right now.
+//
+// Read from the auth:<ip> and session:<token> keys together, because those are
+// two views of the same thing and a session can exist under one without the
+// other - a browser sign-in with no tunnel, or a tunnel whose token has been
+// revoked. Showing only one view would quietly hide half the answer.
+//
+// SCAN rather than KEYS: this runs against a live server, and KEYS blocks
+// Redis for the whole sweep.
+func (s *SessionService) Active(ctx context.Context) ([]ActiveSession, error) {
+	byToken := make(map[string]*ActiveSession)
+
+	for _, pattern := range []string{"auth:*", "session:*"} {
+		iter := s.rdb.Scan(ctx, 0, pattern, 100).Iterator()
+		for iter.Next(ctx) {
+			key := iter.Val()
+
+			sess, err := s.fetch(ctx, key)
+			if err != nil {
+				continue // expired between the scan and the read, or unreadable
+			}
+
+			existing, seen := byToken[sess.Token]
+			if !seen {
+				existing = &ActiveSession{Session: *sess}
+				byToken[sess.Token] = existing
+			}
+			if strings.HasPrefix(key, "auth:") {
+				existing.OnTunnel = true
+			}
+
+			// The shortest remaining life across the keys is the honest one:
+			// it is when access actually stops.
+			if ttl, err := s.rdb.TTL(ctx, key).Result(); err == nil && ttl > 0 {
+				if existing.Remaining == 0 || ttl < existing.Remaining {
+					existing.Remaining = ttl
+				}
+			}
+		}
+		if err := iter.Err(); err != nil {
+			return nil, fmt.Errorf("listing sessions: %w", err)
+		}
+	}
+
+	out := make([]ActiveSession, 0, len(byToken))
+	for _, a := range byToken {
+		out = append(out, *a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IssuedAt.After(out[j].IssuedAt) })
+	return out, nil
+}
+
+// TTL reports how long sessions last.
+func (s *SessionService) TTL() time.Duration { return s.ttl }
+
+// newToken returns 256 bits of randomness, hex encoded.
+func newToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// disconnectGrace is how long a session survives after the VPN client drops.
+//
+// A reconnect is how a newly-authenticated client gets its routes, and a
+// reconnect necessarily begins with a disconnect. Deleting the session there
+// would make full access unreachable: the user signs in, reconnects to apply
+// it, and the reconnect destroys what they just did.
+//
+// So a disconnect shortens the session rather than ending it. The tunnel is
+// down for that window, so nothing is reachable anyway; only a prompt
+// reconnect benefits.
+const disconnectGrace = 2 * time.Minute
+
+// Disconnected shortens the session bound to a client address.
+//
+// Returns ErrNoSession if there was nothing to shorten.
+func (s *SessionService) Disconnected(ctx context.Context, clientIP string) error {
+	sess, err := s.GetByClientIP(ctx, clientIP)
+	if err != nil {
+		return err
+	}
+
+	pipe := s.rdb.TxPipeline()
+	pipe.Expire(ctx, authKey(clientIP), disconnectGrace)
+	pipe.Expire(ctx, sessionKey(sess.Token), disconnectGrace)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("shortening session: %w", err)
+	}
+	return nil
+}
+
+// Reconnected restores a session's full lifetime, after a client reconnects
+// and is confirmed still authorised.
+func (s *SessionService) Reconnected(ctx context.Context, clientIP string) error {
+	sess, err := s.GetByClientIP(ctx, clientIP)
+	if err != nil {
+		return err
+	}
+
+	pipe := s.rdb.TxPipeline()
+	pipe.Expire(ctx, authKey(clientIP), time.Until(sess.Expires))
+	pipe.Expire(ctx, sessionKey(sess.Token), time.Until(sess.Expires))
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+// DisconnectGrace reports the grace window, for logs and tests.
+func (s *SessionService) DisconnectGrace() time.Duration { return disconnectGrace }

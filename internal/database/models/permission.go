@@ -1,8 +1,8 @@
 package models
 
 import (
-	"time"
 	"gorm.io/gorm"
+	"time"
 )
 
 // PermissionType defines the level of access granted to a resource
@@ -21,29 +21,29 @@ const (
 type Permission struct {
 	// Primary identifier for the permission
 	ID uint `gorm:"primaryKey"`
-	
+
 	// Foreign key to the group that receives this permission
 	GroupID uint `gorm:"not null;index"`
-	
+
 	// Foreign key to the resource that this permission applies to
 	ResourceID uint `gorm:"not null;index"`
-	
+
 	// Type of access granted (read, write, admin, ssh, full)
 	Type PermissionType `gorm:"not null"`
-	
+
 	// Timestamp when permission was granted
 	CreatedAt time.Time
-	
+
 	// Timestamp when permission was last modified
 	UpdatedAt time.Time
-	
+
 	// Soft delete timestamp - when permission was revoked
 	DeletedAt gorm.DeletedAt `gorm:"index"`
-	
+
 	// Associations
 	// Reference to the group that has this permission
 	Group Group `gorm:"foreignKey:GroupID"`
-	
+
 	// Reference to the resource this permission applies to
 	Resource Resource `gorm:"foreignKey:ResourceID"`
 }

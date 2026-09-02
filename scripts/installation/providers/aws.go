@@ -1,13 +1,51 @@
 package providers
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
+
+// awsOutput runs an AWS CLI command and returns its output.
+//
+// exec.Cmd.Output discards standard error, which is the only place the AWS CLI
+// puts the reason for a refusal. Losing it turns every failure into "exit
+// status 254" - a number that says a client error occurred and nothing about
+// which one, leaving an operator with no way to tell an unavailable instance
+// type from a missing permission from a bad subnet.
+// exitCode returns the status a failed command exited with, or -1 when the
+// failure was something else - the command not being found, or the connection
+// dropping. Distinguishing those matters: an installer that reports "needs
+// configuring" is not one that crashed.
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+func awsOutput(cmd *exec.Cmd) ([]byte, error) {
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil
+	}
+
+	detail := strings.TrimSpace(stderr.String())
+	if detail == "" {
+		return out, err
+	}
+	return out, fmt.Errorf("%s: %s", err, detail)
+}
 
 type AWSProvider struct {
 	Region      string
@@ -21,12 +59,12 @@ type AWSCredentials struct {
 }
 
 type AWSVPCInfo struct {
-	VPCID            string
-	PublicSubnetID   string
-	PrivateSubnetID  string
-	InternetGateway  string
-	SecurityGroupID  string
-	RouteTableID     string
+	VPCID           string
+	PublicSubnetID  string
+	PrivateSubnetID string
+	InternetGateway string
+	SecurityGroupID string
+	RouteTableID    string
 }
 
 type AWSInstanceInfo struct {
@@ -62,101 +100,153 @@ func (aws *AWSProvider) ValidateAuthentication() error {
 	if err != nil {
 		return fmt.Errorf("AWS authentication failed: %v\nOutput: %s", err, output)
 	}
-	
+
 	var identity map[string]interface{}
 	if err := json.Unmarshal(output, &identity); err != nil {
 		return fmt.Errorf("failed to parse AWS identity response: %v", err)
 	}
-	
+
 	fmt.Printf("✅ Authenticated as: %s\n", identity["Arn"])
 	return nil
 }
 
 func (aws *AWSProvider) CreateOrGetVPC(vpcName string, config NetworkConfig) (*AWSVPCInfo, error) {
 	// Check if VPC already exists
-	existingVPC, err := aws.findVPCByName(vpcName)
+	existingVPC, err := aws.findVPCByName(vpcName, config)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if existingVPC != nil {
 		fmt.Printf("✅ Using existing VPC: %s\n", existingVPC.VPCID)
 		return existingVPC, nil
 	}
-	
+
 	fmt.Printf("🏗️ Creating new VPC: %s\n", vpcName)
 	return aws.createNewVPC(vpcName, config)
 }
 
-func (aws *AWSProvider) findVPCByName(vpcName string) (*AWSVPCInfo, error) {
+func (aws *AWSProvider) findVPCByName(vpcName string, config NetworkConfig) (*AWSVPCInfo, error) {
 	cmd := exec.Command("aws", "ec2", "describe-vpcs",
 		"--filters", fmt.Sprintf("Name=tag:Name,Values=%s", vpcName),
 		"--query", "Vpcs[0].VpcId",
 		"--output", "text")
-	
-	output, err := cmd.Output()
+
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	vpcID := strings.TrimSpace(string(output))
 	if vpcID == "None" || vpcID == "" {
 		return nil, nil
 	}
-	
+
 	// Get VPC details
-	return aws.getVPCDetails(vpcID)
+	return aws.getVPCDetails(vpcName, vpcID, config)
 }
 
-func (aws *AWSProvider) getVPCDetails(vpcID string) (*AWSVPCInfo, error) {
+// getVPCDetails describes a VPC that already exists, which is what every
+// re-run after a failure finds.
+//
+// It must return either a complete description or an error. Returning a
+// half-filled one is how an empty security group id reached RunInstances,
+// where AWS refused it with "you must specify a group id for each item" -
+// several steps away from the lookup that came back with nothing.
+func (aws *AWSProvider) getVPCDetails(vpcName, vpcID string, config NetworkConfig) (*AWSVPCInfo, error) {
 	vpcInfo := &AWSVPCInfo{VPCID: vpcID}
-	
+
 	// Get subnets
 	cmd := exec.Command("aws", "ec2", "describe-subnets",
 		"--filters", fmt.Sprintf("Name=vpc-id,Values=%s", vpcID),
 		"--query", "Subnets[?MapPublicIpOnLaunch==`true`].SubnetId",
 		"--output", "text")
-	
-	if output, err := cmd.Output(); err == nil {
+
+	if output, err := awsOutput(cmd); err == nil {
 		if subnetID := strings.TrimSpace(string(output)); subnetID != "" {
 			vpcInfo.PublicSubnetID = subnetID
 		}
 	}
-	
-	// Get security groups
-	cmd = exec.Command("aws", "ec2", "describe-security-groups",
+
+	if vpcInfo.PublicSubnetID == "" {
+		return nil, fmt.Errorf("vpc %s has no public subnet; delete it and run again, "+
+			"or pass a different name", vpcID)
+	}
+
+	// The group is looked up by the name it was created with. This used to
+	// interpolate a hardcoded "frigga-labs" instead of the actual name, so it
+	// matched nothing unless the deployment happened to be called that.
+	sgID, err := aws.ensureSecurityGroup(vpcName, vpcID, config)
+	if err != nil {
+		return nil, err
+	}
+	vpcInfo.SecurityGroupID = sgID
+
+	return vpcInfo, nil
+}
+
+// ensureSecurityGroup returns the deployment's security group, creating it if
+// it is not there.
+//
+// Creating it here matters: a run that failed after making the VPC but before
+// making the group would otherwise leave a VPC that every later run finds and
+// no run can complete.
+func (aws *AWSProvider) ensureSecurityGroup(vpcName, vpcID string, config NetworkConfig) (string, error) {
+	groupName := vpcName + "-dvarpala-sg"
+
+	cmd := exec.Command("aws", "ec2", "describe-security-groups",
 		"--filters", fmt.Sprintf("Name=vpc-id,Values=%s", vpcID),
-		fmt.Sprintf("Name=group-name,Values=%s-dvarpala-sg", "frigga-labs"),
+		fmt.Sprintf("Name=group-name,Values=%s", groupName),
 		"--query", "SecurityGroups[0].GroupId",
 		"--output", "text")
-	
-	if output, err := cmd.Output(); err == nil {
-		if sgID := strings.TrimSpace(string(output)); sgID != "None" && sgID != "" {
-			vpcInfo.SecurityGroupID = sgID
+
+	if output, err := awsOutput(cmd); err == nil {
+		if id := strings.TrimSpace(string(output)); id != "None" && id != "" {
+			return id, nil
 		}
 	}
-	
-	return vpcInfo, nil
+
+	fmt.Printf("🔒 Creating security group: %s\n", groupName)
+	cmd = exec.Command("aws", "ec2", "create-security-group",
+		"--group-name", groupName,
+		"--description", "Security group for Dvarpala VPN server",
+		"--vpc-id", vpcID,
+		"--query", "GroupId",
+		"--output", "text")
+
+	output, err := awsOutput(cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to create security group: %v", err)
+	}
+
+	id := strings.TrimSpace(string(output))
+	if id == "" {
+		return "", fmt.Errorf("aws returned no id for security group %s", groupName)
+	}
+
+	aws.tagResource(id, groupName, "Security Group")
+	aws.addSecurityGroupRules(id, config.AllowedIPs)
+	return id, nil
 }
 
 func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWSVPCInfo, error) {
 	vpcInfo := &AWSVPCInfo{}
-	
+
 	// Create VPC
 	cmd := exec.Command("aws", "ec2", "create-vpc",
 		"--cidr-block", config.VPCCidr,
 		"--query", "Vpc.VpcId",
 		"--output", "text")
-	
-	output, err := cmd.Output()
+
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VPC: %v", err)
 	}
 	vpcInfo.VPCID = strings.TrimSpace(string(output))
-	
+
 	// Tag VPC
 	aws.tagResource(vpcInfo.VPCID, vpcName, "VPC")
-	
+
 	// Enable DNS hostname and resolution
 	exec.Command("aws", "ec2", "modify-vpc-attribute",
 		"--vpc-id", vpcInfo.VPCID,
@@ -164,24 +254,24 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 	exec.Command("aws", "ec2", "modify-vpc-attribute",
 		"--vpc-id", vpcInfo.VPCID,
 		"--enable-dns-support").Run()
-	
+
 	// Create Internet Gateway
 	cmd = exec.Command("aws", "ec2", "create-internet-gateway",
 		"--query", "InternetGateway.InternetGatewayId",
 		"--output", "text")
-	
-	output, err = cmd.Output()
+
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create internet gateway: %v", err)
 	}
 	vpcInfo.InternetGateway = strings.TrimSpace(string(output))
-	
+
 	// Tag and attach Internet Gateway
 	aws.tagResource(vpcInfo.InternetGateway, vpcName+"-igw", "Internet Gateway")
 	exec.Command("aws", "ec2", "attach-internet-gateway",
 		"--vpc-id", vpcInfo.VPCID,
 		"--internet-gateway-id", vpcInfo.InternetGateway).Run()
-	
+
 	// Create Public Subnet
 	cmd = exec.Command("aws", "ec2", "create-subnet",
 		"--vpc-id", vpcInfo.VPCID,
@@ -189,19 +279,19 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--availability-zone", aws.Region+"a",
 		"--query", "Subnet.SubnetId",
 		"--output", "text")
-	
-	output, err = cmd.Output()
+
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create public subnet: %v", err)
 	}
 	vpcInfo.PublicSubnetID = strings.TrimSpace(string(output))
-	
+
 	// Tag subnet and enable auto-assign public IP
 	aws.tagResource(vpcInfo.PublicSubnetID, vpcName+"-public", "Public Subnet")
 	exec.Command("aws", "ec2", "modify-subnet-attribute",
 		"--subnet-id", vpcInfo.PublicSubnetID,
 		"--map-public-ip-on-launch").Run()
-	
+
 	// Create Private Subnet
 	cmd = exec.Command("aws", "ec2", "create-subnet",
 		"--vpc-id", vpcInfo.VPCID,
@@ -209,105 +299,103 @@ func (aws *AWSProvider) createNewVPC(vpcName string, config NetworkConfig) (*AWS
 		"--availability-zone", aws.Region+"b",
 		"--query", "Subnet.SubnetId",
 		"--output", "text")
-	
-	output, err = cmd.Output()
+
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create private subnet: %v", err)
 	}
 	vpcInfo.PrivateSubnetID = strings.TrimSpace(string(output))
 	aws.tagResource(vpcInfo.PrivateSubnetID, vpcName+"-private", "Private Subnet")
-	
+
 	// Create Route Table for public subnet
 	cmd = exec.Command("aws", "ec2", "create-route-table",
 		"--vpc-id", vpcInfo.VPCID,
 		"--query", "RouteTable.RouteTableId",
 		"--output", "text")
-	
-	output, err = cmd.Output()
+
+	output, err = awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create route table: %v", err)
 	}
 	vpcInfo.RouteTableID = strings.TrimSpace(string(output))
-	
+
 	// Tag route table and add route to internet gateway
 	aws.tagResource(vpcInfo.RouteTableID, vpcName+"-public-rt", "Route Table")
 	exec.Command("aws", "ec2", "create-route",
 		"--route-table-id", vpcInfo.RouteTableID,
 		"--destination-cidr-block", "0.0.0.0/0",
 		"--gateway-id", vpcInfo.InternetGateway).Run()
-	
+
 	// Associate route table with public subnet
 	exec.Command("aws", "ec2", "associate-route-table",
 		"--subnet-id", vpcInfo.PublicSubnetID,
 		"--route-table-id", vpcInfo.RouteTableID).Run()
-	
-	// Create Security Group
-	cmd = exec.Command("aws", "ec2", "create-security-group",
-		"--group-name", vpcName+"-dvarpala-sg",
-		"--description", "Security group for Dvarpala VPN server",
-		"--vpc-id", vpcInfo.VPCID,
-		"--query", "GroupId",
-		"--output", "text")
-	
-	output, err = cmd.Output()
+
+	// Create Security Group, through the same function the reuse path calls,
+	// so the name it is created with and the name it is found by cannot drift
+	// apart again.
+	sgID, err := aws.ensureSecurityGroup(vpcName, vpcInfo.VPCID, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create security group: %v", err)
+		return nil, err
 	}
-	vpcInfo.SecurityGroupID = strings.TrimSpace(string(output))
-	aws.tagResource(vpcInfo.SecurityGroupID, vpcName+"-sg", "Security Group")
-	
-	// Add security group rules
-	aws.addSecurityGroupRules(vpcInfo.SecurityGroupID, config.AllowedIPs)
-	
+	vpcInfo.SecurityGroupID = sgID
+
 	fmt.Printf("✅ VPC created successfully: %s\n", vpcInfo.VPCID)
 	return vpcInfo, nil
 }
 
+// addSecurityGroupRules opens the two ports a Dvarpala server needs, and no
+// others.
+//
+// The portal is deliberately absent. It listens on 8080, but only ever needs
+// reaching from inside the tunnel, at 172.30.100.1 - which arrives on tun0
+// and never crosses the security group at all. Opening 8080 to the internet
+// published the sign-in page to anyone who found the address: the form that
+// sends codes to real employees, the endpoint that redeems emergency access
+// links, and the administration console. None of that is a way in on its own,
+// and none of it should be reachable from outside either.
+//
+// Port 443 is absent for a simpler reason: nothing listens on it.
 func (aws *AWSProvider) addSecurityGroupRules(sgID string, allowedIPs []string) {
-	// SSH access (restricted after installation)
-	exec.Command("aws", "ec2", "authorize-security-group-ingress",
-		"--group-id", sgID,
-		"--protocol", "tcp",
-		"--port", "22",
-		"--cidr", "0.0.0.0/0").Run()
-	
-	// OpenVPN port
+	// SSH, for installing and administering the machine, from the configured
+	// addresses only.
+	//
+	// This used to accept allowedIPs and ignore it, opening port 22 to the
+	// whole internet on every server built here while the configuration file
+	// went on offering a setting that did nothing. Go does not warn about an
+	// unused parameter, so nothing said so.
+	for _, cidr := range adminSourceRanges(allowedIPs) {
+		exec.Command("aws", "ec2", "authorize-security-group-ingress",
+			"--group-id", sgID,
+			"--protocol", "tcp",
+			"--port", "22",
+			"--cidr", cidr).Run()
+	}
+
+	// The VPN itself. This is how a client reaches everything else, and it is
+	// open to everywhere on purpose - see adminSourceRanges.
 	exec.Command("aws", "ec2", "authorize-security-group-ingress",
 		"--group-id", sgID,
 		"--protocol", "udp",
 		"--port", "1194",
-		"--cidr", "0.0.0.0/0").Run()
-	
-	// Dvarpala web interface
-	exec.Command("aws", "ec2", "authorize-security-group-ingress",
-		"--group-id", sgID,
-		"--protocol", "tcp",
-		"--port", "8080",
-		"--cidr", "0.0.0.0/0").Run()
-	
-	// HTTPS for Let's Encrypt (optional)
-	exec.Command("aws", "ec2", "authorize-security-group-ingress",
-		"--group-id", sgID,
-		"--protocol", "tcp",
-		"--port", "443",
 		"--cidr", "0.0.0.0/0").Run()
 }
 
 func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfig, vmName string) (*AWSInstanceInfo, error) {
 	// Use Frigga Labs naming convention for key pair
 	keyPairName := vmName + "-keypair"
-	
+
 	// Create key pair
 	cmd := exec.Command("aws", "ec2", "create-key-pair",
 		"--key-name", keyPairName,
 		"--query", "KeyMaterial",
 		"--output", "text")
-	
-	keyMaterial, err := cmd.Output()
+
+	keyMaterial, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create key pair: %v", err)
 	}
-	
+
 	// Create deployment directory if it doesn't exist
 	deploymentDir := "./dvarpala-deployment"
 	if err := os.MkdirAll(deploymentDir, 0755); err != nil {
@@ -319,18 +407,33 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 	if err := os.WriteFile(keyPath, keyMaterial, 0600); err != nil {
 		return nil, fmt.Errorf("failed to save private key: %v", err)
 	}
-	
+
 	fmt.Printf("🔑 SSH private key saved to: %s\n", keyPath)
-	
+
 	// Get latest Ubuntu AMI
 	amiID, err := aws.getLatestUbuntuAMI()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Create minimal user data script - just basic system prep
 	userData := aws.generateMinimalUserData(config)
-	
+
+	// Everything the launch needs, checked here rather than discovered from
+	// AWS's reply. A blank value produces "MissingParameter: when specifying a
+	// security group you must specify a group id for each item", which names
+	// neither the value that was empty nor where it should have come from.
+	for _, required := range []struct{ name, value string }{
+		{"security group", vpcInfo.SecurityGroupID},
+		{"public subnet", vpcInfo.PublicSubnetID},
+		{"key pair", keyPairName},
+		{"machine image", amiID},
+	} {
+		if strings.TrimSpace(required.value) == "" {
+			return nil, fmt.Errorf("cannot launch: no %s was found or created", required.name)
+		}
+	}
+
 	// Launch instance
 	cmd = exec.Command("aws", "ec2", "run-instances",
 		"--image-id", amiID,
@@ -344,32 +447,89 @@ func (aws *AWSProvider) CreateInstance(vpcInfo *AWSVPCInfo, config InstanceConfi
 		"--tag-specifications", fmt.Sprintf(`ResourceType=instance,Tags=[{Key=Name,Value=dvarpala-server},{Key=Project,Value=dvarpala},{Key=ManagedBy,Value=frigga-labs}]`),
 		"--query", "Instances[0].InstanceId",
 		"--output", "text")
-	
-	output, err := cmd.Output()
+
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch instance: %v", err)
 	}
-	
+
 	instanceID := strings.TrimSpace(string(output))
-	
+
 	// Wait for instance to be running
 	fmt.Printf("⏳ Waiting for instance %s to be running...\n", instanceID)
 	cmd = exec.Command("aws", "ec2", "wait", "instance-running", "--instance-ids", instanceID)
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("timeout waiting for instance to be running: %v", err)
 	}
-	
+
 	// Get instance details
 	instanceInfo, err := aws.getInstanceDetails(instanceID)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	instanceInfo.KeyPairName = keyPairName
 	instanceInfo.SecurityGroupID = vpcInfo.SecurityGroupID
-	
+
+	// Give it an address that will not change underneath it.
+	if fixed, err := aws.attachElasticIP(instanceID, vmName); err != nil {
+		// Not fatal. A working server on a changeable address is better than
+		// no server, and the operator is told plainly what it means.
+		fmt.Printf("⚠️  Could not attach a fixed address: %v\n", err)
+		fmt.Printf("   The server works, but its address changes if it is ever\n")
+		fmt.Printf("   stopped and started, and every issued .ovpn names that\n")
+		fmt.Printf("   address. Attach an Elastic IP by hand before issuing any.\n")
+	} else {
+		instanceInfo.PublicIP = fixed
+	}
+
 	fmt.Printf("✅ Instance launched: %s (IP: %s)\n", instanceID, instanceInfo.PublicIP)
 	return instanceInfo, nil
+}
+
+// attachElasticIP gives the instance an address that survives a stop.
+//
+// An ordinary EC2 public address is not the machine's own: stop and start the
+// instance and it is handed a different one. Every .ovpn this install issues
+// names the address in its "remote" line, and OpenVPN resolves that on each
+// connect - so a single stop leaves every client pointing at somewhere that is
+// not the server, with no error anybody can act on. Recovering means reissuing
+// a profile to every person who has one.
+//
+// The address stays with the account after the instance is terminated, and AWS
+// charges for one that is not in use, so it is tagged for the cleanup to find.
+func (aws *AWSProvider) attachElasticIP(instanceID, vmName string) (string, error) {
+	fmt.Println("📌 Allocating a fixed public address")
+
+	out, err := awsOutput(exec.Command("aws", "ec2", "allocate-address",
+		"--domain", "vpc",
+		"--tag-specifications", fmt.Sprintf(
+			"ResourceType=elastic-ip,Tags=[{Key=Name,Value=%s-ip},{Key=Project,Value=dvarpala},{Key=ManagedBy,Value=frigga-labs}]",
+			vmName),
+		"--query", "[AllocationId,PublicIp]",
+		"--output", "text"))
+	if err != nil {
+		return "", fmt.Errorf("allocating: %w", err)
+	}
+
+	fields := strings.Fields(string(out))
+	if len(fields) != 2 {
+		return "", fmt.Errorf("unexpected reply from allocate-address: %q", strings.TrimSpace(string(out)))
+	}
+	allocationID, publicIP := fields[0], fields[1]
+
+	if _, err := awsOutput(exec.Command("aws", "ec2", "associate-address",
+		"--instance-id", instanceID,
+		"--allocation-id", allocationID)); err != nil {
+		// Release it rather than leaving a charged-for address attached to
+		// nothing and belonging to nobody.
+		exec.Command("aws", "ec2", "release-address", "--allocation-id", allocationID).Run()
+		return "", fmt.Errorf("associating %s: %w", publicIP, err)
+	}
+
+	fmt.Printf("✅ Fixed address %s (%s) - it stays with this server across restarts\n",
+		publicIP, allocationID)
+	return publicIP, nil
 }
 
 func (aws *AWSProvider) getLatestUbuntuAMI() (string, error) {
@@ -380,12 +540,12 @@ func (aws *AWSProvider) getLatestUbuntuAMI() (string, error) {
 		"Name=state,Values=available",
 		"--query", "Images|sort_by(@, &CreationDate)[-1].ImageId",
 		"--output", "text")
-	
-	output, err := cmd.Output()
+
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get Ubuntu AMI: %v", err)
 	}
-	
+
 	return strings.TrimSpace(string(output)), nil
 }
 
@@ -428,97 +588,145 @@ echo "Minimal setup completed. Ready for installer connection."
 func (aws *AWSProvider) InstallDvarpalaDirectly(instanceInfo *AWSInstanceInfo, config InstanceConfig, keyPath string) error {
 	fmt.Println("🔗 Connecting to AWS VM for direct installation...")
 	fmt.Printf("🔑 Using SSH key: %s\n", keyPath)
-	
+
 	// Wait for VM to be SSH accessible
 	if err := aws.waitForSSHAccess(instanceInfo.PublicIP, keyPath); err != nil {
 		return fmt.Errorf("failed to establish SSH connection: %v", err)
 	}
-	
+
 	fmt.Println("✅ SSH connection established")
-	
+
 	// Install components step by step with real-time tracking
+	// The Dvarpala installer does everything that is the same on every cloud:
+	// PostgreSQL, Redis, OpenVPN with the Dvarpala hooks, the walled-garden
+	// firewall, and the Dvarpala application itself. Previously this file
+	// listed those steps inline, three times over, and never installed the
+	// application at all.
+	hostForCerts := instanceInfo.PublicIP
+
 	steps := []struct {
 		name string
 		cmd  string
 	}{
-		{"Installing nginx", "sudo apt-get install -y nginx"},
-		{"Configuring nginx", "sudo systemctl enable nginx && sudo systemctl start nginx"},
-		{"Installing PostgreSQL", "sudo apt-get install -y postgresql postgresql-contrib"},
-		{"Installing Redis", "sudo apt-get install -y redis-server"},
-		{"Installing OpenVPN", "sudo apt-get install -y openvpn easy-rsa"},
-		{"Installing Go", "curl -fsSL https://go.dev/dl/go1.21.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xzf -"},
-		{"Setting up directories", "mkdir -p /home/$(whoami)/dvarpala /home/$(whoami)/dvarpala/certs && sudo mkdir -p /var/lib/dvarpala"},
-		{"Starting basic services", "sudo systemctl start postgresql redis-server"},
-		{"Setting up Easy-RSA", "make-cadir /home/$(whoami)/dvarpala/easy-rsa"},
-		{"Configuring Easy-RSA vars", aws.getEasyRSAVarsCommand()},
-		{"Building Certificate Authority", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa init-pki && ./easyrsa --batch build-ca nopass"},
-		{"Generating server certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-server-full server nopass"},
-		{"Generating admin client certificate", "cd /home/$(whoami)/dvarpala/easy-rsa && ./easyrsa --batch build-client-full admin nopass"},
-		{"Generating TLS authentication key", "cd /home/$(whoami)/dvarpala/easy-rsa && openvpn --genkey --secret pki/ta.key"},
-		{"Copying certificates to OpenVPN directory", "sudo cp /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt /home/$(whoami)/dvarpala/easy-rsa/pki/issued/server.crt /home/$(whoami)/dvarpala/easy-rsa/pki/private/server.key /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key /etc/openvpn/server/"},
-		{"Creating OpenVPN server configuration", aws.getOpenVPNServerConfigCommand()},
-		{"Starting OpenVPN server", "sudo systemctl enable openvpn-server@server && sudo systemctl start openvpn-server@server"},
-		{"Configuring OAuth firewall rules", "sudo bash -c 'curl -fsSL https://raw.githubusercontent.com/friggalabs/dvarpala/main/scripts/installation/configure-oauth-firewall.sh | bash'"},
+		{"Fetching Dvarpala source", fmt.Sprintf("sudo cloud-init status --wait >/dev/null 2>&1 || true; "+
+			"sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && "+
+			"sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq git && "+
+			"sudo rm -rf /opt/dvarpala/src && "+
+			"sudo git clone --depth 1 --branch %s %s /opt/dvarpala/src", defaultRepoRef, defaultRepoURL)},
+		{"Installing Dvarpala", "sudo chmod +x /opt/dvarpala/src/scripts/install/install-dvarpala.sh && sudo DVARPALA_ADMIN_EMAIL='" + config.AdminEmail + "' /opt/dvarpala/src/scripts/install/install-dvarpala.sh --source /opt/dvarpala/src --host " + hostForCerts},
 	}
-	
+
+	needsSignIn := false
+
 	for i, step := range steps {
 		fmt.Printf("📦 Step %d/%d: %s\n", i+1, len(steps), step.name)
-		
+
 		if err := aws.executeSSHCommand(instanceInfo.PublicIP, step.cmd, keyPath); err != nil {
+			// Exit 2 from the installer means the machine is built and every
+			// service is running, and only a sign-in method is still to be
+			// chosen. Treating that as a failure reported a working system as
+			// a crash, over output that had a tick against all fifteen steps.
+			if exitCode(err) == 2 {
+				fmt.Printf("⚠️  %s completed, but no sign-in method is configured yet\n", step.name)
+				needsSignIn = true
+				continue
+			}
 			return fmt.Errorf("failed at step '%s': %v", step.name, err)
 		}
-		
+
 		fmt.Printf("✅ Completed: %s\n", step.name)
 	}
-	
-	// Configure nginx monitoring as separate steps with proper sudo handling
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+1, len(steps)+5, "Creating nginx monitoring config")
-	if err := aws.configureNginxMonitoring(instanceInfo.PublicIP, keyPath); err != nil {
-		return fmt.Errorf("failed to configure nginx monitoring: %v", err)
+
+	// Retrieve the administrator's VPN profile over the SSH session that is
+	// already open. The previous approach published it on the machine's public
+	// web root for two minutes; the file contains the client private key, so
+	// anyone who fetched it in that window gained permanent VPN access.
+	fmt.Println("📄 Retrieving the administrator VPN profile")
+	if config.AdminEmail == "" {
+		fmt.Println("   (no admin email supplied, so no profile was issued)")
+	} else if err := aws.fetchAdminProfile(instanceInfo.PublicIP, keyPath, config.OutputDir); err != nil {
+		fmt.Printf("⚠️  Could not retrieve admin.ovpn: %v\n", err)
+		fmt.Printf("   Fetch it later with:\n     scp -i %s ubuntu@%s:/tmp/admin.ovpn .\n",
+			keyPath, instanceInfo.PublicIP)
 	}
-	fmt.Printf("✅ Completed: Creating nginx monitoring config\n")
-	
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+2, len(steps)+5, "Enabling nginx monitoring site")
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/", keyPath); err != nil {
-		return fmt.Errorf("failed to enable nginx site: %v", err)
+
+	// Everything this run created is tagged, so it can be found again. Said
+	// here because nothing else says it: the installer has no teardown, and
+	// an Elastic IP is charged for whether or not anything is using it.
+	fmt.Println()
+	fmt.Println("📋 What this created, and how to remove it:")
+	fmt.Printf("     aws ec2 describe-instances --region %s \\\n", aws.Region)
+	fmt.Println("       --filters Name=tag:Project,Values=dvarpala \\")
+	fmt.Println("       --query 'Reservations[].Instances[].[InstanceId,State.Name,PublicIpAddress]' --output table")
+	fmt.Printf("     aws ec2 describe-addresses --region %s \\\n", aws.Region)
+	fmt.Println("       --filters Name=tag:Project,Values=dvarpala \\")
+	fmt.Println("       --query 'Addresses[].[PublicIp,AllocationId,InstanceId]' --output table")
+	fmt.Println()
+	fmt.Println("   Terminating the instance does NOT release its address, and an")
+	fmt.Println("   address that belongs to nobody is still charged for. Release it")
+	fmt.Println("   with: aws ec2 release-address --allocation-id <id>")
+
+	if needsSignIn {
+		// Said plainly, because a machine nobody can sign in to is not
+		// finished, and the profile just fetched cannot be used until it is.
+		fmt.Println()
+		fmt.Println("⚠️  Dvarpala is installed and running, but NOBODY CAN SIGN IN YET.")
+		fmt.Println("   Anyone who connects reaches the sign-in page and nothing else.")
+		fmt.Println()
+		fmt.Println("   Configure a sign-in method on the server:")
+		fmt.Println("     sudo nano /opt/dvarpala/config/environment.yaml   # auth.otp + auth.smtp")
+		fmt.Println("     sudo systemctl edit dvarpala                      # AUTH_SMTP_PASSWORD")
+		fmt.Println("     sudo systemctl restart dvarpala")
+		fmt.Println("     dvarpala-cli mail test you@your-domain")
+		return nil
 	}
-	fmt.Printf("✅ Completed: Enabling nginx monitoring site\n")
-	
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+3, len(steps)+5, "Reloading nginx configuration")
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo nginx -t && sudo systemctl reload nginx", keyPath); err != nil {
-		return fmt.Errorf("failed to reload nginx: %v", err)
-	}
-	fmt.Printf("✅ Completed: Reloading nginx configuration\n")
-	
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+4, len(steps)+5, "Generating admin OpenVPN configuration")
-	if err := aws.generateAdminOVPN(instanceInfo.PublicIP, keyPath); err != nil {
-		return fmt.Errorf("failed to generate admin OVPN: %v", err)
-	}
-	fmt.Printf("✅ Completed: Generating admin OpenVPN configuration\n")
-	
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+5, len(steps)+6, "Making admin.ovpn temporarily available for download")
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, "sudo cp /home/$(whoami)/dvarpala/certs/admin.ovpn /var/www/html/admin.ovpn && sudo chmod 644 /var/www/html/admin.ovpn", keyPath); err != nil {
-		return fmt.Errorf("failed to make admin.ovpn downloadable: %v", err)
-	}
-	fmt.Printf("✅ Completed: Making admin.ovpn temporarily available for download\n")
-	
-	fmt.Printf("📦 Step %d/%d: %s\n", len(steps)+6, len(steps)+6, "Cleaning up public admin.ovpn file")
-	// Give the installer 2 minutes to download the file, then remove it from public access
-	cleanupCommand := "sleep 120 && sudo rm -f /var/www/html/admin.ovpn && echo '🔒 SECURITY: admin.ovpn removed from public web directory for security'"
-	if err := aws.executeSSHCommand(instanceInfo.PublicIP, fmt.Sprintf("nohup bash -c '%s' > /dev/null 2>&1 &", cleanupCommand), keyPath); err != nil {
-		return fmt.Errorf("failed to schedule admin.ovpn cleanup: %v", err)
-	}
-	fmt.Printf("✅ Completed: Scheduled cleanup of public admin.ovpn file in 2 minutes\n")
-	
+
 	fmt.Println("🎉 Dvarpala installation completed successfully!")
-	fmt.Println("🔒 SECURITY NOTE: admin.ovpn will be automatically removed from public access in 2 minutes")
-	fmt.Println("📋 The installer will download the file immediately - please wait for download completion")
+	return nil
+}
+
+// fetchAdminProfile copies the administrator's .ovpn to the operator's machine.
+//
+// The profile is readable only by the dvarpala service user, so it is staged
+// briefly into the login user's home - never anywhere served over the network -
+// and removed afterwards.
+func (aws *AWSProvider) fetchAdminProfile(vmIP, keyPath, outputDir string) error {
+	if outputDir == "" {
+		outputDir = "."
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return err
+	}
+
+	const staged = "/tmp/admin.ovpn"
+	stage := fmt.Sprintf(
+		"sudo cp /opt/dvarpala/certs/admin.ovpn %s && sudo chown $(whoami) %s && chmod 600 %s",
+		staged, staged, staged)
+	if err := aws.executeSSHCommand(vmIP, stage, keyPath); err != nil {
+		return fmt.Errorf("staging the profile: %w", err)
+	}
+
+	local := filepath.Join(outputDir, "admin.ovpn")
+	cmd := exec.Command("scp", "-i", keyPath,
+		"-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		fmt.Sprintf("ubuntu@%s:%s", vmIP, staged), local)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("scp: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	_ = aws.executeSSHCommand(vmIP, fmt.Sprintf("shred -u %s 2>/dev/null || rm -f %s", staged, staged), keyPath)
+
+	if err := os.Chmod(local, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("✅ Saved %s (mode 0600 - contains a private key)\n", local)
 	return nil
 }
 
 func (aws *AWSProvider) waitForSSHAccess(vmIP, keyPath string) error {
 	fmt.Printf("⏳ Waiting for SSH access to %s...\n", vmIP)
-	
+
 	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
 		// Test SSH connectivity with key
@@ -527,188 +735,25 @@ func (aws *AWSProvider) waitForSSHAccess(vmIP, keyPath string) error {
 		if sshCmd.Run() == nil {
 			return nil
 		}
-		
+
 		fmt.Printf("⏳ SSH not ready yet... attempt %d/%d\n", i+1, maxAttempts)
 		time.Sleep(10 * time.Second)
 	}
-	
+
 	return fmt.Errorf("SSH access not available after %d attempts", maxAttempts)
 }
 
 func (aws *AWSProvider) executeSSHCommand(vmIP, command, keyPath string) error {
 	cmd := exec.Command("ssh", "-i", keyPath, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 		fmt.Sprintf("ubuntu@%s", vmIP), command)
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Printf("❌ Command failed: %s\nOutput: %s\n", command, string(output))
 		return err
 	}
-	
+
 	return nil
-}
-
-func (aws *AWSProvider) configureNginxMonitoring(vmIP, keyPath string) error {
-	// Create the nginx configuration file using a heredoc to avoid quoting issues
-	command := `sudo tee /etc/nginx/sites-available/dvarpala-monitoring > /dev/null << 'EOF'
-server {
-    listen 8080;
-    server_name _;
-    root /var/www/html;
-    
-    location /health {
-        return 200 '{"status":"healthy","service":"dvarpala"}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-progress {
-        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-status {
-        return 200 'Installation completed successfully';
-        add_header Content-Type text/plain;
-    }
-}
-EOF`
-	
-	return aws.executeSSHCommand(vmIP, command, keyPath)
-}
-
-func (aws *AWSProvider) getEasyRSAVarsCommand() string {
-	return `tee /home/$(whoami)/dvarpala/easy-rsa/vars > /dev/null << 'EOF'
-set_var EASYRSA_REQ_COUNTRY    "US"
-set_var EASYRSA_REQ_PROVINCE   "CA"
-set_var EASYRSA_REQ_CITY       "San Francisco"
-set_var EASYRSA_REQ_ORG        "Frigga Labs"
-set_var EASYRSA_REQ_EMAIL      "admin@friggalabs.com"
-set_var EASYRSA_REQ_OU         "Dvarpala VPN"
-set_var EASYRSA_KEY_SIZE       2048
-set_var EASYRSA_ALGO           rsa
-set_var EASYRSA_CA_EXPIRE      3650
-set_var EASYRSA_CERT_EXPIRE    365
-EOF`
-}
-
-func (aws *AWSProvider) getOpenVPNServerConfigCommand() string {
-	return `sudo tee /etc/openvpn/server/server.conf > /dev/null << 'EOF'
-port 1194
-proto udp
-dev tun
-ca ca.crt
-cert server.crt
-key server.key
-dh none
-ecdh-curve prime256v1
-server 172.30.100.0 255.255.255.0
-ifconfig-pool-persist /var/log/openvpn/ipp.txt
-push "redirect-gateway def1 bypass-dhcp"
-push "dhcp-option DNS 8.8.8.8"
-push "dhcp-option DNS 8.8.4.4"
-keepalive 10 120
-tls-auth ta.key 0
-cipher AES-256-GCM
-user nobody
-group nogroup
-persist-key
-persist-tun
-status /var/log/openvpn/openvpn-status.log
-log-append /var/log/openvpn/openvpn.log
-verb 3
-explicit-exit-notify 1
-EOF`
-}
-
-func (aws *AWSProvider) generateAdminOVPN(vmIP, keyPath string) error {
-	// Create the admin.ovpn file with real certificates
-	command := `
-# Get the external IP address
-EXTERNAL_IP=$(curl -s http://checkip.amazonaws.com)
-
-# Create admin.ovpn with embedded certificates
-tee /home/$(whoami)/dvarpala/certs/admin.ovpn > /dev/null << EOF
-# Dvarpala VPN - Captive Portal Mode
-# Browser will auto-open to: http://172.30.100.1:8080
-# Complete authentication via web portal for full VPN access
-
-client
-dev tun
-proto udp
-remote $EXTERNAL_IP 1194
-resolv-retry infinite
-nobind
-persist-key
-persist-tun
-remote-cert-tls server
-cipher AES-256-GCM
-verb 3
-
-# Auto-open captive portal after connection
-script-security 2
-up "echo 'Opening captive portal...' && (open http://172.30.100.1:8080 2>/dev/null || xdg-open http://172.30.100.1:8080 2>/dev/null || start http://172.30.100.1:8080 2>/dev/null || echo 'Please open http://172.30.100.1:8080 manually')"
-
-# Initial captive portal access credentials
-# Username: portal, Password: access (for initial connection only)
-auth-user-pass
-
-<ca>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ca.crt)
-</ca>
-
-<cert>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/issued/admin.crt)
-</cert>
-
-<key>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/private/admin.key)
-</key>
-
-<tls-auth>
-$(cat /home/$(whoami)/dvarpala/easy-rsa/pki/ta.key)
-</tls-auth>
-key-direction 1
-EOF
-
-# Create credentials file
-tee /home/$(whoami)/dvarpala/certs/admin-credentials.txt > /dev/null << EOF
-portal
-access
-EOF
-
-# Set proper permissions
-chmod 600 /home/$(whoami)/dvarpala/certs/admin.ovpn
-chmod 600 /home/$(whoami)/dvarpala/certs/admin-credentials.txt
-`
-	
-	return aws.executeSSHCommand(vmIP, command, keyPath)
-}
-
-func (aws *AWSProvider) getNginxConfigCommand() string {
-	return `cat > /etc/nginx/sites-available/dvarpala-monitoring << 'EOF'
-server {
-    listen 8080;
-    server_name _;
-    root /var/www/html;
-    
-    location /health {
-        return 200 '{"status":"healthy","timestamp":"$(date -Iseconds)"}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-progress {
-        return 200 '{"current_step":"Installation completed","completed_steps":9,"total_steps":9}';
-        add_header Content-Type application/json;
-    }
-    
-    location /installation-status {
-        return 200 'Installation completed successfully';
-        add_header Content-Type text/plain;
-    }
-}
-EOF
-ln -sf /etc/nginx/sites-available/dvarpala-monitoring /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx`
 }
 
 func (aws *AWSProvider) getInstanceDetails(instanceID string) (*AWSInstanceInfo, error) {
@@ -716,17 +761,17 @@ func (aws *AWSProvider) getInstanceDetails(instanceID string) (*AWSInstanceInfo,
 		"--instance-ids", instanceID,
 		"--query", "Reservations[0].Instances[0].[PublicIpAddress,PrivateIpAddress]",
 		"--output", "text")
-	
-	output, err := cmd.Output()
+
+	output, err := awsOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance details: %v", err)
 	}
-	
+
 	parts := strings.Fields(strings.TrimSpace(string(output)))
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("invalid instance details response")
 	}
-	
+
 	return &AWSInstanceInfo{
 		InstanceID: instanceID,
 		PublicIP:   parts[0],
@@ -741,28 +786,28 @@ func (aws *AWSProvider) CreateS3Bucket(bucketName string) error {
 		fmt.Printf("✅ Using existing S3 bucket: %s\n", bucketName)
 		return nil
 	}
-	
+
 	// Create bucket
 	cmd = exec.Command("aws", "s3api", "create-bucket", "--bucket", bucketName)
 	if aws.Region != "us-east-1" {
 		cmd.Args = append(cmd.Args, "--create-bucket-configuration", fmt.Sprintf("LocationConstraint=%s", aws.Region))
 	}
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create S3 bucket: %v", err)
 	}
-	
+
 	// Enable versioning
 	exec.Command("aws", "s3api", "put-bucket-versioning",
 		"--bucket", bucketName,
 		"--versioning-configuration", "Status=Enabled").Run()
-	
+
 	// Create dvarpala folder
 	cmd = exec.Command("aws", "s3api", "put-object",
 		"--bucket", bucketName,
 		"--key", "dvarpala/")
 	cmd.Run()
-	
+
 	fmt.Printf("✅ S3 bucket created: %s\n", bucketName)
 	return nil
 }
@@ -778,13 +823,13 @@ func (aws *AWSProvider) UploadConfiguration(bucketName string, configData []byte
 		return err
 	}
 	defer os.Remove(tempFile)
-	
+
 	// Upload to S3
 	cmd := exec.Command("aws", "s3", "cp", tempFile, fmt.Sprintf("s3://%s/dvarpala/%s", bucketName, filename))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to upload configuration to S3: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -810,4 +855,8 @@ type InstanceConfig struct {
 	DiskSizeGB   int
 	AdminEmail   string
 	AdminName    string
+
+	// OutputDir is where the operator's copy of admin.ovpn is written. Empty
+	// means the current directory.
+	OutputDir string
 }

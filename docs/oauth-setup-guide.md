@@ -185,4 +185,8 @@ After installation, test each provider:
 
 ---
 
-**Next Step**: Once you have your OAuth credentials ready, proceed with the [Dvarpala Installation](../INSTALLATION.md).
+**Next Step**: Once you have your OAuth credentials ready, proceed with [installing Dvarpala](../new-dvarpala.md#9-installing).
+
+Note that OAuth needs a domain name and a certificate - Google refuses
+plain HTTP and refuses IP addresses. Codes sent by email need neither,
+and are what a fresh install uses.

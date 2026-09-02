@@ -1,33 +1,28 @@
 package web
 
 import (
+	"dvarpala/internal/auth"
 	"dvarpala/internal/config"
-	"dvarpala/internal/database"
-	"dvarpala/internal/redis"
+	"dvarpala/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.RouterGroup, db *database.DB, redis *redis.Client, cfg *config.Config) {
-	// Static files
+// SetupRoutes mounts the captive portal: the sign-in page a user sees inside
+// the walled garden, the login flow behind it, and the admin console.
+func SetupRoutes(r *gin.RouterGroup, authSvc *auth.Service, svc *services.Services, cfg *config.Config) {
+	// Static assets used by the portal page (captive-portal.js, css).
 	r.Static("/static", "./web/static")
 
-	// Web routes
-	r.GET("/", func(c *gin.Context) {
-		c.HTML(200, "index.html", gin.H{
-			"title": "Dvarpala VPN",
-		})
-	})
+	NewAuthHandler(authSvc, secureCookies(cfg)).Register(r)
+	NewOTPHandler(authSvc).Register(r)
+	NewAdminHandler(authSvc, svc).Register(r)
+}
 
-	r.GET("/login", func(c *gin.Context) {
-		c.HTML(200, "login.html", gin.H{
-			"title": "Login - Dvarpala VPN",
-		})
-	})
-
-	r.GET("/dashboard", func(c *gin.Context) {
-		c.HTML(200, "dashboard.html", gin.H{
-			"title": "Dashboard - Dvarpala VPN",
-		})
-	})
+// secureCookies reports whether session cookies should be marked Secure.
+//
+// In debug mode the portal is served over plain HTTP on localhost, where a
+// Secure cookie would never be sent back.
+func secureCookies(cfg *config.Config) bool {
+	return cfg.Server.Mode != "debug"
 }

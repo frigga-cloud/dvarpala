@@ -27,6 +27,7 @@ func AutoMigrate(db *gorm.DB) error {
 
 		// Security entities
 		&models.IPWhitelist{},
+		&models.AllowedDomain{},
 
 		// Junction tables (many-to-many relationships)
 		&models.UserGroup{},
@@ -41,6 +42,7 @@ func DropAllTables(db *gorm.DB) error {
 		&models.GroupNetworkRoute{},
 		&models.GroupPermission{},
 		&models.UserGroup{},
+		&models.AllowedDomain{},
 		&models.IPWhitelist{},
 		&models.OAuthProvider{},
 		&models.OAuthState{},

@@ -1,15 +1,24 @@
 package v1
 
 import (
+	"dvarpala/internal/api/v1/users"
 	"dvarpala/internal/config"
-	"dvarpala/internal/database"
 	"dvarpala/internal/redis"
+	"dvarpala/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.RouterGroup, db *database.DB, redis *redis.Client, cfg *config.Config) {
-	// Auth routes
+// SetupRoutes mounts the v1 API.
+//
+// Handlers live in their own packages under api/v1/; this function only wires
+// them up. Endpoints still returning a placeholder string are marked TODO and
+// are implemented in later phases.
+func SetupRoutes(r *gin.RouterGroup, svc *services.Services, redis *redis.Client, cfg *config.Config) {
+	// Users - implemented
+	users.NewHandler(svc.Users).Register(r)
+
+	// TODO(phase-3): OAuth validation for external tools
 	auth := r.Group("/auth")
 	{
 		auth.POST("/validate", func(c *gin.Context) {
@@ -17,18 +26,7 @@ func SetupRoutes(r *gin.RouterGroup, db *database.DB, redis *redis.Client, cfg *
 		})
 	}
 
-	// User routes
-	users := r.Group("/users")
-	{
-		users.GET("", func(c *gin.Context) {
-			c.JSON(200, gin.H{"message": "list users endpoint"})
-		})
-		users.POST("", func(c *gin.Context) {
-			c.JSON(200, gin.H{"message": "create user endpoint"})
-		})
-	}
-
-	// Group routes
+	// TODO(phase-2): group management
 	groups := r.Group("/groups")
 	{
 		groups.GET("", func(c *gin.Context) {
@@ -39,7 +37,7 @@ func SetupRoutes(r *gin.RouterGroup, db *database.DB, redis *redis.Client, cfg *
 		})
 	}
 
-	// VPN routes
+	// TODO(phase-4): live VPN session status
 	vpn := r.Group("/vpn")
 	{
 		vpn.GET("/status", func(c *gin.Context) {

@@ -12,7 +12,11 @@
       "Bash(grep:*)",
       "Bash(go run:*)",
       "Bash(go mod download:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "mcp__code0__list_repositories",
+      "mcp__code0__get_repo_overview",
+      "mcp__code0__search_code",
+      "WebFetch(domain:frigga.cloud)"
     ],
     "deny": []
   }

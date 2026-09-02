@@ -15,7 +15,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Make sure you're running this from the scripts/installation directory\n")
 		os.Exit(1)
 	}
-	
+
 	// Prepare command arguments - include all necessary Go files
 	installerFiles := []string{
 		"run",
@@ -24,13 +24,13 @@ func main() {
 		filepath.Join("installer", "cloud_wrappers.go"),
 	}
 	args := append(installerFiles, os.Args[1:]...)
-	
+
 	// Execute the cloud installer
 	cmd := exec.Command("go", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	if err := cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			os.Exit(exitError.ExitCode())

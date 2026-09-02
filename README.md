@@ -1,285 +1,144 @@
-# Dvarpala VPN System
+# Dvarpala
 
-**Dvarpala** (द्वारपाल) - Sanskrit for "gatekeeper" or "door guardian" - is an enterprise-grade Zero Trust VPN solution with 2-step authentication and granular access control.
+**Dvarpala** (Sanskrit द्वारपाल, "doorkeeper") is a Zero Trust network gateway
+built on OpenVPN.
 
-## 🔐 2-Step VPN Access Architecture
+An ordinary VPN is a door: get through it and the company network is yours.
+Lose a laptop and an intruder has everything on it.
 
-Dvarpala implements a unique Zero Trust Network Access (ZTNA) model:
+Dvarpala makes the VPN a doorkeeper. Connecting gets you into an empty room
+containing one sign-in page. Only after you prove who you are does it open the
+specific addresses you are entitled to — and nothing else. Disconnect and it
+closes behind you.
 
-1. **Initial Connection**: Users connect to VPN with temporary certificates, gaining access only to a captive portal
-2. **OAuth Authentication**: Users authenticate via configured OAuth providers (Google, Microsoft, GitHub, GitLab)
-3. **Full Access Granted**: After successful authentication, users receive full internet access
-4. **Session Management**: Access is revoked upon disconnect, requiring re-authentication for each session
+---
 
-## 🚀 Quick Start
+## How it works
 
-### 🖥️ Production Server Installation
+```
+connect            a tunnel forms; nothing is reachable but a sign-in page
+sign in            a six-digit code, sent to your work email
+                   the tunnel restarts, and your permissions are applied
+after that         only the addresses you were granted come through the VPN
+                   everything else goes over your own connection, as before
+disconnect         access closes behind you
+```
 
-For a complete VPN server setup on a fresh VM:
+Three separate things must be true before anything opens. A **certificate**,
+so the device is permitted. An **identity**, proved by a code sent to your
+mailbox. And an **entitlement** — the account must exist here, be active, and
+belong to a group that has been granted the resource. Passing one grants
+nothing.
 
-**[📋 INSTALLATION.md](INSTALLATION.md)** - One-command installation guide
+Two layers enforce it. **Routes** tell a laptop where to send packets;
+**a firewall** decides what the server will actually forward, as
+`(who, where)` pairs. Routes alone are only instructions to somebody else's
+machine — adding one by hand takes a single command — so the firewall is what
+makes the answer real.
+
+---
+
+## Documentation
+
+**[new-dvarpala.md](new-dvarpala.md)** — the reference. What is built and
+proven, how to install it, how to run it, and what does not work yet. Start
+there.
+
+Everything else at the top level of this repository predates the current
+system and contradicts it in places. Treat it as history.
+
+---
+
+## Installing
+
+Two ways, described in full in
+**[new-dvarpala.md §9](new-dvarpala.md#9-installing)**.
+
+**You already have a server** — Ubuntu 22.04, reachable, with UDP 1194 open:
 
 ```bash
-# One-line installation (recommended)
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/yourcompany/dvarpala/main/scripts/provisioning/quick-install.sh)
+# ON THE SERVER
+sudo apt-get update && sudo apt-get install -y git
+sudo git clone https://github.com/frigga-cloud/dvarpala /opt/dvarpala/src
+sudo /opt/dvarpala/src/scripts/install/install-dvarpala.sh \
+  --source /opt/dvarpala/src --admin you@your-domain
 ```
 
-This installs PostgreSQL, Redis, OpenVPN server with 2-step access, and Dvarpala application with full security configuration and OAuth integration.
-
-### 💻 Development Environment
-
-For local development and testing:
-
-#### Prerequisites
-- Go 1.21 or higher
-- PostgreSQL 12+
-- Redis 6+
-- OpenVPN (for VPN functionality)
-
-#### Setup Steps
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourcompany/dvarpala.git
-   cd dvarpala
-   ```
-
-2. **Install dependencies**
-   ```bash
-   make deps
-   ```
-
-3. **Configure the system**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your database and Redis settings
-   ```
-
-4. **Set up database**
-   ```bash
-   # Create PostgreSQL database
-   createdb dvarpala_dev
-   
-   # Install system with development data
-   make install-dev
-   ```
-
-5. **Start the server**
-   ```bash
-   make dev
-   ```
-
-6. **Access the system**
-   - Web interface: http://localhost:8080
-   - API endpoint: http://localhost:8080/api/v1
-
-## 📋 Core Database Tables
-
-The installation script creates the following core tables:
-
-### Core Entity Tables
-- **`users`** - User accounts with OAuth integration
-- **`groups`** - Hierarchical user groups  
-- **`resources`** - Protected resources (dashboards, VMs, databases, services)
-- **`audit_logs`** - Complete audit trail of all actions
-
-### VPN-Related Tables
-- **`vpn_sessions`** - Active and historical VPN connections
-- **`vpn_configs`** - Client VPN configurations and certificates
-- **`network_routes`** - Network routing rules for different access levels
-
-### Authentication Tables
-- **`sessions`** - Web user sessions
-- **`oauth_states`** - OAuth state tokens for security
-
-### Security Tables
-- **`ip_whitelists`** - IP-based access control
-
-### Junction Tables (Many-to-Many)
-- **`user_groups`** - User-Group relationships
-- **`group_permissions`** - Group-Resource permissions
-- **`group_network_routes`** - Group-Network route assignments
-
-## 🛠️ Available Make Commands
+**Or build the server too**, on AWS, GCP or Azure — needs this repository, Go,
+and cloud credentials on your own machine:
 
 ```bash
-# Build and Installation
-make build              # Build all binaries
-make install            # Install system (create tables)
-make install-fresh      # Fresh install (drop and recreate tables)
-make install-dev        # Install with development data
-
-# Development
-make dev                # Start development server
-make test               # Run tests
-make test-coverage      # Run tests with coverage report
-make fmt                # Format code
-make lint               # Lint code
-
-# Data Management
-make create-test-users  # Create test users
-make seed-data          # Seed development data
-
-# Utilities
-make clean              # Clean build artifacts
-make docker             # Build Docker image
-make help               # Show all available commands
+# ON YOUR OWN COMPUTER
+cd scripts/installation
+go run launcher.go --provider aws --region <region>
 ```
 
-## 🗃️ Database Schema Details
+Either way the install **ends with a warning, not a success**: a fresh server
+has no way for anybody to sign in until a mail service is configured. The
+reference explains that step, and `dvarpala-cli quickstart` on the server
+prints what remains in the order it has to be done.
 
-### User Management
-```sql
--- Users with OAuth integration
-users (
-  id, email (unique), full_name, department, 
-  status, oauth_provider, last_login, 
-  created_at, updated_at, deleted_at
-)
+---
 
--- Hierarchical groups
-groups (
-  id, name (unique), description, parent_id,
-  created_at, updated_at, deleted_at
-)
+## Running it
+
+Everything is `dvarpala-cli`, on the server:
+
+```bash
+dvarpala-cli quickstart              # what to do, in order, and what is left
+dvarpala-cli check                   # is this installation working
+dvarpala-cli user access sam@co.com  # what somebody may reach, and via which group
+dvarpala-cli session list            # who is connected right now
+dvarpala-cli audit --limit 20        # what has happened
 ```
 
-### VPN Infrastructure
-```sql
--- VPN session tracking
-vpn_sessions (
-  id, user_id, client_ip, server_ip, status,
-  connected_at, disconnected_at, bytes_in, bytes_out,
-  created_at, updated_at, deleted_at
-)
+There is also an admin console at `http://172.30.100.1:8080/admin`, reachable
+only through the tunnel and only by members of `system_admins`.
 
--- Client configurations
-vpn_configs (
-  id, user_id, config_name, client_cert, client_key,
-  ca_cert, config_data, status, expires_at,
-  created_at, updated_at, deleted_at
-)
+---
+
+## Development
+
+Go 1.23, PostgreSQL 15, Redis.
+
+```bash
+make deps        # fetch dependencies
+make build       # build both binaries
+make test        # run the tests
+make fmt         # format
+make help        # the full list
 ```
 
-### Access Control
-```sql
--- Protected resources
-resources (
-  id, name, type, url, ip_address, port,
-  description, created_at, updated_at, deleted_at
-)
+Two Go modules: the root, and `scripts/installation` for the cloud installers.
+`go build ./...` at the root does **not** cover the second one.
 
--- Network routing rules
-network_routes (
-  id, name, destination, gateway, route_type,
-  priority, is_active, description,
-  created_at, updated_at, deleted_at
-)
+```
+cmd/          dvarpala-server (the web server), dvarpala-cli (administration)
+internal/     app, auth, services, web, vpn, config, database, redis
+scripts/      openvpn (the hooks and firewall), install, installation
+web/          templates and static files, served locally
 ```
 
-## 🔐 Security Features
+`internal/app/app.go` shows how the pieces connect. Then
+`scripts/openvpn/client-connect.sh`, which is where access is actually decided.
 
-- **2-Step VPN Authentication** - Temporary certificates + OAuth validation
-- **Zero Trust Network Access** - No permanent VPN access, re-authentication required
-- **OAuth Integration** - Google, Microsoft, GitHub, GitLab
-- **Certificate Management** - Dynamic temporary certificate generation and revocation
-- **Network Segmentation** - Captive portal (192.168.100.0/24) and full access (10.8.0.0/24) networks
-- **Session Management** - Secure web sessions with automatic cleanup on disconnect
-- **Audit Logging** - Complete audit trail of all connections and authentications
-- **Admin Access Control** - Permanent admin certificates with direct access
+---
 
-## 🏗️ Architecture
+## Where it stands
 
-### 2-Step Authentication Flow
-1. **Certificate Request** - Admin generates temporary certificate for user
-2. **Initial VPN Connection** - User connects with temporary cert → Captive portal network (192.168.100.x)
-3. **Web Authentication** - User accesses `http://192.168.100.1:8080` → OAuth validation → Database check
-4. **Network Promotion** - System promotes user to full access network (10.8.0.x) → Internet access
-5. **Session Cleanup** - Certificate revoked and session cleared on disconnect
+The whole journey has been demonstrated on a server the installer built by
+itself: connect, walled garden, a code by email, sign in, reach a granted
+private address, and be refused an ungranted one on the same network — refused
+by the firewall, not merely left unrouted.
 
-### Network Access Levels
-- **Captive Portal Network (192.168.100.0/24)** - Limited access to authentication portal only
-- **Full Access Network (10.8.0.0/24)** - Complete internet access after authentication
-- **Admin Network** - Direct access via permanent certificates
+What is not finished is listed honestly in
+**[new-dvarpala.md §12](new-dvarpala.md#12-known-gaps)**. The short version:
+group hierarchy does not inherit, permission levels are recorded rather than
+enforced, there is no certificate revocation list, and profiles name an IP
+address rather than a domain.
 
-## 📊 Default Data Created
+---
 
-The installation creates essential system data:
+## Licence
 
-### Default Groups
-- `system_admins` - System administrators
-- `vpn_users` - Standard VPN users  
-- `guests` - Limited access guests
-
-### Default Resources
-- `System Administration` - Admin dashboard
-- `User Dashboard` - User portal
-- `VPN Server` - Main VPN endpoint
-
-### Default Network Routes
-- Captive portal access (DNS only)
-- Internal network access (10.0.0.0/8)
-- Internet access (0.0.0.0/0)
-
-## 🔧 Configuration
-
-Edit `configs/environments/development.yaml`:
-
-```yaml
-database:
-  host: localhost
-  port: 5432
-  name: dvarpala_dev
-  user: dvarpala
-  password: your_password
-
-oauth:
-  google:
-    client_id: "your-google-client-id"
-    client_secret: "your-google-client-secret"
-  
-auth:
-  jwt_secret: "your-jwt-secret"
-  allowed_domains:
-    - "yourcompany.com"
-```
-
-## 📈 Development Workflow
-
-1. **Initial Setup**
-   ```bash
-   make install-dev  # Creates tables + test data
-   ```
-
-2. **Development**
-   ```bash
-   make dev         # Start server with hot reload
-   ```
-
-3. **Testing**
-   ```bash
-   make test        # Run all tests
-   make test-coverage  # Generate coverage report
-   ```
-
-4. **Data Management**
-   ```bash
-   make create-test-users  # Add test users
-   make seed-data         # Add comprehensive test data
-   ```
-
-## 🎯 Next Steps
-
-After installation:
-
-1. Configure OAuth providers in your config file
-2. Set up OpenVPN server integration
-3. Create user groups and assign permissions
-4. Configure network routing rules
-5. Set up monitoring and logging
-
-## 📚 Additional Resources
-
-- [Configuration Guide](docs/configuration.md)
-- [API Documentation](docs/api.md)
-- [Deployment Guide](docs/deployment.md)
-- [Troubleshooting](docs/troubleshooting.md)
+See [LICENSE](LICENSE).

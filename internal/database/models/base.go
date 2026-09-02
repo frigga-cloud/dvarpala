@@ -2,21 +2,21 @@
 package models
 
 import (
-	"time"
 	"gorm.io/gorm"
+	"time"
 )
 
 // BaseModel contains common columns for all tables with standard timestamps and soft delete
 type BaseModel struct {
 	// Primary identifier for the record
 	ID uint `gorm:"primaryKey"`
-	
+
 	// Timestamp when record was created (automatically set by GORM)
 	CreatedAt time.Time
-	
+
 	// Timestamp when record was last updated (automatically set by GORM)
 	UpdatedAt time.Time
-	
+
 	// Soft delete timestamp - when record was logically deleted
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }

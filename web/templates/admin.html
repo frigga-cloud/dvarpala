@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dvarpala &middot; administration</title>
+<style>
+  :root {
+    --bg:      #0f172a;
+    --surface: #1e293b;
+    --raised:  #263449;
+    --border:  #334155;
+    --text:    #f8fafc;
+    --muted:   #94a3b8;
+    --faint:   #64748b;
+    --accent:  #6366f1;
+    --allow:   #34d399;
+    --allow-bg:#0d3a2c;
+    --deny:    #f87171;
+    --deny-bg: #3f1d1d;
+    --warn:    #fbbf24;
+    --warn-bg: #3a2c08;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+
+  header { border-bottom: 1px solid var(--border); background: var(--surface); }
+  .bar {
+    max-width: 64rem; margin: 0 auto; padding: 0 1.5rem;
+    display: flex; align-items: center; gap: 2rem; min-height: 3.5rem; flex-wrap: wrap;
+  }
+  .brand { font-weight: 650; letter-spacing: -.01em; display: flex; align-items: baseline; gap: .5rem; }
+  .brand span {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  nav { display: flex; gap: .25rem; margin-right: auto; }
+  nav a {
+    text-decoration: none; color: var(--muted);
+    padding: .35rem .7rem; border-radius: 5px; font-size: .9rem;
+  }
+  nav a:hover { color: var(--text); background: var(--raised); }
+  nav a.on { color: var(--text); background: var(--raised); font-weight: 550; }
+  nav a:focus-visible, .back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .who { font-size: .8rem; color: var(--faint); font-family: var(--mono); }
+
+  main {
+    max-width: 64rem; margin: 0 auto; padding: 2.5rem 1.5rem 5rem;
+    display: flex; flex-direction: column; gap: 1.5rem;
+  }
+  h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -.015em; margin: 0; }
+  h2 { font-size: 1.05rem; font-weight: 620; margin: 0; }
+  .sub { color: var(--muted); font-size: .92rem; margin: -.75rem 0 0; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .panel-head {
+    padding: .9rem 1.1rem; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap;
+  }
+  .panel-head p { margin: 0; color: var(--faint); font-size: .85rem; }
+  .panel-body { padding: 1.1rem; }
+  .scroll { overflow-x: auto; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .7rem 1rem; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: 0; }
+  th {
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint); font-weight: 500; background: var(--bg);
+  }
+  tbody tr:hover { background: var(--raised); }
+  td.id { font-family: var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+  td.mono { font-family: var(--mono); font-size: .84rem; }
+  .dim { color: var(--faint); }
+  a.row { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--accent); }
+  a.row:hover { color: var(--accent); }
+
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: .66rem;
+    letter-spacing: .08em; text-transform: uppercase; padding: .15rem .5rem;
+    border-radius: 3px; background: var(--raised); color: var(--muted);
+  }
+  .pill-allow { background: var(--allow-bg); color: var(--allow); }
+  .pill-deny  { background: var(--deny-bg);  color: var(--deny); }
+
+  .empty { padding: 2.5rem 1rem; text-align: center; color: var(--faint); font-size: .9rem; }
+
+  /* Trail columns. A timestamp broken over three lines costs more vertical
+   * space than the row it describes, and makes two adjacent events hard to
+   * order by eye - which is the one thing this table exists to let you do. */
+  td.nowrap { white-space: nowrap; }
+  td.details {
+    max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ── forms ── */
+  form.inline { display: contents; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
+  .field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+  .field .hint { color: var(--faint); font-size: .78rem; line-height: 1.35; }
+  label {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint);
+  }
+  input, select {
+    width: 100%; padding: .55rem .65rem; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    font-size: .92rem; font-family: inherit;
+  }
+  input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+  }
+  .actions { display: flex; gap: .6rem; align-items: center; margin-top: .9rem; flex-wrap: wrap; }
+  button {
+    padding: .55rem 1rem; border: 0; border-radius: 6px; background: var(--accent);
+    color: #fff; font-size: .9rem; font-family: inherit; font-weight: 550; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  button.quiet { background: var(--raised); color: var(--muted); }
+  button.quiet:hover { color: var(--text); }
+  button.danger { background: var(--deny-bg); color: var(--deny); }
+  button.tiny { padding: .3rem .6rem; font-size: .78rem; font-weight: 500; }
+
+  /* ── messages ── */
+  .msg { padding: .8rem 1.1rem; border-radius: 8px; font-size: .9rem; line-height: 1.5; }
+  .msg-ok   { background: var(--allow-bg); border: 1px solid #14603f; color: var(--allow); }
+  .msg-err  { background: var(--deny-bg);  border: 1px solid #6b2c2c; color: var(--deny); font-family: var(--mono); font-size: .82rem; }
+  .msg-warn { background: var(--warn-bg);  border: 1px solid #6b551a; color: var(--warn); }
+
+  .verdict {
+    display: flex; align-items: center; gap: .8rem; padding: 1rem 1.25rem;
+    border-radius: 8px; border: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .verdict.yes { background: var(--allow-bg); border-color: #14603f; }
+  .verdict.no  { background: var(--deny-bg);  border-color: #6b2c2c; }
+  .verdict p { margin: 0; font-size: .9rem; }
+
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 1px; background: var(--border); }
+  .fact { background: var(--surface); padding: .9rem 1.1rem; }
+  .fact dt {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: .2rem;
+  }
+  .fact dd { margin: 0; font-size: .95rem; word-break: break-word; }
+
+  .back { color: var(--muted); text-decoration: none; font-size: .85rem; }
+  .back:hover { color: var(--text); }
+  .note { color: var(--faint); font-size: .82rem; max-width: 46rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <div class="brand">Dvarpala <span>admin</span></div>
+    <nav>
+      <a href="/admin/users"     class="{{if or (eq .Page "users") (eq .Page "user")}}on{{end}}">People</a>
+      <a href="/admin/groups"    class="{{if eq .Page "groups"}}on{{end}}">Groups &amp; access</a>
+      <a href="/admin/resources" class="{{if eq .Page "resources"}}on{{end}}">Resources</a>
+      <a href="/admin/activity"  class="{{if eq .Page "activity"}}on{{end}}">Activity</a>
+      <a href="/admin/audit"     class="{{if eq .Page "audit"}}on{{end}}">Audit trail</a>
+      <a href="/admin/domains"   class="{{if eq .Page "domains"}}on{{end}}">Sign-in domains</a>
+    </nav>
+    {{if .Session}}<div class="who">{{.Session.Email}}</div>{{end}}
+  </div>
+</header>
+
+<main>
+
+{{if .Notice}}<div class="msg msg-ok">{{.Notice}}</div>{{end}}
+{{if .Error}}<div class="msg msg-err">{{.Error}}</div>{{end}}
+
+{{if eq .Page "denied"}}
+  <h1>Not an administrator</h1>
+  <p class="sub">You are signed in as {{.Session.Email}}, but this console is
+    limited to members of the <b>system_admins</b> group.</p>
+
+{{else if eq .Page "users"}}
+  <h1>People</h1>
+  <p class="sub">Everyone Dvarpala knows about. Click someone to see what they may reach.</p>
+
+  <div class="panel scroll">
+    {{if .Users}}
+    <table>
+      <thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Department</th><th>Last signed in</th><th>Status</th><th>Groups</th><th></th></tr></thead>
+      <tbody>
+      {{range .Users}}
+        <tr>
+          <td class="id">{{.ID}}</td>
+          <td class="mono"><a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a></td>
+          <td>{{if .FullName}}{{.FullName}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td>{{if .Department}}{{.Department}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td class="mono">{{if .LastLogin}}{{.LastLogin.Format "2006-01-02 15:04"}}{{else}}<span class="dim">never</span>{{end}}</td>
+          <td><span class="pill {{if eq (printf "%s" .Status) "active"}}pill-allow{{else}}pill-deny{{end}}">{{.Status}}</span></td>
+          <td>{{if .Groups}}{{range $i, $g := .Groups}}{{if $i}}, {{end}}{{$g.Name}}{{end}}{{else}}<span class="dim">none</span>{{end}}</td>
+          <td>
+            {{if eq (printf "%s" .Status) "active"}}
+            <form method="POST" action="/admin/users/deactivate">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="email" value="{{.Email}}">
+              <button class="quiet tiny" type="submit">Deactivate</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+      <div class="empty">Nobody yet. Add the first person below.</div>
+    {{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Add someone</h2><p>They reach nothing until you put them in a group.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/users/create">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="u-email">Email</label>
+            <input id="u-email" name="email" type="email" required placeholder="sam@company.com"></div>
+          <div class="field"><label for="u-name">Full name</label>
+            <input id="u-name" name="name" type="text" placeholder="Sam Patel"></div>
+          <div class="field"><label for="u-dept">Department</label>
+            <input id="u-dept" name="department" type="text" placeholder="Engineering"></div>
+        </div>
+        <div class="actions"><button type="submit">Add person</button></div>
+      </form>
+    </div>
+  </div>
+
+{{else if eq .Page "user"}}
+  <a class="back" href="/admin/users">&larr; All people</a>
+  {{if .User}}
+  <h1>{{if .User.FullName}}{{.User.FullName}}{{else}}{{.User.Email}}{{end}}</h1>
+
+  <div class="verdict {{if .Allowed}}yes{{else}}no{{end}}">
+    <span class="pill {{if .Allowed}}pill-allow{{else}}pill-deny{{end}}">
+      {{if .Allowed}}VPN access allowed{{else}}VPN access denied{{end}}
+    </span>
+    <p>{{if .Allowed}}This is the same check the VPN makes when they connect.{{else}}{{.DenyMsg}}{{end}}</p>
+  </div>
+
+  <div class="panel">
+    <dl class="facts">
+      <div class="fact"><dt>Email</dt><dd>{{.User.Email}}</dd></div>
+      <div class="fact"><dt>Department</dt><dd>{{if .User.Department}}{{.User.Department}}{{else}}&mdash;{{end}}</dd></div>
+      <div class="fact"><dt>Status</dt><dd>{{.User.Status}}</dd></div>
+      <div class="fact"><dt>Created</dt><dd>{{.User.CreatedAt.Format "2 Jan 2006"}}</dd></div>
+      <div class="fact"><dt>Last login</dt><dd>{{if .User.LastLogin}}{{.User.LastLogin.Format "2 Jan 2006 15:04"}}{{else}}never{{end}}</dd></div>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Groups</h2><p>Access is granted through groups, never to a person directly.</p></div>
+    <div class="panel-body">
+      {{if .User.Groups}}
+      <div class="scroll"><table>
+        <tbody>
+        {{range .User.Groups}}
+          <tr>
+            <td class="mono">{{.Name}}</td>
+            <td style="text-align:right">
+              <form method="POST" action="/admin/groups/remove">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="email" value="{{$.User.Email}}">
+                <input type="hidden" name="group" value="{{.Name}}">
+                <button class="quiet tiny" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table></div>
+      {{else}}
+        <p class="note" style="margin-bottom:1rem">In no groups, so they reach nothing.</p>
+      {{end}}
+
+      <form method="POST" action="/admin/groups/assign">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="email" value="{{.User.Email}}">
+        <div class="fields">
+          <div class="field"><label for="g-add">Add to group</label>
+            <select id="g-add" name="group" required>
+              <option value="">Choose a group&hellip;</option>
+              {{range .Groups}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select>
+          </div>
+        </div>
+        <div class="actions"><button type="submit">Add to group</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>What they may reach</h2></div>
+    <div class="scroll">
+      {{if .Grants}}
+      <table>
+        <thead><tr><th>Resource</th><th>Address</th><th>Permission</th><th>Granted via</th></tr></thead>
+        <tbody>
+        {{range .Grants}}
+          <tr>
+            <td>{{.Resource.Name}}</td>
+            <td class="mono">{{if .Resource.IPAddress}}{{.Resource.IPAddress}}{{if .Resource.Port}}:{{.Resource.Port}}{{end}}{{else}}<span class="dim">no address &mdash; not routable</span>{{end}}</td>
+            <td><span class="pill">{{.Permission}}</span></td>
+            <td>{{.ViaGroup}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+        <div class="empty">Nothing. Someone in no groups, or whose groups have no
+          permissions, reaches nothing &mdash; that is the intended default.</div>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>VPN profile</h2><p>Contains their private key. Send it to them securely.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/vpn/issue">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="email" value="{{.User.Email}}">
+        <div class="actions">
+          <button type="submit">Issue and download .ovpn</button>
+          <span class="note">Any profile they already hold stops working.</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <p class="note">Permissions do not flow down a group hierarchy: only direct
+    membership counts. A member of a child group does not inherit its parent's grants.</p>
+  {{end}}
+
+{{else if eq .Page "groups"}}
+  <h1>Groups &amp; access</h1>
+  <p class="sub">Permissions are granted to groups. People get access by being in one.</p>
+
+  <div class="panel scroll">
+    {{if .Groups}}
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Members</th><th>Nesting</th></tr></thead>
+      <tbody>
+      {{range .Groups}}
+        <tr>
+          <td class="id">{{.ID}}</td>
+          <td class="mono">{{.Name}}</td>
+          <td>{{if .Description}}{{.Description}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td class="id">{{len .Users}}</td>
+          <td>{{if .ParentID}}<span class="pill">child group</span>{{else}}<span class="dim">top level</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<div class="empty">No groups yet.</div>{{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Create a group</h2></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/groups/create">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="gc-name">Name</label>
+            <input id="gc-name" name="name" type="text" required placeholder="engineering"></div>
+          <div class="field"><label for="gc-desc">Description</label>
+            <input id="gc-desc" name="description" type="text" placeholder="Engineering team"></div>
+          <div class="field"><label for="gc-parent">Parent group</label>
+            <select id="gc-parent" name="parent">
+              <option value="">None</option>
+              {{range .Groups}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select>
+          </div>
+        </div>
+        <div class="actions"><button type="submit">Create group</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Grant access</h2><p>Give a group the ability to reach a resource.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/permissions/grant">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="p-group">Group</label>
+            <select id="p-group" name="group" required>
+              <option value="">Choose&hellip;</option>
+              {{range .Groups}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select></div>
+          <div class="field"><label for="p-res">Resource</label>
+            <select id="p-res" name="resource" required>
+              <option value="">Choose&hellip;</option>
+              {{range .Resources}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select></div>
+          <div class="field"><label for="p-perm">Permission</label>
+            <select id="p-perm" name="permission">
+              <option value="read">read</option>
+              <option value="write">write</option>
+              <option value="ssh">ssh</option>
+              <option value="admin">admin</option>
+              <option value="full">full</option>
+            </select></div>
+        </div>
+        <div class="actions">
+          <button type="submit">Grant</button>
+          <button class="danger" type="submit" formaction="/admin/permissions/revoke">Revoke</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+{{else if eq .Page "resources"}}
+  <h1>Resources</h1>
+  <p class="sub">The addresses access can be granted to.</p>
+
+  <div class="panel scroll">
+    {{if .Resources}}
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Address</th><th>Description</th></tr></thead>
+      <tbody>
+      {{range .Resources}}
+        <tr>
+          <td class="id">{{.ID}}</td>
+          <td>{{.Name}}</td>
+          <td><span class="pill">{{.Type}}</span></td>
+          <td class="mono">{{if .IPAddress}}{{.IPAddress}}{{if .Port}}:{{.Port}}{{end}}{{else if .URL}}<span class="dim">{{.URL}} &mdash; no IP, not routable</span>{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td>{{if .Description}}{{.Description}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<div class="empty">No resources yet.</div>{{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Register a resource</h2><p>An IP address is what gets routed. A URL alone cannot be reached through the VPN.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/resources/create">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="r-name">Name</label>
+            <input id="r-name" name="name" type="text" required placeholder="wiki"></div>
+          <div class="field"><label for="r-type">Type</label>
+            <select id="r-type" name="type" required>
+              <option value="service">service</option>
+              <option value="dashboard">dashboard</option>
+              <option value="vm">vm</option>
+              <option value="database">database</option>
+            </select></div>
+          <div class="field"><label for="r-ip">IP address or range</label>
+            <input id="r-ip" name="ip" type="text" placeholder="10.20.1.55 or 10.20.0.0/16">
+            <span class="hint">One host, or a whole network in CIDR form &mdash; a
+              range is usually what you want for another VPC. Required for vm and
+              database.</span></div>
+          <div class="field"><label for="r-port">Port</label>
+            <input id="r-port" name="port" type="number" min="1" max="65535" placeholder="80"></div>
+          <div class="field"><label for="r-url">URL (optional)</label>
+            <input id="r-url" name="url" type="text" placeholder="http://wiki.internal"></div>
+          <div class="field"><label for="r-desc">Description</label>
+            <input id="r-desc" name="description" type="text" placeholder="Internal wiki"></div>
+        </div>
+        <div class="actions"><button type="submit">Register resource</button></div>
+      </form>
+    </div>
+  </div>
+
+{{else if eq .Page "domains"}}
+  <h1>Sign-in domains</h1>
+  <p class="sub">Which email domains may sign in at all, whatever else is configured.</p>
+
+  {{if not .Domains}}
+  <div class="msg msg-err">No domains are listed, so <strong>any</strong> email domain
+    can sign in &mdash; anyone at any company, if they can reach the portal. Add the
+    domains that should be allowed.</div>
+  {{end}}
+
+  <div class="panel scroll">
+    {{if .Domains}}
+    <table>
+      <thead><tr><th>Domain</th><th>Added by</th><th>Note</th><th></th></tr></thead>
+      <tbody>
+      {{range .Domains}}
+        <tr>
+          <td class="mono">{{.Domain}}</td>
+          <td>{{if .AddedBy}}{{.AddedBy}}{{else}}<span class="dim">the installer</span>{{end}}</td>
+          <td>{{if .Note}}{{.Note}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td>
+            <form method="POST" action="/admin/domains/remove">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="domain" value="{{.Domain}}">
+              <button class="danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<div class="empty">No domains listed &mdash; every domain is accepted.</div>{{end}}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Allow a domain</h2>
+      <p>The part after the @. Matching is exact, so <span class="mono">frigga.cloud</span>
+        does not admit <span class="mono">mail.frigga.cloud</span> &mdash; add that separately.</p></div>
+    <div class="panel-body">
+      <form method="POST" action="/admin/domains/add">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="fields">
+          <div class="field"><label for="d-domain">Domain</label>
+            <input id="d-domain" name="domain" type="text" required placeholder="frigga.cloud">
+            <span class="hint">A whole address works too &mdash; the domain is taken from it.</span></div>
+          <div class="field"><label for="d-note">Note (optional)</label>
+            <input id="d-note" name="note" type="text" placeholder="Contractors"></div>
+        </div>
+        <div class="actions"><button type="submit">Allow this domain</button></div>
+      </form>
+    </div>
+  </div>
+
+  <p class="note">A person whose domain is not listed sees exactly the same
+    &ldquo;check your email&rdquo; page as everyone else, and no code is sent. That is
+    deliberate &mdash; the portal must not become a way to discover who works here
+    &mdash; but it means a wrongly missing domain looks like mail not arriving.
+    The audit trail is where it shows up.</p>
+
+{{else if eq .Page "activity"}}
+  <h1>Activity</h1>
+  <p class="sub">Who is on the network at this moment, and who was here recently.</p>
+
+  <div class="panel scroll">
+    <div class="panel-head">
+      <h2>On the network now</h2>
+      <p>Live from the session store &mdash; this is what the VPN consults when it decides whether to open the firewall.</p>
+    </div>
+    {{if .Live}}
+    <table>
+      <thead><tr><th>Email</th><th>Method</th><th>Tunnel address</th><th>Groups</th><th>Since</th><th>Time left</th><th>Access</th></tr></thead>
+      <tbody>
+      {{range .Live}}
+        <tr>
+          <td class="mono"><a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a></td>
+          <td>{{.Provider}}</td>
+          <td class="mono">{{if .ClientIP}}{{.ClientIP}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td>{{if .Groups}}{{.Groups}}{{else}}<span class="dim">none</span>{{end}}</td>
+          <td class="mono">{{.Since}}</td>
+          <td class="mono">{{.Remaining}}</td>
+          <td>
+            {{if .OnTunnel}}<span class="pill pill-allow">tunnel open</span>
+            {{else}}<span class="pill">browser only</span>{{end}}
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+      <div class="empty">Nobody is signed in.</div>
+    {{end}}
+  </div>
+
+  <p class="note">A session marked <b>browser only</b> signed in on the web but has no
+    tunnel bound to it, so it opens no network access. That is the ordinary state
+    of somebody who signed in and then disconnected, and of anyone who reached
+    this console from outside the VPN.</p>
+
+  <div class="panel scroll">
+    <div class="panel-head">
+      <h2>Recently signed in</h2>
+      <p>From the database, so it survives a restart &mdash; a memory of the last success, not proof of access now.</p>
+    </div>
+    {{if .SignIns}}
+    <table>
+      <thead><tr><th>Email</th><th>Status</th><th>Last signed in</th><th>Ago</th></tr></thead>
+      <tbody>
+      {{range .SignIns}}
+        <tr>
+          <td class="mono"><a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a></td>
+          <td><span class="pill {{if eq .Status "active"}}pill-allow{{else}}pill-deny{{end}}">{{.Status}}</span></td>
+          <td class="mono">{{.When}}</td>
+          <td class="dim">{{.Ago}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+      <div class="empty">Nobody has ever signed in.</div>
+    {{end}}
+  </div>
+
+{{else if eq .Page "audit"}}
+  <h1>Audit trail</h1>
+  <p class="sub">Every recorded action, newest first. Read-only &mdash; nothing in
+    Dvarpala can alter or remove a record.</p>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Narrow the trail</h2><p>Leave both blank for the most recent activity of any kind.</p></div>
+    <div class="panel-body">
+      <form method="GET" action="/admin/audit">
+        <div class="fields">
+          <div class="field"><label for="a-email">Email</label>
+            <input id="a-email" name="email" type="text" value="{{.FilterEmail}}" placeholder="sam@company.com"></div>
+          <div class="field"><label for="a-action">Action</label>
+            <select id="a-action" name="action">
+              <option value="">Any action</option>
+              {{range .Kinds}}
+              <option value="{{.Action}}" {{if eq .Action $.FilterKind}}selected{{end}}>{{.Action}} ({{.Count}})</option>
+              {{end}}
+            </select></div>
+        </div>
+        <div class="actions">
+          <button type="submit">Search</button>
+          {{if or .FilterEmail .FilterKind}}<a class="back" href="/admin/audit">Clear</a>{{end}}
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel scroll">
+    {{if .Trail}}
+    <table>
+      <thead><tr><th>ID</th><th>When</th><th>Who</th><th>Action</th><th>From</th><th>Details</th></tr></thead>
+      <tbody>
+      {{range .Trail}}
+        <tr>
+          <td class="id">{{.ID}}</td>
+          <td class="mono nowrap">{{.When}}</td>
+          <td class="mono nowrap">{{if .Email}}<a class="row" href="/admin/users/{{.Email}}">{{.Email}}</a>{{else}}<span class="dim">not identified</span>{{end}}</td>
+          <td class="mono nowrap">{{.Action}}</td>
+          <td class="mono nowrap">{{if .IP}}{{.IP}}{{else}}<span class="dim">&mdash;</span>{{end}}</td>
+          <td class="mono dim details" title="{{.Details}}">{{if .Details}}{{.Details}}{{else}}&mdash;{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+      <div class="empty">Nothing matches.</div>
+    {{end}}
+  </div>
+
+  <p class="note">An entry with no name was written before anyone was identified &mdash;
+    a refused sign-in, or a step of the installation. Those are the ones worth
+    reading closely: a person who never got as far as having a name still leaves
+    the address they came from.</p>
+{{end}}
+
+</main>
+</body>
+</html>

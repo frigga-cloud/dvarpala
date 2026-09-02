@@ -11,40 +11,40 @@ type OAuthProvider struct {
 
 	// OAuth provider name (google, microsoft, github, gitlab)
 	Name string `gorm:"uniqueIndex;not null;size:50" json:"name"`
-	
+
 	// Display name for the provider in UI
 	DisplayName string `gorm:"size:100" json:"display_name"`
-	
+
 	// Client ID for OAuth application
 	ClientID string `gorm:"not null;size:255" json:"client_id"`
-	
+
 	// Client secret for OAuth application (encrypted)
 	ClientSecret string `gorm:"not null;size:500" json:"-"`
-	
+
 	// OAuth authorization URL
 	AuthURL string `gorm:"size:500" json:"auth_url"`
-	
-	// OAuth token exchange URL  
+
+	// OAuth token exchange URL
 	TokenURL string `gorm:"size:500" json:"token_url"`
-	
+
 	// User info API endpoint
 	UserInfoURL string `gorm:"size:500" json:"user_info_url"`
-	
+
 	// Redirect URL for OAuth callback
 	RedirectURL string `gorm:"not null;size:500" json:"redirect_url"`
-	
+
 	// OAuth scopes required
 	Scopes string `gorm:"size:255" json:"scopes"`
-	
+
 	// Whether this provider is currently enabled
 	IsEnabled bool `gorm:"default:true" json:"is_enabled"`
-	
+
 	// Provider-specific configuration (JSON)
 	Config string `gorm:"type:text" json:"config,omitempty"`
-	
+
 	// Order for displaying providers (lower = higher priority)
 	DisplayOrder int `gorm:"default:0" json:"display_order"`
-	
+
 	// When this provider was last used for authentication
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 }
@@ -96,6 +96,6 @@ func GetDefaultProviderConfig(providerType OAuthProviderType) map[string]string 
 			"display_name":  "GitLab",
 		},
 	}
-	
+
 	return configs[providerType]
 }
